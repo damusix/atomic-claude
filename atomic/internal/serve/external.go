@@ -96,7 +96,7 @@ func BuildExternalRegistry(root string, dateFn FileDateFn) []ExternalEntry {
 			return nil
 		}
 		if d.IsDir() {
-			if path != root && (shouldSkipDir(d.Name()) || ignores.skipDir(path)) {
+			if path != root && ignores.skipWalkDir(path) {
 				return filepath.SkipDir
 			}
 			return nil

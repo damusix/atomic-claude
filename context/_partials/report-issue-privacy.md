@@ -1,7 +1,5 @@
 {{- define "report-issue-privacy" -}}
-## Privacy: redact before posting
-
-A GitHub issue is public and permanent — treat the body as world-readable. Before drafting, scrub the material the user pasted or that you gathered from their repo:
+An issue may be public and outlive any edit; treat the body as world-readable whatever the tracker. Before drafting, scrub the material the user pasted or that you gathered from their repo:
 
 <constraints>
 
@@ -13,7 +11,7 @@ A GitHub issue is public and permanent — treat the body as world-readable. Bef
   - Client / company / project names not needed to reproduce → `<project>`.
 - **Keep the signal.** Exact error text, command names, `atomic` / artifact identifiers, versions, and stack frames stay verbatim — they are what makes the issue reproducible. Redact identity, not mechanics.
 - **When redaction would drop something load-bearing, ask** rather than guess or leak. Never invent a repro detail to replace a redacted one.
-- **Preview and confirm.** Before running `gh issue create`, print the full rendered issue — title, body, target repo, labels — and get an explicit go-ahead from the user. Do not post on inference. (The `--template` editor path already lets the user review before submitting; this gate covers the inline HEREDOC path.)
+- **Preview and confirm.** Before the issue is created, print the full rendered issue (title, body, target project, labels) and get an explicit go-ahead from the user. Do not post on inference.
 
 </constraints>
 {{- end -}}

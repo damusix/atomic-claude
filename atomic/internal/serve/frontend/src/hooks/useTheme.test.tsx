@@ -3,6 +3,7 @@ import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { registerRailCy } from "../components/rail/railCytoscapeStyle";
 import { events } from "../utils/events";
+import { __resetElkForTest, registerElkLayouts } from "../utils/mermaidElk";
 import { useTheme } from "./useTheme";
 
 const STORAGE_KEY = "atomic-theme";
@@ -25,6 +26,7 @@ describe("useTheme", () => {
   afterEach(() => {
     window.localStorage.clear();
     document.documentElement.removeAttribute("data-theme");
+    __resetElkForTest();
   });
 
   test("reads a persisted choice over the OS preference", () => {
@@ -82,6 +84,11 @@ describe("useTheme", () => {
       initialize: () => {},
       run: mermaidRun,
     };
+    // ELK importer stub; see mermaid.test.ts's elkAvailable comment.
+    __resetElkForTest();
+    void registerElkLayouts(() => {}, async () => {
+      throw new Error("404");
+    });
     const pre = document.createElement("pre");
     pre.className = "mermaid";
     pre.dataset.mermaidSrc = "graph TD; A-->B;";

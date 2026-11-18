@@ -74,6 +74,6 @@ Subagent transcripts live one directory deeper, at `<slug>/<uuid>/subagents/`, a
 Rows up to 16 MiB parse. A malformed row is skipped and counted in the stderr summary, never fatal; a row past 16 MiB ends that session's scan, counts as one unparsable row, and the session's remaining rows are lost.
 
 
-## What bites
+## What can go wrong
 
 Claude Code adds new wrapper tags around injected content from time to time. A tag the extractor does not recognize renders as a plain `user: <tag ...` line instead of being dropped or turned into a clean entry. A shard showing raw tags means the drop list in `extract.go` needs a new entry; file it with `/report-issue-with-atomic`.

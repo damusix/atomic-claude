@@ -16,12 +16,7 @@ func TestAPIStatus_Shape(t *testing.T) {
 		RealmRoot:    "/fake/realm",
 		IsRealmScope: true,
 		WikiStalenessSeam: func(realmRoot string) serve.WikiStaleResult {
-			return serve.WikiStaleResult{
-				StaleRepos:     []string{"alpha"},
-				StaleConcerns:  []string{"concern-x"},
-				StaleBuckets:   []string{"research"},
-				BucketDiffKeys: []string{"research"},
-			}
+			return serve.WikiStaleResult{StaleRepos: []string{"alpha"}}
 		},
 		IndexHealthSeam: func(realmRoot string) serve.IndexHealthResult {
 			return serve.IndexHealthResult{
@@ -48,11 +43,8 @@ func TestAPIStatus_Shape(t *testing.T) {
 	var got struct {
 		IsRealmScope bool `json:"isRealmScope"`
 		Wiki         struct {
-			StaleRepos     []string `json:"staleRepos"`
-			StaleConcerns  []string `json:"staleConcerns"`
-			StaleBuckets   []string `json:"staleBuckets"`
-			BucketDiffKeys []string `json:"bucketDiffKeys"`
-			AllFresh       bool     `json:"allFresh"`
+			StaleRepos []string `json:"staleRepos"`
+			AllFresh   bool     `json:"allFresh"`
 		} `json:"wiki"`
 		Index struct {
 			Severity     string   `json:"severity"`
@@ -74,6 +66,16 @@ func TestAPIStatus_Shape(t *testing.T) {
 	}
 	if got.Wiki.AllFresh {
 		t.Error("wiki.allFresh: got true, want false (stale items present)")
+	}
+
+	var raw struct {
+		Wiki map[string]json.RawMessage `json:"wiki"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("unmarshal raw: %v", err)
+	}
+	if len(raw.Wiki) != 2 {
+		t.Errorf("wiki carries only staleRepos and allFresh, got keys %v", raw.Wiki)
 	}
 	if got.Index.Severity != "WARN" {
 		t.Errorf("index.severity: got %q", got.Index.Severity)

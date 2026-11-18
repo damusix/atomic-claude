@@ -31,9 +31,9 @@ func buildRealmGraph(t *testing.T, files map[string]string) (string, *serve.Grap
 func TestWikilink_ResolvedBecomesHtmxLink(t *testing.T) {
 	page := "tickets/012-directus-editorial-cms.md"
 	root, g := buildRealmGraph(t, map[string]string{
-		"wiki/knowledge/directus-cicd.md":     "# Directus CI/CD\n",
-		"wiki/knowledge/directus-research.md": "# Directus research\n",
-		page:                                  "see [[directus-cicd]], [[directus-research]]\n",
+		"wiki/concerns/directus-cicd.md":     "# Directus CI/CD\n",
+		"wiki/concerns/directus-research.md": "# Directus research\n",
+		page:                                 "see [[directus-cicd]], [[directus-research]]\n",
 	})
 
 	html, _, err := serve.RenderMarkdownWithGraph(
@@ -43,8 +43,8 @@ func TestWikilink_ResolvedBecomesHtmxLink(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		`href="/page/wiki/knowledge/directus-cicd.md"`,
-		`href="/page/wiki/knowledge/directus-research.md"`,
+		`href="/page/wiki/concerns/directus-cicd.md"`,
+		`href="/page/wiki/concerns/directus-research.md"`,
 		`class="wikilink"`,
 	} {
 		if !strings.Contains(html, want) {
@@ -69,8 +69,8 @@ func TestWikilink_ResolvedBecomesHtmxLink(t *testing.T) {
 func TestWikilink_AliasUsesDisplayTextResolvesPage(t *testing.T) {
 	page := "tickets/x.md"
 	root, g := buildRealmGraph(t, map[string]string{
-		"wiki/knowledge/directus-cicd.md": "# CI/CD\n",
-		page:                              "[[directus-cicd|the CI/CD plan]]\n",
+		"wiki/concerns/directus-cicd.md": "# CI/CD\n",
+		page:                             "[[directus-cicd|the CI/CD plan]]\n",
 	})
 
 	html, _, err := serve.RenderMarkdownWithGraph(
@@ -78,7 +78,7 @@ func TestWikilink_AliasUsesDisplayTextResolvesPage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	if !strings.Contains(html, `href="/page/wiki/knowledge/directus-cicd.md"`) {
+	if !strings.Contains(html, `href="/page/wiki/concerns/directus-cicd.md"`) {
 		t.Errorf("alias wikilink must resolve to the page; got:\n%s", html)
 	}
 	if !strings.Contains(html, ">the CI/CD plan</a>") {
@@ -115,8 +115,8 @@ func TestWikilink_BrokenRendersNonNavigableSpan(t *testing.T) {
 func TestWikilink_InsideCodeSpanNotLinked(t *testing.T) {
 	page := "tickets/x.md"
 	root, g := buildRealmGraph(t, map[string]string{
-		"wiki/knowledge/directus-cicd.md": "# CI/CD\n",
-		page:                              "use `[[directus-cicd]]` syntax\n",
+		"wiki/concerns/directus-cicd.md": "# CI/CD\n",
+		page:                             "use `[[directus-cicd]]` syntax\n",
 	})
 
 	html, _, err := serve.RenderMarkdownWithGraph(
@@ -137,8 +137,8 @@ func TestWikilink_InsideCodeSpanNotLinked(t *testing.T) {
 func TestWikilink_FencedCodeBlockNotLinked(t *testing.T) {
 	page := "tickets/x.md"
 	root, g := buildRealmGraph(t, map[string]string{
-		"wiki/knowledge/directus-cicd.md": "# CI/CD\n",
-		page:                              "```\n[[directus-cicd]]\n```\n",
+		"wiki/concerns/directus-cicd.md": "# CI/CD\n",
+		page:                             "```\n[[directus-cicd]]\n```\n",
 	})
 
 	html, _, err := serve.RenderMarkdownWithGraph(
@@ -156,9 +156,9 @@ func TestWikilink_FencedCodeBlockNotLinked(t *testing.T) {
 func TestWikilink_MarkdownLinkStillWorks(t *testing.T) {
 	page := "wiki/repos/foo.md"
 	root, g := buildRealmGraph(t, map[string]string{
-		"wiki/concerns/x.md":              "# X\n",
-		"wiki/knowledge/directus-cicd.md": "# CI/CD\n",
-		page:                              "see [the concern](../concerns/x.md) and [[directus-cicd]]\n",
+		"wiki/concerns/x.md":             "# X\n",
+		"wiki/concerns/directus-cicd.md": "# CI/CD\n",
+		page:                             "see [the concern](../concerns/x.md) and [[directus-cicd]]\n",
 	})
 
 	html, _, err := serve.RenderMarkdownWithGraph(
@@ -169,7 +169,7 @@ func TestWikilink_MarkdownLinkStillWorks(t *testing.T) {
 	if !strings.Contains(html, `href="/page/wiki/concerns/x.md"`) {
 		t.Errorf("markdown link must still resolve; got:\n%s", html)
 	}
-	if !strings.Contains(html, `href="/page/wiki/knowledge/directus-cicd.md"`) {
+	if !strings.Contains(html, `href="/page/wiki/concerns/directus-cicd.md"`) {
 		t.Errorf("wikilink must resolve alongside the markdown link; got:\n%s", html)
 	}
 }

@@ -1,10 +1,9 @@
-// Package repoinit scaffolds the .claude/ layout and its ignore rules.
+// Package repoinit scaffolds the state-root layout and its ignore rules.
 // Idempotent and non-destructive: it only adds what is missing, never rewrites
 // or reorders existing content, and never commits.
 package repoinit
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/damusix/atomic-claude/atomic/internal/config"
+	"github.com/damusix/atomic-claude/atomic/internal/docs"
 )
 
 // ActionKind classifies what Init did for one guarantee.
@@ -20,13 +20,18 @@ type ActionKind string
 const (
 	ActionCreated ActionKind = "created"
 	ActionOK      ActionKind = "ok"
+	// ActionNegated: the rule is present, but a later rule un-ignores the path.
+	ActionNegated ActionKind = "negated"
+	// ActionTracked: the rule covers the path, but Git already tracks the file.
+	ActionTracked ActionKind = "tracked"
 )
 
-// Action is one guarantee's outcome: what it names and whether Init created it
-// or found it already satisfied.
+// Action is one guarantee's outcome: what it names, whether Init created it or
+// found it satisfied, and for a guarantee it cannot satisfy, what to do.
 type Action struct {
-	Name string
-	Kind ActionKind
+	Name   string
+	Kind   ActionKind
+	Detail string
 }
 
 // managedHeader is written only when the nested .gitignore is created fresh;
@@ -39,102 +44,110 @@ func managedHeader(harnessDirRel string) string {
 // against the pathname alone.
 const probeFile = ".repoinit-probe"
 
-// Init runs the layout guarantees against root, returning one Action each.
-// Safe to call repeatedly. Errors only on irrecoverable I/O failure or when
-// the repo config already declares a scope other than "repo".
-//
-// Passing "" as the root to config.ScratchpadDir et al. yields the
-// harness-relative subpath alone, which is what the ignore rules need.
-func Init(root string) ([]Action, error) {
-	actions := make([]Action, 0, 7)
-
-	scratchpadRel := config.ScratchpadDir("")
-	projectRel := config.ProjectDir("")
-	indexRel := config.IndexDir("")
-	worktreesRel := config.WorktreesDir("")
-	harnessDirRel := filepath.Dir(scratchpadRel)
-	nestedGitignoreRel := filepath.Join(harnessDirRel, ".gitignore")
-	header := managedHeader(filepath.ToSlash(harnessDirRel))
-
-	a, err := ensureDir(root, scratchpadRel, dirName(scratchpadRel))
+// Init runs the layout guarantees against the repository root, one Action each.
+// A state root outside it gets no ignore rule; claudeEnrolled adds Claude's.
+func Init(root string, claudeEnrolled bool) ([]Action, error) {
+	state, err := config.RepositoryStateDir(root)
 	if err != nil {
 		return nil, err
 	}
-	actions = append(actions, a)
+	stateRel, inside := config.RepoRelative(root, state)
 
-	a, err = ensureDir(root, projectRel, dirName(projectRel))
-	if err != nil {
-		return nil, err
+	scratchpad := config.ScratchpadDir(root)
+	var actions []Action
+	for _, dir := range []string{scratchpad, config.ProjectDir(root)} {
+		a, err := ensureDir(dir, dirName(label(root, dir)))
+		if err != nil {
+			return nil, err
+		}
+		actions = append(actions, a)
 	}
-	actions = append(actions, a)
 
-	a, err = ensureIgnored(root, ignoreGuarantee{
-		probeDirRel:   scratchpadRel,
-		ignoreFileRel: nestedGitignoreRel,
-		ruleLine:      "/.scratchpad/",
-		name:          dirName(scratchpadRel) + " ignored",
-		header:        header,
-	})
-	if err != nil {
-		return nil, err
+	var guarantees []ignoreGuarantee
+	stateRule := func(dir, rule string) ignoreGuarantee {
+		rel := label(root, dir)
+		return ignoreGuarantee{
+			probeRel:      filepath.Join(rel, probeFile),
+			ignoreFileRel: filepath.Join(stateRel, ".gitignore"),
+			ruleLine:      rule,
+			name:          dirName(rel) + " ignored",
+			header:        managedHeader(filepath.ToSlash(stateRel)),
+		}
 	}
-	actions = append(actions, a)
-
-	a, err = ensureIgnored(root, ignoreGuarantee{
-		probeDirRel:   indexRel,
-		ignoreFileRel: nestedGitignoreRel,
-		ruleLine:      "/.atomic-index/",
-		name:          dirName(indexRel) + " ignored",
-		header:        header,
-	})
-	if err != nil {
-		return nil, err
+	if inside {
+		docSurfaces := label(root, docs.CachePath(root))
+		guarantees = append(guarantees,
+			stateRule(scratchpad, "/.scratchpad/"),
+			stateRule(config.IndexDir(root), "/.atomic-index/"),
+			ignoreGuarantee{
+				probeRel:      docSurfaces,
+				ignoreFileRel: filepath.Join(stateRel, ".gitignore"),
+				ruleLine:      config.DocSurfacesIgnoreRule,
+				name:          filepath.ToSlash(docSurfaces) + " ignored",
+				header:        managedHeader(filepath.ToSlash(stateRel)),
+				trackable:     true,
+			})
 	}
-	actions = append(actions, a)
-
-	a, err = ensureIgnored(root, ignoreGuarantee{
-		probeDirRel:   "tmp",
+	guarantees = append(guarantees, ignoreGuarantee{
+		probeRel:      filepath.Join("tmp", probeFile),
 		ignoreFileRel: ".gitignore",
 		ruleLine:      "tmp/",
 		name:          "tmp/ ignored",
 	})
+	if inside {
+		guarantees = append(guarantees,
+			stateRule(filepath.Join(state, "worktrees"), "/worktrees/"))
+	}
+	const claude = ".claude"
+	if claudeDir := filepath.Join(root, claude); state != claudeDir && (claudeEnrolled || isDir(claudeDir)) {
+		guarantees = append(guarantees, ignoreGuarantee{
+			probeRel:      filepath.Join(claude, "worktrees", probeFile),
+			ignoreFileRel: filepath.Join(claude, ".gitignore"),
+			ruleLine:      "/worktrees/",
+			name:          claude + "/worktrees/ ignored",
+			header:        managedHeader(claude),
+		})
+	}
+	for _, g := range guarantees {
+		a, err := ensureIgnored(root, g)
+		if err != nil {
+			return nil, err
+		}
+		actions = append(actions, a)
+	}
+
+	a, err := ensureScopeMarker(root)
 	if err != nil {
 		return nil, err
 	}
-	actions = append(actions, a)
+	return append(actions, a), nil
+}
 
-	a, err = ensureIgnored(root, ignoreGuarantee{
-		probeDirRel:   worktreesRel,
-		ignoreFileRel: nestedGitignoreRel,
-		ruleLine:      "/worktrees/",
-		name:          dirName(worktreesRel) + " ignored",
-		header:        header,
-	})
-	if err != nil {
-		return nil, err
+// label is the repository-relative spelling of abs, or abs itself outside root.
+func label(root, abs string) string {
+	if rel, ok := config.RepoRelative(root, abs); ok {
+		return rel
 	}
-	actions = append(actions, a)
+	return abs
+}
 
-	a, err = ensureScopeMarker(root)
-	if err != nil {
-		return nil, err
-	}
-	actions = append(actions, a)
-
-	return actions, nil
+func isDir(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }
 
 // ensureScopeMarker declares root's scope as "repo". A file already declaring
 // a different scope is an error, never a rewrite.
 func ensureScopeMarker(root string) (Action, error) {
-	name := filepath.ToSlash(config.RepoConfigPath("")) + ` scope="repo"`
+	path := filepath.ToSlash(label(root, config.RepoConfigPath(root)))
+	name := path + ` scope="repo"`
 
 	outcome, err := config.EnsureScopeMarker(root, "repo")
 	if err != nil {
 		return Action{}, fmt.Errorf("repoinit: scope marker: %w", err)
 	}
 	if outcome == config.ScopeMarkerConflict {
-		return Action{}, fmt.Errorf("repoinit: %s already declares a different scope — refusing to overwrite it", filepath.ToSlash(config.RepoConfigPath("")))
+		return Action{}, fmt.Errorf("repoinit: %s already declares a different scope — refusing to overwrite it", path)
 	}
 
 	kind := ActionOK
@@ -148,64 +161,65 @@ func dirName(rel string) string {
 	return filepath.ToSlash(rel) + "/"
 }
 
-func ensureDir(root, dirRel, name string) (Action, error) {
-	full := filepath.Join(root, dirRel)
-	if info, err := os.Stat(full); err == nil && info.IsDir() {
+func ensureDir(full, name string) (Action, error) {
+	if isDir(full) {
 		return Action{Name: name, Kind: ActionOK}, nil
 	}
 	if err := os.MkdirAll(full, 0755); err != nil {
-		return Action{}, fmt.Errorf("repoinit: create %s: %w", dirRel, err)
+		return Action{}, fmt.Errorf("repoinit: create %s: %w", full, err)
 	}
 	return Action{Name: name, Kind: ActionCreated}, nil
 }
 
 // ignoreGuarantee describes one "is X ignored, else append a rule" guarantee.
 type ignoreGuarantee struct {
-	probeDirRel   string
+	probeRel      string
 	ignoreFileRel string
 	ruleLine      string
 	name          string
 	header        string // written only when ignoreFileRel is created fresh
+	trackable     bool   // probeRel is a real file Git may already track
 }
 
 // ensureIgnored asks git whether the effect is already in place, degrading to a
 // literal line scan, and appends the managed rule only when it is not.
 func ensureIgnored(root string, g ignoreGuarantee) (Action, error) {
-	probe := filepath.Join(g.probeDirRel, probeFile)
 	ignoreFile := filepath.Join(root, g.ignoreFileRel)
 
-	ignored, determined := isIgnoredByGit(root, probe)
+	ignored, determined := config.GitCheckIgnore(root, g.probeRel)
 	if !determined {
 		ignored = ignoreFileHasLine(ignoreFile, g.ruleLine)
 	}
-	if ignored {
-		return Action{Name: g.name, Kind: ActionOK}, nil
+	kind := ActionOK
+	if !ignored {
+		wrote, err := config.AppendIgnoreRuleWithHeader(ignoreFile, g.ruleLine, g.header)
+		if err != nil {
+			return Action{}, fmt.Errorf("repoinit: append %q to %s: %w", g.ruleLine, g.ignoreFileRel, err)
+		}
+		if !wrote {
+			return Action{Name: g.name, Kind: ActionNegated,
+				Detail: fmt.Sprintf("%s already holds %s, but a later rule negates it", filepath.ToSlash(g.ignoreFileRel), g.ruleLine)}, nil
+		}
+		kind = ActionCreated
 	}
-
-	if err := appendRule(ignoreFile, g.ruleLine, g.header); err != nil {
-		return Action{}, fmt.Errorf("repoinit: append %q to %s: %w", g.ruleLine, g.ignoreFileRel, err)
+	if g.trackable && isTrackedByGit(root, g.probeRel) {
+		path := filepath.ToSlash(g.probeRel)
+		return Action{Name: g.name, Kind: ActionTracked,
+			Detail: fmt.Sprintf("git still tracks %s; run `git rm --cached %s`", path, path)}, nil
 	}
-	return Action{Name: g.name, Kind: ActionCreated}, nil
+	return Action{Name: g.name, Kind: kind}, nil
 }
 
-// isIgnoredByGit reports determined=false when git cannot answer at all (no
-// binary, or root is not a work tree), leaving the caller to degrade.
-func isIgnoredByGit(root, probe string) (ignored bool, determined bool) {
-	cmd := exec.Command("git", "check-ignore", "-q", probe)
+// isTrackedByGit reports whether rel is in the index; any git failure reads as
+// untracked.
+func isTrackedByGit(root, rel string) bool {
+	cmd := exec.Command("git", "ls-files", "--", rel)
 	cmd.Dir = root
-	err := cmd.Run()
-	if err == nil {
-		return true, true
-	}
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
-		return false, true
-	}
-	// git not on PATH, or exit 128 ("not a git repository").
-	return false, false
+	out, err := cmd.Output()
+	return err == nil && len(strings.TrimSpace(string(out))) > 0
 }
 
-// ignoreFileHasLine is the degraded fallback for isIgnoredByGit: an exact-line
+// ignoreFileHasLine is the degraded fallback for config.GitCheckIgnore: an exact-line
 // match, so it cannot see rules that only match by pattern.
 func ignoreFileHasLine(path, ruleLine string) bool {
 	data, err := os.ReadFile(path)
@@ -219,34 +233,4 @@ func ignoreFileHasLine(path, ruleLine string) bool {
 		}
 	}
 	return false
-}
-
-// appendRule preserves every existing byte, inserting a newline first when the
-// file does not end in one.
-func appendRule(path, ruleLine, header string) error {
-	existing, err := os.ReadFile(path)
-	fileExists := err == nil
-	if err != nil && !os.IsNotExist(err) {
-		return err
-	}
-
-	var buf strings.Builder
-	switch {
-	case !fileExists:
-		if header != "" {
-			buf.WriteString(header)
-		}
-	case len(existing) > 0:
-		buf.Write(existing)
-		if existing[len(existing)-1] != '\n' {
-			buf.WriteByte('\n')
-		}
-	}
-	buf.WriteString(ruleLine)
-	buf.WriteByte('\n')
-
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return err
-	}
-	return os.WriteFile(path, []byte(buf.String()), 0644)
 }

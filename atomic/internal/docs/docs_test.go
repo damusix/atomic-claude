@@ -53,7 +53,7 @@ This fourth section should not appear.
 		t.Fatalf("Scan: %v", err)
 	}
 
-	cachePath := filepath.Join(root, ".claude/project/doc-surfaces.md")
+	cachePath := filepath.Join(config.ProjectDir(root), "doc-surfaces.md")
 	data, err := os.ReadFile(cachePath)
 	if err != nil {
 		t.Fatalf("read cache: %v", err)
@@ -94,7 +94,7 @@ This file is excluded.
 		t.Fatalf("Scan: %v", err)
 	}
 
-	cachePath := filepath.Join(root, ".claude/project/doc-surfaces.md")
+	cachePath := filepath.Join(config.ProjectDir(root), "doc-surfaces.md")
 	data, err := os.ReadFile(cachePath)
 	if err != nil {
 		t.Fatalf("read cache: %v", err)
@@ -128,7 +128,7 @@ A simple overview.
 		t.Fatalf("ScanWithOptions: %v", err)
 	}
 
-	cachePath := filepath.Join(root, ".claude/project/doc-surfaces.md")
+	cachePath := filepath.Join(config.ProjectDir(root), "doc-surfaces.md")
 	data, err := os.ReadFile(cachePath)
 	if err != nil {
 		t.Fatalf("read cache: %v", err)
@@ -150,7 +150,7 @@ func TestScan_NoDocs(t *testing.T) {
 		t.Fatalf("Scan on empty repo: %v", err)
 	}
 
-	cachePath := filepath.Join(root, ".claude/project/doc-surfaces.md")
+	cachePath := filepath.Join(config.ProjectDir(root), "doc-surfaces.md")
 	_, err := os.ReadFile(cachePath)
 	if err != nil {
 		t.Fatalf("cache file should exist even with no docs: %v", err)
@@ -169,7 +169,7 @@ func TestScan_GoldenFixtures(t *testing.T) {
 		t.Fatalf("Scan: %v", err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(root, ".claude/project/doc-surfaces.md"))
+	data, err := os.ReadFile(filepath.Join(config.ProjectDir(root), "doc-surfaces.md"))
 	if err != nil {
 		t.Fatalf("read cache: %v", err)
 	}
@@ -279,11 +279,8 @@ func TestStale_MissingCache(t *testing.T) {
 	}
 }
 
-// The cache path follows the resolved harness dir, not a hardcoded .claude/.
+// The cache path follows the pinned state segment, not the built-in default.
 func TestScan_HarnessAware(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".pi")
-	defer restore()
-
 	root := makeDocRepo(t, map[string]string{
 		"docs/guide.md": `# Getting Started
 
@@ -292,6 +289,10 @@ func TestScan_HarnessAware(t *testing.T) {
 Follow these steps to install.
 `,
 	})
+	builtinProjectDir := config.ProjectDir(root)
+
+	restore := config.SetStateDirForTest(".pi")
+	defer restore()
 
 	if err := docs.Scan(root); err != nil {
 		t.Fatalf("Scan: %v", err)
@@ -300,13 +301,13 @@ Follow these steps to install.
 	cachePath := filepath.Join(root, ".pi/project/doc-surfaces.md")
 	data, err := os.ReadFile(cachePath)
 	if err != nil {
-		t.Fatalf("read cache under .pi harness dir: %v", err)
+		t.Fatalf("read cache with the state segment pinned to .pi: %v", err)
 	}
 	if !strings.Contains(string(data), "Getting Started") {
 		t.Errorf("expected H1 'Getting Started' in output:\n%s", string(data))
 	}
 
-	if _, err := os.Stat(filepath.Join(root, ".claude/project/doc-surfaces.md")); err == nil {
-		t.Error("cache must not be written under the default .claude harness dir when harness.dir=.pi")
+	if _, err := os.Stat(filepath.Join(builtinProjectDir, "doc-surfaces.md")); err == nil {
+		t.Error("cache must not be written under the built-in state dir when the state segment is pinned to .pi")
 	}
 }

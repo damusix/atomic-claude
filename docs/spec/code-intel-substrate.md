@@ -9,7 +9,7 @@ correction, concurrency model, §atomic CLI integration).
 **Depends on:** nothing — this is the foundation. **Blocks:** every other part.
 
 Brand bindings (from the umbrella): commands `atomic code <verb>`; data dir
-`<projectRoot>/.claude/.atomic-index/`; SQLite file `atomic.db`; MCP prefix
+`<state-root>/.atomic-index/` (`.atomic` by default); SQLite file `atomic.db`; MCP prefix
 `atomic_code_*`. Never emit the reference implementation's product name.
 
 ## Scope
@@ -111,6 +111,16 @@ consumer. The durable contract is the runner + ledger, not the old version numbe
 **Superseded:** prior CP4 contract — "`schema_versions`, forward-only runner,
 v2–v4; old-schema DB migrates to v4" (a replay of the reference's migration
 history).
+
+### 2026-11-11 — State root defaults to .atomic
+
+**What changed:** The brand-binding data dir now reads
+`<state-root>/.atomic-index/`, with the state root `.atomic` by default.
+
+**Why:** `docs/spec/omp-plugin-compatibility.md` moves repository state to the
+`.atomic` default, with a resolution ladder and `atomic state migrate`.
+
+**Superseded:** the data dir was `<projectRoot>/.claude/.atomic-index/`.
 
 ## Implementation log
 

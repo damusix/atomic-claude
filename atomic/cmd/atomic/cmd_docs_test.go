@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/docs"
 )
 
@@ -25,7 +26,7 @@ func TestRunDocsScanDispatch(t *testing.T) {
 		t.Fatalf("docsAction(scan) returned exit code %d, want 0", code)
 	}
 
-	cachePath := filepath.Join(root, ".claude", "project", "doc-surfaces.md")
+	cachePath := filepath.Join(config.ProjectDir(root), "doc-surfaces.md")
 	data, err := os.ReadFile(cachePath)
 	if err != nil {
 		t.Fatalf("cache file not written by docsAction(scan): %v", err)

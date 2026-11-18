@@ -1,0 +1,75 @@
+- 2026-05-22 nits-design-and-decide-on-f-2 — "Design and decide on `atomic doctor` CLI subcommand" — *(closed 2026-05-17 — dbe2a53)*
+- 2026-05-30 renumber-decimal-sections — "Remove decimal section numbering in skills and commands" — *(closed 2026-05-30)*
+- 2026-06-07 corpus-fastify-clone — "Fix rw-fastify corpus clone + validate fastify resolver" — *(closed 2026-06-07)*
+- 2026-06-07 sql-language-support — "Add SQL tree-sitter language support" — *(closed 2026-06-07)*
+- 2026-06-07 atomic-improve-spec-1 — "Write docs/spec/atomic-improve.md" — *(closed 2026-06-07)*
+- 2026-06-07 gather-evidence-spec-1 — "Write docs/spec/gather-evidence.md" — *(closed 2026-06-07)*
+- 2026-06-07 nits-design-and-decide-on-f-3 — "Design and decide on `atomic validate` CLI subcommand" — *(closed 2026-06-07)*
+- 2026-06-07 artifact-templates-f-4 — "Orphan error message hardcodes commands/ path prefix" — *(closed 2026-06-07)*
+- 2026-06-07 nits-spec-the-post-merge-f-4 — "Spec the post-merge / post-squash signals-refresh integration" — *(closed 2026-06-07)*
+- 2026-06-07 atomic-style-tree-ascii — "Add tree + ASCII diagram format to atomic output style" — *(closed 2026-06-07)*
+- 2026-06-07 atomic-update-doctor-f-1 — "`Resolved()` bool default heuristic piggybacks on intensity sentinel" — *(closed 2026-06-07)*
+- 2026-06-08 validate-checkpoint-header-drift — "atomic validate expects 4-col Checkpoints header; /atomic-plan emits 6-col, so every canonical spec fails validate" — *(closed 2026-06-08)*
+- 2026-06-10 embedded-sql-extraction — "Extract SQL embedded in host-language string literals" — *(closed 2026-06-10)*
+- 2026-06-10 embedded-sql-node-id-collision — "offsetResult does not regenerate Node.ID (embedded DDL node collision)" — *(closed 2026-06-10)*
+- 2026-06-10 embedded-sql-multiline-offset-test — "Multiline-DDL offset test uses weak < guard" — *(closed 2026-06-10)*
+- 2026-06-10 embedded-sql-lineoffset-test-nodeid — "LineOffset test lacks node-ID stability assertion" — *(closed 2026-06-10)*
+- 2026-06-10 embedded-sql-dml-gate-tightening — "Tighten embedded DML gate to cut UPDATE-verb prose false positives" — *(closed 2026-06-10)*
+- 2026-06-10 embedded-sql-harness-empty-index — "Corpus harness vacuous-PASS on empty index" — *(closed 2026-06-10)*
+- 2026-06-10 embedded-sql-ext-list-dup — "Embedded SQL ext list duplicated across pipeline + orchestrator (parity risk)" — *(closed 2026-06-10)*
+- 2026-06-10 mdlink-nested-fence — "mdlink fence toggle mishandles nested/4-backtick fences" — *(closed 2026-06-10)*
+- 2026-06-10 embedded-sql-eval-tool-nits — "Embedded SQL eval-tool nits (unused path, silent skip, rough non-Go harvester)" — *(closed 2026-06-10)*
+- 2026-06-10 gorilla-multiline-methods — "Gorilla multi-line .Methods() emits method ANY" — *(closed 2026-06-10)*
+- 2026-06-10 autopilot-verify-omits-atomic-validate — "Verify gate omits atomic validate (autopilot shipped S5-failing spec)" — *(closed 2026-06-10)*
+- 2026-06-10 validate-artifact-cli-flag-lint — "Add atomic validate check: flag artifacts that cite atomic CLI verbs/flags the binary doesn't define (the --format-json class)" — *(closed 2026-06-10)*
+- 2026-06-18 artifact-templates-f-8 — "doc-impact-why has 1 consumer (commit-flow only)" — *(closed 2026-06-18)*
+- 2026-06-24 dbt-jinja-extraction — "Add dbt (Jinja+SQL) extraction" — *(closed 2026-06-24)*
+- 2026-06-24 snowflake-sql-extraction — "Add Snowflake SQL dialect extraction" — *(closed 2026-06-24)*
+- 2026-06-24 artifact-templates-f-7 — "worktree-cleanup-prompt has 1 consumer (merge-flow only)" — *(closed 2026-06-24)*
+- 2026-06-24 hooks-tests-read-real-home — "hooks tests read real HOME — user's <wikis> block leaks into empty-output expectations" — *(closed 2026-06-24)*
+- 2026-06-24 artifact-templates-f-2 — "Renderer success message on stderr (matches bundle-mirror)" — *(closed 2026-06-24)*
+- 2026-06-24 atomic-doctor-f-1 — "`bundlemirror.Run` double-reads files via path reconstruction" — *(closed 2026-06-24)*
+- 2026-06-24 followup-hardening-f-4 — "Vue/Svelte node-ID staleness (inline contentLineOffset, no ID regen)" — *(closed 2026-06-24)*
+- 2026-06-24 signals-router-f-2 — "Double file reads across assembleBody" — *(closed 2026-06-24)*
+- 2026-06-24 signals-router-f-4 — "ScanWithOptions mutates caller-passed opts pointer" — *(closed 2026-06-24)*
+- 2026-06-24 atomic-doctor-f-3 — "Repair seam globals are exported `Set*` mutators" — *(closed 2026-06-24)*
+- 2026-06-24 atomic-doctor-f-4 — "`defaultManifestRepair` does not stream `make` output" — *(closed 2026-06-24)*
+- 2026-06-24 doctor-verbose-f-2 — "FixApplied/FixSummary render but no repair path populates them" — *(closed 2026-06-24)*
+- 2026-06-24 nits-encode-skill-trigger-boundary-f-1 — "Encode skill trigger boundary in atomic-tdd and atomic-debug descriptions" — *(closed 2026-06-24)*
+- 2026-06-24 atomic-doctor-f-2 — "`gitToplevel` called 3× per doctor run" — *(closed 2026-06-24)*
+- 2026-06-24 doctor-verbose-f-1 — "manifest verbose Findings: only drifted: prefix is tested" — *(closed 2026-06-24)*
+- 2026-06-24 install-output-style-f-5 — "`defaultRunConfirm` huh-abort mapping is test-dead" — *(closed 2026-06-24)*
+- 2026-06-24 install-output-style-f-1 — "`prompt.Confirm` default-value plumbing is untested" — *(closed 2026-06-24)*
+- 2026-06-25 tsql-lineage-gaps — "Close T-SQL lineage gaps in standalone SQL extractor" — *(closed 2026-06-25)*
+- 2026-07-16 doctor-spec-missing-migrate-row — "atomic-doctor spec: Check categories table missing category 12 (migrate) row" — *(closed 2026-07-16)*
+- 2026-07-16 atomic-setup-prerelocation-paths — "setup-wiki audit still checks pre-relocation signals paths" — *(closed 2026-07-16)*
+- 2026-07-25 elixir-language-support — "Add Elixir tree-sitter language support" — *(closed 2026-07-25)*
+- 2026-07-25 erlang-language-support — "Add Erlang tree-sitter language support" — *(closed 2026-07-25)*
+- 2026-07-25 phoenix-route-resolver — "Wire Phoenix route resolver (after Elixir support)" — *(closed 2026-07-25)*
+- 2026-07-25 page-realm-changed-linux-flake — "Page 'refetches on realm.changed (cap exceeded)' flakes 10-20% on Linux" — *(closed 2026-07-25)*
+- 2026-07-25 serve-pipe-escaping — "Serve domain one-liner has unescaped pipes (mis-renders table)" — *(closed 2026-07-25)*
+- 2026-07-25 signals-stale-repo-scope-gap — "atomic signals stale / wiki stale: no repo-scope docs/wiki/ staleness check" — *(closed 2026-07-25)*
+- 2026-07-25 doctor-config-test-reads-real-home — "TestRepairPlan_configWARN_fixable reads the real ~/.atomic config" — *(closed 2026-07-25)*
+- 2026-07-26 cli-repo-flag-never-parses — "Global --repo flag never parses on any verb (DisableFlagParsing)" — *(closed 2026-07-26)*
+- 2026-07-26 dev-install-version-fails-doctor — "Dev-build install writes install.version='dev', which fails doctor config check" — *(closed 2026-07-26)*
+- 2026-07-26 scratchpad-deleted-by-test — "A go test deletes .claude/.scratchpad/<today>-* against the real repo" — *(closed 2026-07-26)*
+- 2026-07-26 install-output-style-f-2 — "huh PointerAccessor read-timing risk on huh upgrade" — *(closed 2026-07-26)*
+- 2026-07-29 bus-member-naming-convention — "Bus member naming: position-derived names once scope markers land" — *(closed 2026-07-29)*
+- 2026-08-21 serve-plans-page-f6-picker-test-flake — "VersionPicker type-ahead test flakes under full-suite load" — *(closed 2026-08-21)*
+- 2026-10-19 wiki-fingerprint-legacy-signals-path — "Indexed-member fingerprint probes pre-relocation signals.md, silently falls back to HEAD" — *(closed 2026-10-19)*
+- 2026-10-19 atomic-validate-inspects-zero-files — "atomic validate always prints \"0 PASS\" — reads as nothing-inspected" — PASS now counts inspected files with no WARN or FAIL, per group and in the aggregate
+- 2026-10-19 validate-bare-skips-spec-rules — "Bare atomic validate exits 0 while validate spec finds S5 FAILs" — bare validate already runs the S-rules over docs/spec/*.md; a test now pins it
+- 2026-10-20 code-web-explorer — "Serve an htmx web UI to explore the atomic code index (DB schema + code graph)" — Done: atomic serve ships SchemaView and the Graph pages.
+- 2026-10-20 codeintel-bulk-wasm-walk — "Bulk in-WASM tree walk (deferred perf — not a bottleneck)" — Measured: extraction is not the bottleneck. Deferred indefinitely; issue #71 closed.
+- 2026-10-20 measure-subagent-loop-token-cost — "Measure token cost of the subagent implement-review loop" — Not pursuing: legibility outweighs token cost.
+- 2026-10-20 codeintel-dart-grammar-wall — "Dart call extraction blocked by grammar (needs grammar upgrade)" — Tracked by issue #72.
+- 2026-10-20 codeintel-fabric-native-impl — "React Native fabric-native-impl synthesis (cross-language, hard)" — Tracked by issue #73.
+- 2026-10-20 codeintel-go-grpc-impl — "Go gRPC stub-impl synthesis (needs Go interface extraction)" — Tracked by issue #74.
+- 2026-10-20 code-graph-hub-drag-unverified — "Code-graph drag-overlap unverified for max-degree hub-on-hub drags" — Accepted gap in a local gate script.
+- 2026-10-20 commit-escalation-early-stop — "/commit pr and squash merge stop before the next path" — Fixed in #313: a no-op push or squash step no longer ends the verb.
+- 2026-10-20 a1-unknown-verb-path-silent-pass — "A1 lint silently passes citations with unknown verb paths" — Fixed in #311: a cited verb path that is not a command now FAILs.
+- 2026-10-20 retro-extract-f-1 — "atomic validate artifacts skips fenced blocks indented under a list item" — Fixed in #311: fenced blocks indented under list items are scanned.
+- 2026-10-20 bus-daemon-room-name-validation — "Bus daemon accepts path-shaped room names (Hub.Join length-check only)" — Already fixed: validRoomName guards the daemon and getOrCreateRoom.
+- 2026-10-20 bus-truncated-field-never-set — "Envelope.truncated is declared but never set" — Not worth a ProtocolVersion bump; the doc row is corrected and the field is harmless.
+- 2026-10-20 realm-fanout-index-empty-db — "Realm-fanout atomic code index reports success but writes 0-byte member db" — Does not reproduce: realm indexes live at <realm>/.atomic/<key>.db by design. Remaining edges: a 0-byte member-local db shadows the realm db (realm/resolver.go), pending members are seeded exclude=true, and fan-out output never names the db path.
+- 2026-10-20 agent-config-effort-enum-stale — "agent-config.md effort enum stale (omits xhigh, lists int)" — Fixed: the effort row now lists low, medium, high, xhigh, max.

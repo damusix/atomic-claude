@@ -20,7 +20,7 @@ describe("railCytoscapeStyle", () => {
     const colors = graphTypeColors();
     const rules = railCytoscapeStyle("focus");
 
-    for (const type of ["page", "repo", "concern", "knowledge", "bucket", "external", "index", "domain"]) {
+    for (const type of ["page", "repo", "concern", "bucket", "external", "index", "domain"]) {
       const rule = rules.find((r) => r.selector === `node[type="${type}"]`);
       expect(rule).toBeDefined();
       const expectedFill = colors[type];

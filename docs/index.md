@@ -20,7 +20,7 @@ features:
       details: "Claude compiles a markdown wiki of your repo: framework, build and test commands, a map of what lives where. It reads that before your code, and ship commands keep it current."
     - icon: "\uF542"
       title: A knowledge realm across repos
-      details: "A folder of repos mapped as one knowledge base: per-repo summaries, the concerns they share, and capture buckets that fold in loose notes, research, and tickets."
+      details: "A folder of repos mapped as one knowledge base: per-repo summaries, the concerns they share, and capture buckets of loose notes, research, and tickets whose docs are indexed."
     - icon: "\uF0E8"
       title: A code graph that speaks SQL
       details: "One command parses 31 languages into a symbol graph: definitions, callers, blast radius, no compiler needed. SQL is first-class, including Snowflake, dbt, and T-SQL lineage down to the column."
@@ -33,6 +33,9 @@ features:
     - icon: "\uF086"
       title: Channels for your agents
       details: "`atomic bus` gives concurrent Claude sessions named rooms. Every message carries an addressee list, so a room of agents notes the news instead of answering it forever."
+    - icon: "\uF5FD"
+      title: One corpus, three harnesses
+      details: "The same commands, agents, skills, and rules project natively into Claude Code, Oh My Pi, and Codex CLI. Enroll a harness explicitly; `atomic update` reconverges the ones already enrolled."
 ---
 
 <div class="vp-doc home-extra">

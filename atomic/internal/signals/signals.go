@@ -345,11 +345,12 @@ func LinkifyFilesWithBase(root, base string) error {
 	routerPath := filepath.Join(root, "docs", "wiki", "index.md")
 	domainDir := filepath.Join(root, "docs", "wiki")
 
-	// scan.md is the raw deterministic dump, CLAUDE.md is steering, and index.md
-	// is already covered by routerPath.
+	// scan.md is a raw dump, the AGENTS.md and CLAUDE.md loader pair is steering,
+	// and index.md is covered by routerPath.
 	skipNames := map[string]bool{
 		"scan.md":   true,
 		"CLAUDE.md": true,
+		"AGENTS.md": true,
 		"index.md":  true,
 	}
 

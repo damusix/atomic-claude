@@ -92,7 +92,6 @@ Grouped by capability. Atomic borrows visibly from both caveman and superpowers.
 |------------|:---:|:---:|:---:|
 | Project signal scanning | ✓ | — | — |
 | Artifact linting | ✓ | — | — |
-| Cron-backed reminders | ✓ | — | — |
 | CI observation | ✓ | — | — |
 | Stale git cleanup | ✓ | — | — |
 | Bootstrap a fresh repo | ✓ | — | — |
@@ -105,7 +104,7 @@ Grouped by capability. Atomic borrows visibly from both caveman and superpowers.
 ## Honest notes
 
 - **Atomic borrows visibly from both.** The compressed-output style descends from caveman. The skills-plus-agents split, TDD discipline, verification gate, and worktree workflow are superpowers territory.
-- **Atomic adds project-state awareness and a durable workflow.** Signals scanning, the `atomic` binary, reminders, CI watching, git cleanup, and the spec-to-ship loop with a follow-ups ledger are atomic-specific.
+- **Atomic adds project-state awareness and a durable workflow.** Signals scanning, the `atomic` binary, CI watching, git cleanup, and the spec-to-ship loop with a follow-ups ledger are atomic-specific.
 - **Atomic is more opinionated about explicit vs. implicit.** Superpowers leans on auto-firing skills (that is the design point). Atomic uses skills sparingly and pushes most behavior into explicit slash commands. Caveman is mixed: `/caveman` is a command but also auto-activates per session.
 
 Both caveman and superpowers are worth running on their own terms.

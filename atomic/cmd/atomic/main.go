@@ -5,7 +5,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/damusix/atomic-claude/atomic/internal/claudeinstall"
 	"github.com/damusix/atomic-claude/atomic/internal/cliusage"
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/version"
@@ -79,6 +78,10 @@ func buildRootCmd(repoOverride *string) *cobra.Command {
 		Short:         "Holistic coding-agent configuration CLI",
 		SilenceErrors: true,
 		SilenceUsage:  true,
+		// Refuses before any verb can resolve a path through the override.
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			return config.ValidateStateDirEnv()
+		},
 		Run: func(cmd *cobra.Command, args []string) {
 			_ = cmd.Help()
 			os.Exit(1)
@@ -124,13 +127,19 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.
 
 	rootCmd.AddCommand(buildSignalsCmd(repoOverride))
 
-	rootCmd.AddCommand(buildReminderCmd(repoOverride))
-
 	rootCmd.AddCommand(buildScratchpadCmd(repoOverride))
 
 	rootCmd.AddCommand(buildHooksCmd(repoOverride))
 
+	rootCmd.AddCommand(buildWorkflowCmd(repoOverride))
+
 	rootCmd.AddCommand(buildClaudeCmd())
+
+	rootCmd.AddCommand(buildInstallCmd())
+
+	rootCmd.AddCommand(buildHarnessCmd())
+
+	rootCmd.AddCommand(buildStateCmd(repoOverride))
 
 	rootCmd.AddCommand(buildDoctorCmd())
 
@@ -176,19 +185,3 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.
 // handler with its exit codes intact; each child prepends its own name so the
 // handler still receives [verb, ...rest]. Flags declared via cmd.Flags() are
 // for cliusage derivation only, never parsed by Cobra.
-
-// main is the composition root: internal/config cannot import
-// internal/claudeinstall (claudeinstall already imports config, so that would
-// cycle), so the wiring lives here, in the one package that imports both.
-func init() {
-	config.ApplyAgentsHook = func(home string) ([]string, int, error) {
-		// A custom `claude install --target <dir>` root is recorded nowhere the
-		// config command can read, so those installs report "no installed agents
-		// found" and the user re-runs install instead.
-		target, err := claudeinstall.ResolveTarget("~/.claude")
-		if err != nil {
-			return nil, 0, err
-		}
-		return claudeinstall.ReapplyAgents(target, home)
-	}
-}

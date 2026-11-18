@@ -8,9 +8,7 @@ import (
 
 func sets(member string) staleSets {
 	return staleSets{
-		Members:  map[string]bool{member: true},
-		Buckets:  map[string]bool{"raw": true},
-		Concerns: map[string]bool{},
+		Members: map[string]bool{member: true},
 	}
 }
 
@@ -26,7 +24,7 @@ func TestStalenessCache_ReusesWithinTTL(t *testing.T) {
 	}
 
 	got := c.get("/realm")
-	if !got.Members["alpha"] || !got.Buckets["raw"] {
+	if !got.Members["alpha"] {
 		t.Fatalf("first call lost the payload: %+v", got)
 	}
 
@@ -107,10 +105,9 @@ func TestStalenessCache_CallerCannotMutateCachedResult(t *testing.T) {
 
 	got := c.get("/realm")
 	got.Members["injected"] = true
-	got.Buckets["injected"] = true
 
 	again := c.get("/realm")
-	if again.Members["injected"] || again.Buckets["injected"] {
+	if again.Members["injected"] {
 		t.Fatalf("mutation leaked into the cache: %+v", again)
 	}
 }

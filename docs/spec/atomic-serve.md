@@ -6,8 +6,8 @@
 Ship `atomic serve` — a local HTTP server, read-only with respect to realm and repo
 content, that renders a wiki realm (and a bare repo, and a single member) as a navigable
 graph in the browser. Presentation only: every view wraps an engine that already exists
-(wiki link parser, wiki staleness, bucket diff, the code-intel realm resolver and query
-layer). No new analysis. CGO-free, no JS build step — assets vendored via `go:embed`.
+(wiki link parser, wiki membership drift, the bucket registry, the code-intel realm
+resolver and query layer). No new analysis. CGO-free, no JS build step — assets vendored via `go:embed`.
 
 **Bus chat exception.** `POST /api/bus/*` targets the bus daemon's own state domain, not
 realm or repo content — it is loopback-only regardless of `--host`. Full contract:
@@ -21,7 +21,7 @@ only what gets built.
 
 - **Cross-repo code edges.** Federation, not merging — a call from member A into member
   B stays unresolved. Serve renders what the per-member graphs contain.
-- **Write operations.** No editing the wiki, re-stamping, or re-indexing from the UI.
+- **Write operations.** No editing the wiki or re-indexing from the UI.
   Serve observes; mutation stays in `/refresh-wiki`, `atomic code index`, `atomic wiki`.
 - **Remote exposure / auth.** localhost bind only. Not an API surface, no auth.
 - **A JS toolchain.** No npm, no SPA build, no bundler. Vendored UMD/IIFE JS + html/template.
@@ -61,9 +61,9 @@ only what gets built.
       and stripped from the rendered body, so it never renders as a spurious `<hr>` +
       heading. Its key/values are surfaced in the right rail (FE-SC2), not inline.
 - [ ] **SC5** — The left nav renders a collapsible tree grouped Realm / Repos / Concerns
-      / Knowledge / Buckets / External, built from `wiki.ReadScanMembers` + a disk walk of
-      `wiki/concerns`, `wiki/knowledge`, and the bucket registry. Stale and bucket-diff
-      badges render inline where the data exists.
+      / Buckets / External, built from `wiki.ReadScanMembers` + a disk walk of
+      `wiki/concerns` and the bucket registry. A membership-drift badge renders inline on
+      a drifted repo.
 - [ ] **SC6** — A new exported `mdlink.ExtractLinks(content string) []Link` returns both
       markdown links `[text](path)` and Obsidian wikilinks `[[page]]` / `[[page|alias]]`
       (fenced code spans excluded, matching the existing fence tracking). An angle-bracket
@@ -76,8 +76,8 @@ only what gets built.
 - [ ] **SC7** — An external-link registry page lists every outbound `http(s)` URL across
       the realm: URL, the source pages that cite it, and a first-seen date (file mtime
       fallback when git is unavailable). Reachable from the nav `External` group.
-- [ ] **SC8** — A realm-health front page renders the existing staleness report
-      (`wiki.Stale` / `CheckStaleness`: DRIFT / STALE / STALE bucket) plus aggregate
+- [ ] **SC8** — A realm-health front page renders the existing membership-drift report
+      (`wiki.Stale`: `DRIFT` lines) plus aggregate
       code-index health (the doctor check-11 realm aggregation: worst severity, naming
       only repos needing action) as badges. No new staleness computation.
 - [ ] **SC9** — Federated code search: `/code/search?q=…` resolves realm members via
@@ -97,9 +97,8 @@ only what gets built.
       mini-graph. The middle-pane graph mode hosts two views behind a nested **Docs |
       Code** control. **Docs** is the whole-realm system view, rendered by cosmos.gl, a
       separately vendored bundle (rendering contract: `docs/spec/cosmos-system-graph.md`).
-      `/graph` renders a global realm graph and a local depth-1–2 view from a node. Three
-      edge classes — md-link, wikilink, and fingerprint/provenance (dashed) — are drawn
-      distinctly. **Code** renders one repo's code-intel symbol graph (nodes + resolved
+      `/graph` renders a global realm graph and a local depth-1–2 view from a node. Two
+      edge classes — md-link and wikilink — are drawn distinctly. **Code** renders one repo's code-intel symbol graph (nodes + resolved
       `contains`/`calls`/`imports` edges from that repo's `atomic.db`), fetched from
       `GET /code/graph/data[?member=<prefix>]` and sharing the Docs view's cosmos.gl core
       (contract: `docs/spec/code-graph.md`). In realm scope, `GET /code/graph/members`
@@ -119,11 +118,6 @@ only what gets built.
       navigation. The prior behavior — tap on a system-graph node navigates away to the
       page view — is superseded. Clicking a node in the Code view opens the existing
       code-explorer node modal for that symbol, member-aware.
-- [ ] **SC12** — Provenance DAG walk: a new frontmatter reader extracts `reflects:` /
-      `sources:` from concern and knowledge pages; the concern → knowledge → bucket-file
-      chain is walkable; a stamp whose recorded fingerprint differs from the live content
-      hash flags the node and draws its edge red. Reuses `wiki` fingerprint resolution; no
-      re-stamping.
 - [ ] **SC13** — Artifact checklist complete: `serve` registered in
       `cliusage/cliusage.go` (flags `--port`, `--host`, `--open`); `CLAUDE.md` workflow + registry
       mention; `README.md` + `docs/reference/` updated; `/atomic-help` cli topic row +
@@ -148,6 +142,19 @@ control — the whole-realm system graph above, and a per-repo code-intel symbol
 sharing one cosmos.gl core (`graph-core.js`) with a docs profile (`system-graph.js`) and a
 code profile (`code-graph.js`); contract at `docs/spec/code-graph.md`.
 
+### Enumeration and state roots
+
+Every walker (nav, search, the link graph, the external-link registry, the snapshot, and folder listings) applies one rule set:
+
+- Skipped: dot directories, `node_modules`, `vendor`, `tmp`, and git-ignored directories that are not checkouts of their own.
+- Exempt from the dot rule: each visited repository's resolved state root, plus the directories on the path to it, and `.claude`. `.claude` stays because it holds Claude-native project markdown that wiki links cite: the capture-bucket skills `atomic wiki` writes, rules, and commands. Walkers do not follow directory symlinks, so the cards Claude loads through `.claude/rules/atomic` list once, from the state root.
+- A directory holding `.git` (a directory, or the file a linked worktree or submodule carries) is a checkout, walked under its own ignore rules. The exception is a second copy: a checkout that lies inside the tree of a checkout the walk already loaded and shares its git common dir (the gitdir, followed through a linked worktree's `commondir`). That holds for a worktree nested in the served root, including when the served root is itself a linked worktree. A submodule has its own common dir, so it is walked. Sibling realm members are never inside one another, so a member is walked even when it is a linked worktree of another member, whatever the walk order.
+
+State-root refusals (an ambiguous root, an unreadable selection record) never exit a running server:
+
+- A served root that refuses stops `atomic serve` at startup, before anything listens.
+- A visited checkout or realm member that refuses loses its plan bundles or self-index, with a warning, and the rest of the page renders.
+
 
 ## Checkpoints
 
@@ -166,14 +173,13 @@ JSON + React) changed, per the newer spec.
 |---|-----------|-------------|-------|----------|
 | 1 | **Server skeleton + scope + shell** — `serve` verb, cliusage entry, `main.go` dispatch; `internal/serve/` leaf pkg; `net/http` localhost server, `--port` (default 4500, `0`=free), `--open` (best-effort), SIGINT graceful shutdown, `/healthz`; scope via `realm.Resolve`; embedded htmx + CSS + html/template three-pane shell | `atomic/cmd/atomic/main.go`, `atomic/internal/cliusage/cliusage.go`, new `atomic/internal/serve/`, `realm.Resolve` (realm/resolver.go:86) | builder | SC1, SC2, SC3 |
 | 2 | **Markdown render + file view** — goldmark (GFM) + chroma HTML; `/page/*` renders a realm md file; vendored `mermaid.min.js` inits `.language-mermaid`; `file:line` → chroma-highlighted source anchored to line; path-traversal guard | `internal/serve/` (render, routes), vendored assets dir | builder | SC4 |
-| 3 | **Nav tree** — Realm/Repos/Concerns/Knowledge/Buckets/External groups from `wiki.ReadScanMembers` (scan_members.go:17) + disk walk of `wiki/concerns`,`wiki/knowledge` + bucket registry; collapsible htmx tree; inline stale/bucket badges where data present | `internal/serve/`, `wiki.ReadScanMembers`, `wiki.Member` | builder | SC5 |
+| 3 | **Nav tree** — Realm/Repos/Concerns/Buckets/External groups from `wiki.ReadScanMembers` (scan_members.go:17) + disk walk of `wiki/concerns` + bucket registry; collapsible htmx tree; inline membership-drift badges on repos | `internal/serve/`, `wiki.ReadScanMembers`, `wiki.Member` | builder | SC5 |
 | 4 | **Link graph + backlinks** — exported `mdlink.ExtractLinks(content) []Link` (md links + `[[wikilink]]`/`[[alias]]`, fence-aware) + wikilink→path resolution (nearest-then-alphabetical, ambiguity surfaced); realm node/edge graph; page view backlinks/outbound/orphan | `atomic/internal/mdlink/mdlink.go` (add ExtractLinks + Link type; reuse fence tracking), `internal/serve/` graph model | builder | SC6 |
 | 5 | **External-link registry** — collect every outbound http(s) URL realm-wide → page (URL, source pages, first-seen via git or mtime); nav External group links to it | `internal/serve/` (registry), reuse `mdlink.ExtractLinks` | surgeon | SC7 |
-| 6 | **Realm-health front page** — render `wiki.Stale`/`CheckStaleness` (stale.go:52, staleness.go:88) + aggregate code-index health (reuse doctor `checks_code_index.go` realm aggregation) as badges; bucket-diff counts | `internal/serve/`, `wiki.Stale`, `wiki.CheckStaleness`, `doctor/checks_code_index.go` | builder | SC8 |
+| 6 | **Realm-health front page** — render `wiki.Stale` membership drift + aggregate code-index health (reuse doctor `checks_code_index.go` realm aggregation) as badges | `internal/serve/`, `wiki.Stale`, `doctor/checks_code_index.go` | builder | SC8 |
 | 7 | **Federated code search** — `/code/search?q=` over `realm.Resolve` members; `engine.NewWithDBPath(memberPath, res.DBPath(key))` (engine.go:104) + `SearchNodes` (engine.go:451); `[key]`-grouped; cold member skipped+noted; `only`/`exclude` param; single-index in repo/member scope | `internal/serve/`, `engine` query layer, `realm` resolver | builder | SC9 |
 | 8 | **Per-repo Code Explorer + SQL schema** — repo Code tab: node detail (`GetNode` engine.go:418), callers/callees/impact (`Subgraph`, engine.go:615-631) as edge-kind chips, files (`GetFiles` engine.go:530); SQL schema view from `table`/`view`/`column` nodes + `references`/`writes` edges (types/types.go:122-157) | `internal/serve/`, `engine` query layer, `types` enums | builder | SC10 |
-| 9 | **Graph overlay** — vendor `cytoscape.min.js` via `go:embed` for the rail mini-graph; the middle-pane graph mode hosts the whole-realm system view (cosmos.gl, see `docs/spec/cosmos-system-graph.md`) and, behind a nested Docs\|Code control, a per-repo code-intel symbol graph (see `docs/spec/code-graph.md`); `/graph` global + local depth-1–2; 3 edge classes styled (md-link/wikilink/fingerprint-dashed); code graph is one repo at a time via the Docs\|Code control (realm member picker), never merged | `internal/serve/` (graph routes, JSON for the rail's cytoscape), `internal/serve/codegraph.go`, `internal/serve/code_graph_members.go`, `internal/serve/assets/` (cosmos.gl vendor + `graph-core.js` + `system-graph.js` + `code-graph.js`) | builder | SC11 |
-| 10 | **Provenance DAG** — frontmatter reader for `reflects:`/`sources:`; concern→knowledge→bucket-file walk; live-hash vs stamped mismatch → red edge + node flag; reuse `wiki` fingerprint resolution | `internal/serve/`, `wiki/stamp.go` resolution (resolveFingerprint:91), new frontmatter reader | builder | SC12 |
+| 9 | **Graph overlay** — vendor `cytoscape.min.js` via `go:embed` for the rail mini-graph; the middle-pane graph mode hosts the whole-realm system view (cosmos.gl, see `docs/spec/cosmos-system-graph.md`) and, behind a nested Docs\|Code control, a per-repo code-intel symbol graph (see `docs/spec/code-graph.md`); `/graph` global + local depth-1–2; 2 edge classes styled (md-link/wikilink); code graph is one repo at a time via the Docs\|Code control (realm member picker), never merged | `internal/serve/` (graph routes, JSON for the rail's cytoscape), `internal/serve/codegraph.go`, `internal/serve/code_graph_members.go`, `internal/serve/assets/` (cosmos.gl vendor + `graph-core.js` + `system-graph.js` + `code-graph.js`) | builder | SC11 |
 | 11 | **Artifact checklist + docs + parity** — cliusage flags; `CLAUDE.md` registry+workflow; `README.md`; `docs/reference/serve.md` (+ commands table); `/atomic-help` cli row + tour; `atomic validate artifacts`; `make render` + `make -C atomic bundle` clean; signals refresh | `cliusage.go`, `CLAUDE.md`, `README.md`, `docs/reference/`, `templates/commands/atomic-help.md`, `docs/reference/commands.md` | surgeon | SC13 |
 
 
@@ -267,7 +273,7 @@ grep. Canonical UI picture: design doc § "Frontend interaction model".
       When the focused page carries a YAML frontmatter block, the rail also shows a
       Properties slot (`#rail-props-content`) listing its key/values in **source order**
       (parsed via `frontmatter.ParseOrdered`); a page with no frontmatter shows no
-      Properties slot. List-valued keys (e.g. `sources:`) render as a comma-joined value.
+      Properties slot. List-valued keys (e.g. `tags:`) render as a comma-joined value.
 - [ ] **FE-SC3** — Graph mode: the `[page | system]` toggle swaps the middle pane into
       graph mode, which hosts two views behind a nested **Docs | Code** control. **Docs**
       is the whole-realm cosmos.gl graph (reusing the existing graph data); the right rail
@@ -298,7 +304,7 @@ grep. Canonical UI picture: design doc § "Frontend interaction model".
       terminal `end` event clears the loading indicator. The dialog and every other in-flight
       request show a spinner; an empty code index renders a clear "run `atomic code index`"
       note rather than a blank panel.
-- [ ] **FE-SC6** — Health is ambient: staleness / code-index signals render as dots/badges
+- [ ] **FE-SC6** — Health is ambient: membership-drift / code-index signals render as dots/badges
       on nav items and the breadcrumb, not as the front door. The old health dashboard
       survives only as a reachable `/status` page, not the landing.
 - [ ] **FE-SC7** — Parity holds: `make render` + `make -C atomic bundle` clean; the
@@ -357,7 +363,7 @@ None.
 
 | Risk | Likelihood | Mitigation |
 |------|-----------|-----------|
-| Vendored JS (~4.6 MB: mermaid 3.31, cosmos-graph.js 0.82, cytoscape 0.44) inflates the `atomic` binary | High (certain) | Accepted per design (graph is the point). Embed via `go:embed`; consider gzip-at-rest + serve decompressed only if binary size becomes a complaint. Documented, not silent. |
+| Embedded third-party JS (~9.8 MB: mermaid 3.57, mermaid's ELK layout 5.0 as split ES modules, cosmos-graph.js 0.82, cytoscape 0.44) inflates the `atomic` binary | High (certain) | Accepted per design (graph is the point; ELK gives diagrams orthogonal edges). Mermaid and its ELK layout are pinned frontend dependencies that `make frontend` copies and builds into the gitignored `dist/vendor/`; cosmos-graph.js and cytoscape are committed under `public/vendor/`. A diagram page fetches ~1.5 MB of the ELK chunks, the rest only sit in the binary. Embed via `go:embed`; consider gzip-at-rest + serve decompressed only if binary size becomes a complaint. Documented, not silent. |
 | Vendor script order wrong (`system-graph.js`/`code-graph.js` reference the global `Cosmos` that `cosmos-graph.js` exports, and both profiles depend on the shared `graph-core.js` mounting before them) → the mount throws a `ReferenceError` and the graph pane renders blank | Medium | `layout.html` loads `cytoscape.min.js` (rail), then `cosmos-graph.js`, then `graph-core.js`, then `system-graph.js`, then `code-graph.js`, in that order. `TestShellLoadsGraphScriptsInOrder` asserts the scripts are present and the removed ELK/cola artifacts are gone; it does not assert relative ordering, so verify the sequence manually on any script-tag reshuffle. The committed headless-Chromium gate harness (`scripts/graph-gates.mjs`; contract: `docs/spec/code-graph.md` SC3) runs mount/settle/drag/cache/hover gates against both the Docs and Code views and catches a load-order regression at the mount gate. |
 | `mdlink.ExtractLinks` diverges from `Linkify`'s fence handling → links matched inside code spans | Medium | CP4 reuses the existing fence-tracking internals rather than a fresh regex; test with fenced/inline-code fixtures. |
 | Run scope is large (11 checkpoints) — partial completion | High | Commit-per-green: each checkpoint lands committed and independently valuable. Foundation (CP1–6) is usable without the code/graph layers. Report remaining checkpoints honestly. |
@@ -367,6 +373,38 @@ None.
 
 
 ## Change log
+
+### 2026-11-12 — Enumeration rules and state-root refusals written down
+
+**What changed:** Approach gains "Enumeration and state roots". It settles that `.claude` stays exempt from the dot-directory skip beside the resolved state root, counts a linked worktree or submodule as a checkout, skips only a checkout nested inside a loaded checkout that shares its git common dir, and states that a refusing state root no longer exits a running server.
+
+**Why:** The state root moved to `.atomic` and became configurable, which left the `.claude` exemption unexplained. A realm member checked out as a linked worktree was neither walked nor listed. One ambiguous worktree or member exited the whole server through the path helpers' fatal backstop.
+
+**Superseded:** only a directory `.git` counted as a checkout, so every linked worktree was skipped.
+
+### 2026-10-21 — Mermaid and its ELK layout built from npm, not committed
+
+**What changed:** The embedded-JS risk row says where mermaid and the ELK layout come from: pinned dependencies (`mermaid@11.17.0`, `@mermaid-js/layout-elk@0.2.3`) that `build.ts` copies and builds into `dist/vendor/`. The served URLs and the binary footprint are unchanged.
+
+**Why:** Committed build output (~8.4 MB, 107 files) duplicated what the lockfile already pins, and upgrading meant hand-running a recorded command.
+
+**Superseded:** "Vendored JS (~9.8 MB ...) inflates the `atomic` binary", with every file committed under `public/vendor/`.
+
+### 2026-10-20 — Vendored footprint gains mermaid's ELK layout
+
+**What changed:** The vendored-JS risk row now counts `vendor/mermaid-layout-elk/` (`@mermaid-js/layout-elk@0.2.3`, ~5.0 MB of split ES modules) and mermaid 11.17.0 (3.57 MB), ~9.8 MB in total.
+
+**Why:** Diagrams in `atomic serve` take the docs site's look, including ELK's orthogonal edges. The package bundles its own copy of mermaid's internals, which is where the size comes from.
+
+**Superseded:** "~4.6 MB: mermaid 3.31, cosmos-graph.js 0.82, cytoscape 0.44".
+
+### 2026-10-18 — Removed: provenance DAG, knowledge nav, content staleness
+
+**What changed:** The nav groups drop Knowledge and badge only membership drift on repos; the health page and FE-SC6 show membership drift and code-index health; the graph draws md-link and wikilink edges only. SC12 and CP10 are gone; the remaining numbers are unchanged so existing cross-references still resolve.
+
+**Why:** Realm wikis no longer carry fingerprints or knowledge pages, so serve has no provenance, knowledge, or content staleness to show.
+
+**Removed:** the provenance DAG walk and its red drift edges, the Knowledge nav group and `wiki/knowledge` walk, bucket-diff badges and counts, and the `CheckStaleness` / `STALE` / `STALE bucket` health inputs. See `docs/spec/realm-wiki-drop-refresh.md`.
 
 ### 2026-09-18 — `ExtractLinks` unwraps angle-bracket destinations
 

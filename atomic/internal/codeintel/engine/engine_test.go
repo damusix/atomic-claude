@@ -64,19 +64,21 @@ func TestLifecycle_InitCreatesDB(t *testing.T) {
 		t.Fatal("IsInitialized should be true after Init")
 	}
 
-	dbPath := filepath.Join(dir, ".claude", ".atomic-index", "atomic.db")
+	dbPath := config.IndexDBPath(dir)
 	if _, err := os.Stat(dbPath); err != nil {
 		t.Fatalf("DB file not found at %s: %v", dbPath, err)
 	}
 }
 
-// The harness dir is configurable, so under ".pi" the db must land in
-// .pi/.atomic-index rather than the hardcoded .claude default.
+// The state segment is configurable, so under ".pi" the db must land in
+// .pi/.atomic-index rather than the built-in default.
 func TestLifecycle_InitCreatesDB_UnderNonDefaultHarnessDir(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".pi")
+	dir := t.TempDir()
+	defaultStateDir := filepath.Dir(config.IndexDir(dir))
+
+	restore := config.SetStateDirForTest(".pi")
 	defer restore()
 
-	dir := t.TempDir()
 	e, err := engine.New(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -95,15 +97,15 @@ func TestLifecycle_InitCreatesDB_UnderNonDefaultHarnessDir(t *testing.T) {
 		t.Errorf("IndexPath() = %q, want %q", got, dbPath)
 	}
 
-	if _, err := os.Stat(filepath.Join(dir, ".claude")); !os.IsNotExist(err) {
-		t.Errorf(".claude should not exist under a .pi harness, stat err=%v", err)
+	if _, err := os.Stat(defaultStateDir); !os.IsNotExist(err) {
+		t.Errorf("%s should not exist under a .pi harness, stat err=%v", defaultStateDir, err)
 	}
 }
 
 // The package-level IndexPath, which doctor's code-index check calls, must
 // resolve through the harness dir too.
 func TestIndexPath_UnderNonDefaultHarnessDir(t *testing.T) {
-	restore := config.SetHarnessDirForTest(".pi")
+	restore := config.SetStateDirForTest(".pi")
 	defer restore()
 
 	got := engine.IndexPath("/repo")
@@ -145,7 +147,7 @@ func TestLifecycle_Uninitialize(t *testing.T) {
 		t.Fatal("expected not initialized after Uninitialize")
 	}
 
-	indexDir := filepath.Join(dir, ".claude", ".atomic-index")
+	indexDir := config.IndexDir(dir)
 	if _, err := os.Stat(indexDir); !os.IsNotExist(err) {
 		t.Fatalf("index dir should be removed after Uninitialize, err=%v", err)
 	}
@@ -373,7 +375,7 @@ func TestNewWithDBPath_ExplicitPathWritesCorrectLocation(t *testing.T) {
 		t.Fatalf("DB not found at explicit path %s: %v", explicitDB, err)
 	}
 
-	defaultDB := filepath.Join(scanRoot, ".claude", ".atomic-index", "atomic.db")
+	defaultDB := config.IndexDBPath(scanRoot)
 	if _, err := os.Stat(defaultDB); err == nil {
 		t.Fatalf("DB should NOT exist at default scan-root path %s", defaultDB)
 	}
@@ -403,7 +405,7 @@ func TestNewWithDBPath_DefaultUnchanged(t *testing.T) {
 		t.Fatal("Init:", err)
 	}
 
-	defaultDB := filepath.Join(dir, ".claude", ".atomic-index", "atomic.db")
+	defaultDB := config.IndexDBPath(dir)
 	if _, err := os.Stat(defaultDB); err != nil {
 		t.Fatalf("DB not found at default path %s: %v", defaultDB, err)
 	}

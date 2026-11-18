@@ -4,7 +4,7 @@
 ## Problem
 
 
-The atomic-claude system spans four artifact types + a Go CLI bundle that cross-reference each other. Drift is invisible: a renamed agent, a stale signals file, a missing `@-ref` in `CLAUDE.md`, a hook that was never installed — none of these throw errors, they silently break the workflow. A recent system audit found 5 such gaps without any code-level signal. We need a deterministic, fast `atomic doctor` that surfaces these gaps before they bite.
+The atomic-claude system spans five artifact types — commands, agents, skills, output styles, and path-scoped rules — plus the global steering source (`context/AGENTS.md`) and a Go CLI bundle that cross-reference each other. Drift is invisible: a renamed agent, a stale signals file, a missing `@`-ref in the global contract, a hook that was never installed — none of these throw errors, they silently break the workflow. A recent system audit found 5 such gaps without any code-level signal. We need a deterministic, fast `atomic doctor` that surfaces these gaps before they bite.
 
 
 Distinct from `atomic validate` (see `docs/design/atomic-validate.md`). `validate` lints artifact **content** for correctness. `doctor` checks **environment and install state** — what's wired, what's installed, what's fresh.

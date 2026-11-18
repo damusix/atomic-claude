@@ -8,16 +8,8 @@
 // template, and docs/spec/code-graph.md checkpoint 4 for the core/profile
 // split this file is one half of.
 //
-// Owns: the /graph/data fetch + fingerprint-as-cache-key, the cytoElements
-// JSON → cosmos adapter, the OKF type→color palette and provenance/drift
-// edge-kind styling (fingerprint/drift/wikilink — graphoverlay.go's format),
-// node meta/label resolution, hover/click wiring into AtomicGraphUI, and the
-// docs-shell-specific navigation glue (#btn-graph toggle between page view
-// and /graph, current-page tracking, modal dismiss wiring) — none of which
-// graph-core.js knows about. Everything else (mount/teardown/retheme
-// lifecycle, WebGL2 gate, motion policy, layout cache, label overlay,
-// legend, drag handling, debugState()/simRunning()) lives in graph-core.js
-// and is forwarded verbatim below.
+// Owns the /graph/data fetch, the cosmos adapter, the type palette, node meta, and the
+// docs-shell navigation glue; mount, layout, labels, legend, and drag live in graph-core.js.
 window.SystemGraph = (function() {
 
   // Last /page/ URL loaded, restored when leaving the graph via #btn-graph.
@@ -50,7 +42,7 @@ window.SystemGraph = (function() {
     });
 
     var linkPairs = [];
-    var linkClasses = []; // parallel to linkPairs' pair index — e.g. "fingerprint" or "fingerprint drift"
+    var linkClasses = []; // parallel to linkPairs' pair index — e.g. "wikilink"
     ((elems && elems.edges) || []).forEach(function(e) {
       var s = idToIndex[e.data.source];
       var t = idToIndex[e.data.target];
@@ -70,44 +62,13 @@ window.SystemGraph = (function() {
     };
   }
 
-  // Provenance edge colors. cosmos.gl links carry no dash-pattern API (checked
-  // against the unminified 3.1.0 .d.ts: GraphConfigInterface has no line-style
-  // option), so unlike the removed edge.fingerprint / edge.fingerprint.drift
-  // Cytoscape selectors (dashed), the distinct-styling contract here is COLOR
-  // (+ width) only — same hex values, same visual language, different renderer.
-  var FINGERPRINT_COLOR = window.GraphCore.hexToRGBA01('#fab387', 1);
-  var FINGERPRINT_DRIFT_COLOR = window.GraphCore.hexToRGBA01('#f38ba8', 1);
-  // Every width is capped at 1px (2026-08-16 user feedback). Width was the
-  // tier separator here — fingerprint 1.5, drift 2.5, everything else 1.25 —
-  // but at 20k nodes the thicker tiers stop reading as emphasis and start
-  // reading as clutter, since the edges outnumber what any of them could
-  // usefully single out. Color still carries the distinction.
-  var FINGERPRINT_WIDTH = 1;
-  var FINGERPRINT_DRIFT_WIDTH = 1;
+  // Edges are 1px: at 20k nodes thicker edges read as clutter, not emphasis.
   var DEFAULT_WIDTH = 1;
 
-  // linkStyle assigns per-link color/width from the edge's classes string
-  // ("fingerprint" or "fingerprint drift" — graphoverlay.go's format).
-  // wikilink gets the edge-strong color — mirrors the rail's atomicCyStyle()
-  // edge.wikilink selector (dash pattern has no cosmos link-style API, so
-  // color is the parity contract; see the design's Edge-kind colors row).
-  // md-link and anything else gets the default themed edge color.
+  // Every edge tints from its source node (graph-core's computeLinkStyling), so
+  // this flat color is only the fallback for a graph without point colors.
   function linkStyle(classes, colors) {
-    var isFingerprint = classes.indexOf('fingerprint') !== -1;
-    var isDrift = classes.indexOf('drift') !== -1;
-    var isWikilink = classes.indexOf('wikilink') !== -1;
-    var color = isFingerprint && isDrift ? FINGERPRINT_DRIFT_COLOR
-      : isFingerprint ? FINGERPRINT_COLOR
-      : isWikilink ? window.GraphCore.hexToRGBA01(colors['edge-strong'], 1)
-      : window.GraphCore.hexToRGBA01(colors['edge'], 1);
-    var width = isFingerprint && isDrift ? FINGERPRINT_DRIFT_WIDTH
-      : isFingerprint ? FINGERPRINT_WIDTH
-      : DEFAULT_WIDTH;
-    // Fingerprint and drift keep their own colors — there the color is the
-    // information. Everything else tints from its source node (graph-core's
-    // computeLinkStyling), since a flat edge color across the whole graph
-    // reads as haze.
-    return { color: color, width: width, tint: !isFingerprint };
+    return { color: window.GraphCore.hexToRGBA01(colors['edge'], 1), width: DEFAULT_WIDTH, tint: true };
   }
 
   // nodeMeta builds the plain-data object AtomicGraphUI's engine-neutral

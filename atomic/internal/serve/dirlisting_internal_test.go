@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
 func write(t *testing.T, path, body string) {
@@ -89,6 +91,63 @@ func TestListDirEntries_DescribesEntries(t *testing.T) {
 	}
 	if bare.Index != "" {
 		t.Errorf("Index = %q, want empty for a folder with no index file", bare.Index)
+	}
+}
+
+func listedDirs(t *testing.T, root, dirRel string) map[string]bool {
+	t.Helper()
+	entries, ok := listDirEntries(root, dirRel)
+	if !ok {
+		t.Fatalf("listDirEntries(%q) failed", dirRel)
+	}
+	dirs := map[string]bool{}
+	for _, e := range entries {
+		if e.Folder {
+			dirs[e.Name] = true
+		}
+	}
+	return dirs
+}
+
+// Clicking down from a listing is how a reader reaches the cards and follow-ups.
+func TestListDirEntries_ShowsStateRoot(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, ".atomic", "rules", "wiki", "x.md"), "# Card\n")
+	write(t, filepath.Join(root, ".claude", "p.md"), "# Claude\n")
+	write(t, filepath.Join(root, ".foo", "f.md"), "# Foo\n")
+	if err := os.MkdirAll(filepath.Join(root, "member", ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(root, "member", ".atomic", "rules", "wiki", "c.md"), "# Card\n")
+	write(t, filepath.Join(root, "member", ".foo", "f.md"), "# Foo\n")
+
+	top := listedDirs(t, root, ".")
+	for _, want := range []string{".atomic", ".claude", "member"} {
+		if !top[want] {
+			t.Errorf("root listing lacks %q: %v", want, top)
+		}
+	}
+	if top[".foo"] {
+		t.Errorf("root listing shows .foo: %v", top)
+	}
+
+	member := listedDirs(t, root, "member")
+	if !member[".atomic"] || member[".foo"] || member[".git"] {
+		t.Errorf("member listing = %v, want .atomic only among dotdirs", member)
+	}
+}
+
+func TestListDirEntries_NestedStateRootAncestorShowsOnlyThePath(t *testing.T) {
+	t.Setenv(config.StateDirEnvVar, ".state/atomic")
+	root := t.TempDir()
+	write(t, filepath.Join(root, ".state", "atomic", "rules", "wiki", "x.md"), "# Card\n")
+	write(t, filepath.Join(root, ".state", "other", "o.md"), "# Other\n")
+
+	if top := listedDirs(t, root, "."); !top[".state"] {
+		t.Errorf("root listing lacks .state: %v", top)
+	}
+	if got := listedDirs(t, root, ".state"); !got["atomic"] || got["other"] {
+		t.Errorf(".state listing = %v, want atomic only", got)
 	}
 }
 

@@ -70,8 +70,8 @@ Full inventory of screens, features, HTML/CSS/design elements, and endpoints. Ve
 | 4 | Top bar: search trigger, ⌘K / Ctrl-K / `/` shortcuts | inline script | rebuild |
 | 5 | Top bar: light/dark theme toggle; before-paint init from localStorage → OS fallback | inline scripts | rebuild — toggle in React; before-paint init stays a tiny inline script in `index.html` |
 | 6 | Top bar: live-connection indicator (live / reconnecting / disconnected) | inline script painting `#conn-indicator`, repainted after body swaps | rebuild — React state, repaint hack dies |
-| 7 | Left nav: collapsible tree; realm groups (Realm / Repos / Concerns / Knowledge / Buckets / External); repo-scope docs tree | `/nav` HTML fragment, `<details>` elements | rebuild — `/api/nav` JSON + React tree |
-| 8 | Left nav: stale / drift badges | `computeStaleness` inline in nav HTML | rebuild — badge fields in nav JSON |
+| 7 | Left nav: collapsible tree; realm groups (Realm / Repos / Concerns / Buckets / External); repo-scope docs tree | `/nav` HTML fragment, `<details>` elements | rebuild — `/api/nav` JSON + React tree |
+| 8 | Left nav: membership-drift badges | `computeStaleness` inline in nav HTML | rebuild — badge fields in nav JSON |
 | 9 | Page view: goldmark GFM + chroma render, frontmatter stripped | server render (`render.go`) | carry — stays in Go; delivered as HTML-in-JSON; React injects |
 | 10 | Page view: in-body wikilink resolution (`[[page]]`, `[[page\|alias]]`, broken/ambiguous classes), single-source with rail edges | server render (`wikilink.go`) | carry render; reshape output — plain `href`s instead of `hx-get`; React intercepts clicks |
 | 11 | Page view: three link forms (bundle-relative, relative, wikilink) resolved server-side; source links open code modal; external links new-tab; nonexistent page → in-shell 404 | `resolvePageHref` + htmx attrs | carry resolution; reshape attrs; rebuild interception |
@@ -83,7 +83,7 @@ Full inventory of screens, features, HTML/CSS/design elements, and endpoints. Ve
 | 17 | Right rail: OUT links with broken/ambiguous/external/codefile annotations | OOB fragment 2 | reshape — JSON + React |
 | 18 | Right rail: IN backlinks + orphan note | OOB fragment 3 | reshape — JSON + React |
 | 19 | Graph mode: URL-addressable `/graph` page, `[page\|system]` toggle, rail collapse | htmx nav + `enterGraphMode()` | rebuild — React route; view/member params preserved |
-| 20 | Graph mode: docs graph — cosmos.gl GPU sim, settle-then-pause, drag reheat, label overlay zoom fade, type legend/filter, OKF type colors from CSS vars, provenance/drift edges, hover preview card, click → page modal | `graph-core.js` + `system-graph.js` | carry — engine and profile untouched; React provides container + lifecycle |
+| 20 | Graph mode: docs graph — cosmos.gl GPU sim, settle-then-pause, drag reheat, label overlay zoom fade, type legend/filter, OKF type colors from CSS vars, hover preview card, click → page modal | `graph-core.js` + `system-graph.js` | carry — engine and profile untouched; React provides container + lifecycle |
 | 21 | Graph mode: code graph — per-repo symbol graph, kind-group legend, `contains` de-emphasis, size-by-degree, click → code modal | `code-graph.js` | carry |
 | 22 | Graph mode: Docs\|Code switcher + realm member picker (hidden single-member) | inline glue in `system-graph.js`/`layout.html` | rebuild — React controls calling carried profiles |
 | 23 | Graph mode: fingerprint-keyed IndexedDB layout cache; WebGL2 detect + message | `graph-core.js` | carry |
@@ -95,7 +95,7 @@ Full inventory of screens, features, HTML/CSS/design elements, and endpoints. Ve
 | 29 | Federated code search: member union (federation + self-index), concurrent bounded pool, `only`/`exclude` params | `codesearch.go` | carry server logic; reshape response |
 | 30 | Code schema view `/code/schema`: tables/views, FK graph, writers/readers | HTML fragment | reshape — JSON + React |
 | 31 | External-link registry `/external`: URL, citing pages, first-seen | HTML page | reshape — JSON + React view |
-| 32 | Status dashboard `/status`: wiki staleness + code-index health | HTML page | reshape — JSON + React view |
+| 32 | Status dashboard `/status`: wiki membership drift + code-index health | HTML page | reshape — JSON + React view |
 | 33 | Live-reload: `/events` SSE, quiet-window fingerprint, nav refetch always, page refetch when changed, cap-omitted list = refetch all, scroll preservation | server + inline client script + `HX-Live-Swap` header | carry server; rebuild client as hook — scroll preservation is natural (React re-renders content, not panes) |
 | 34 | Theme retheme cascade on toggle: cosmos graphs, rail Cytoscape, mermaid diagrams | `atomicMermaidRetheme`, `window.__railCy`, engine retheme | rebuild glue — React effect calling carried retheme APIs |
 | 35 | htmx history handling: full-shell restore on Back/Forward, scroll reset except live swaps | htmx 4 + guards | delete — React Router owns history |
@@ -249,3 +249,15 @@ Evidence:
 - Dev-mode iteration: ship a Bun dev-server proxy config (`/api` → running `atomic serve`) for contributors, or accept build-then-embed as the only loop? Proxy config is cheap and non-load-bearing; lean yes.
 - `scripts/graph-gates.mjs` selector updates: same PR as the cutover checkpoint, or immediate follow-up? Lean same PR — the gates are the only browser-level verification this repo has.
 - React version pinning and Bun config specifics: settle at implementation time (context7 verify then); the design intentionally does not pin.
+
+
+## Change log
+
+
+### 2026-10-19 — Removed the Knowledge nav group and provenance edges
+
+**What changed:** The left-nav rows no longer list a Knowledge group or bucket stale badges, the docs-graph row no longer lists provenance or drift edges, and the status row reports membership drift.
+
+**Why:** `atomic serve` no longer lists a Knowledge nav group, injects provenance edges, or badges buckets as stale, and `/api/status` reports membership drift only (`docs/spec/realm-wiki-drop-refresh.md`, criterion 8).
+
+**Removed:** the Knowledge nav group and provenance/drift edges from the inventory.

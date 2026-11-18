@@ -15,7 +15,11 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/mdparse"
 )
 
-const cacheFileName = "doc-surfaces.md"
+// CachePath returns <state-root>/project/doc-surfaces.md, the file Scan
+// rewrites on every run.
+func CachePath(root string) string {
+	return filepath.Join(config.ProjectDir(root), "doc-surfaces.md")
+}
 
 // docDirs is searched in order; root README.md is handled separately.
 var docDirs = []string{
@@ -191,7 +195,7 @@ func writeCacheFile(root string, surfaces []surface, now time.Time) error {
 		sb.WriteString("\n")
 	}
 
-	outPath := filepath.Join(config.ProjectDir(root), cacheFileName)
+	outPath := CachePath(root)
 	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
 		return fmt.Errorf("create cache dir: %w", err)
 	}
@@ -202,7 +206,7 @@ func writeCacheFile(root string, surfaces []surface, now time.Time) error {
 // not exist. Two triggers: any doc newer than the cache, or set drift between
 // disk and cache — a delete bumps no surviving file's mtime.
 func Stale(root string) error {
-	cachePath := filepath.Join(config.ProjectDir(root), cacheFileName)
+	cachePath := CachePath(root)
 	fi, err := os.Stat(cachePath)
 	if err != nil {
 		if os.IsNotExist(err) {

@@ -40,6 +40,21 @@ func TestRegistry_AllCategories(t *testing.T) {
 	}
 }
 
+func TestRegistry_HasForgeAndTrackerCLIs(t *testing.T) {
+	want := map[string]string{"gh": "gh", "glab": "glab", "tea": "tea", "fj": "fj", "acli": "acli"}
+	for _, e := range profile.DefaultRegistry() {
+		if bin, ok := want[e.Name]; ok {
+			if e.Category != profile.CategoryCLI || len(e.Binaries) != 1 || e.Binaries[0] != bin {
+				t.Errorf("%s: category %q binaries %v", e.Name, e.Category, e.Binaries)
+			}
+			delete(want, e.Name)
+		}
+	}
+	for name := range want {
+		t.Errorf("registry missing %q", name)
+	}
+}
+
 func TestRegistry_AllStrategiesValid(t *testing.T) {
 	reg := profile.DefaultRegistry()
 	for _, e := range reg {

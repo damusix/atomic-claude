@@ -106,7 +106,8 @@ func printCodeUsage(w io.Writer) {
 	fmt.Fprintln(w, "  mcp       Run the MCP server over stdio (--daemon runs the auto-started server itself)")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "All query verbs accept --json for machine-readable output.")
-	fmt.Fprintln(w, "DB path: "+config.IndexDBPath("<project>"))
+	fmt.Fprintln(w, "DB path: <state-root>/.atomic-index/atomic.db")
+	fmt.Fprintln(w, "Realm scope: <realm-state-root>/code.toml and <key>.db; a legacy <realm>/.atomic/ is still read.")
 }
 
 func runIndex(ctx context.Context, eng *engine.Engine, args []string, projectRoot string, stdout, stderr io.Writer) int {
@@ -398,11 +399,12 @@ func runSearch(ctx context.Context, eng *engine.Engine, args []string, stdout, s
 	var limit int
 	fs.BoolVar(&asJSON, "json", false, "emit JSON")
 	fs.IntVar(&limit, "limit", 20, "max results")
-	if err := fs.Parse(args); err != nil {
+	positional, err := cliutil.ParseInterspersed(fs, args)
+	if err != nil {
 		return 2
 	}
 
-	query := strings.Join(fs.Args(), " ")
+	query := strings.Join(positional, " ")
 	if query == "" {
 		fmt.Fprintf(stderr, "atomic code search: query required\n")
 		return 1
@@ -454,11 +456,12 @@ func runSymbolGraph(ctx context.Context, eng *engine.Engine, args []string, stdo
 	var depth int
 	fs.BoolVar(&asJSON, "json", false, "emit JSON")
 	fs.IntVar(&depth, "depth", 3, "BFS depth")
-	if err := fs.Parse(args); err != nil {
+	positional, err := cliutil.ParseInterspersed(fs, args)
+	if err != nil {
 		return 2
 	}
 
-	symbol := strings.Join(fs.Args(), " ")
+	symbol := strings.Join(positional, " ")
 	if symbol == "" {
 		fmt.Fprintf(stderr, "atomic code %s: symbol required\n", direction)
 		return 1
@@ -520,11 +523,12 @@ func runImpact(ctx context.Context, eng *engine.Engine, args []string, stdout, s
 	var depth int
 	fs.BoolVar(&asJSON, "json", false, "emit JSON")
 	fs.IntVar(&depth, "depth", 3, "BFS depth")
-	if err := fs.Parse(args); err != nil {
+	positional, err := cliutil.ParseInterspersed(fs, args)
+	if err != nil {
 		return 2
 	}
 
-	symbol := strings.Join(fs.Args(), " ")
+	symbol := strings.Join(positional, " ")
 	if symbol == "" {
 		fmt.Fprintf(stderr, "atomic code impact: symbol required\n")
 		return 1
@@ -565,11 +569,12 @@ func runNode(ctx context.Context, eng *engine.Engine, args []string, stdout, std
 	fs.BoolVar(&asJSON, "json", false, "emit JSON")
 	fs.StringVar(&filterFile, "file", "", "filter by file path")
 	fs.IntVar(&filterLine, "line", 0, "filter by line number (requires --file)")
-	if err := fs.Parse(args); err != nil {
+	positional, err := cliutil.ParseInterspersed(fs, args)
+	if err != nil {
 		return 2
 	}
 
-	symbol := strings.Join(fs.Args(), " ")
+	symbol := strings.Join(positional, " ")
 	if symbol == "" {
 		fmt.Fprintf(stderr, "atomic code node: symbol required\n")
 		return 1
@@ -627,11 +632,12 @@ func runFiles(ctx context.Context, eng *engine.Engine, args []string, stdout, st
 	cliutil.SetUsage(fs, "atomic code files [pattern] [--json]")
 	var asJSON bool
 	fs.BoolVar(&asJSON, "json", false, "emit JSON")
-	if err := fs.Parse(args); err != nil {
+	positional, err := cliutil.ParseInterspersed(fs, args)
+	if err != nil {
 		return 2
 	}
 
-	pattern := strings.Join(fs.Args(), " ")
+	pattern := strings.Join(positional, " ")
 
 	if err := openOrError(ctx, eng, stderr, "files"); err != nil {
 		return 1
@@ -683,7 +689,8 @@ func runAffected(ctx context.Context, eng *engine.Engine, args []string, stdin i
 	fs.IntVar(&depth, "depth", 5, "BFS depth for dependency traversal")
 	fs.StringVar(&testGlob, "test-glob", "", "glob pattern to identify test files (e.g. '_test.go')")
 	fs.BoolVar(&fromStdin, "stdin", false, "read changed file paths from stdin (one per line)")
-	if err := fs.Parse(args); err != nil {
+	positional, err := cliutil.ParseInterspersed(fs, args)
+	if err != nil {
 		return 2
 	}
 
@@ -697,7 +704,7 @@ func runAffected(ctx context.Context, eng *engine.Engine, args []string, stdin i
 			}
 		}
 	} else {
-		changedFiles = fs.Args()
+		changedFiles = positional
 	}
 
 	if len(changedFiles) == 0 {
@@ -790,11 +797,12 @@ func runExplore(ctx context.Context, eng *engine.Engine, args []string, stdout, 
 	cliutil.SetUsage(fs, "atomic code explore <query> [--json]")
 	var asJSON bool
 	fs.BoolVar(&asJSON, "json", false, "emit JSON (structured context)")
-	if err := fs.Parse(args); err != nil {
+	positional, err := cliutil.ParseInterspersed(fs, args)
+	if err != nil {
 		return 2
 	}
 
-	query := strings.Join(fs.Args(), " ")
+	query := strings.Join(positional, " ")
 	if query == "" {
 		fmt.Fprintf(stderr, "atomic code explore: query required\n")
 		return 1
@@ -863,40 +871,33 @@ func printSubgraph(sg types.Subgraph, asJSON bool, stdout, stderr io.Writer) int
 	return 0
 }
 
-// EnsureGitignore is idempotent: repeated runs leave exactly one entry.
+// EnsureGitignore is idempotent: repeated runs leave exactly one entry. An
+// index outside the repository, or one a .gitignore inside the repository
+// already covers, gets none.
 func EnsureGitignore(projectRoot string) error {
-	gitignorePath := filepath.Join(projectRoot, ".gitignore")
-	entry := filepath.ToSlash(config.IndexDir("")) + "/"
-
-	var existing string
-	data, err := os.ReadFile(gitignorePath)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("EnsureGitignore: read: %w", err)
+	rel, inside := config.RepoRelative(projectRoot, config.IndexDir(projectRoot))
+	if !inside {
+		return nil
 	}
-	existing = string(data)
-
-	for _, line := range strings.Split(existing, "\n") {
-		if strings.TrimSpace(line) == entry {
-			return nil // already present
-		}
+	rel = filepath.ToSlash(rel)
+	if ignoredByRepoGitignore(projectRoot, rel+"/"+config.IndexDBName) {
+		return nil
 	}
+	return config.AppendIgnoreRule(filepath.Join(projectRoot, ".gitignore"), rel+"/")
+}
 
-	// A file not ending in a newline needs one, or the entry joins the last line.
-	toAppend := entry + "\n"
-	if len(existing) > 0 && !strings.HasSuffix(existing, "\n") {
-		toAppend = "\n" + toAppend
+// ignoredByRepoGitignore does not count core.excludesFile or .git/info/exclude,
+// which are personal. path need not exist: check-ignore matches patterns only.
+func ignoredByRepoGitignore(repo, path string) bool {
+	source, ok, err := config.GitIgnoreSource(repo, path)
+	if err != nil || !ok || filepath.Base(source) != ".gitignore" {
+		return false
 	}
-
-	f, err := os.OpenFile(gitignorePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return fmt.Errorf("EnsureGitignore: open: %w", err)
+	if !filepath.IsAbs(source) {
+		return true
 	}
-	defer f.Close()
-
-	if _, err := f.WriteString(toAppend); err != nil {
-		return fmt.Errorf("EnsureGitignore: write: %w", err)
-	}
-	return nil
+	_, inside := config.RepoRelative(repo, source)
+	return inside
 }
 
 // runMCP is the proxy by default, and the daemon itself under --daemon, which

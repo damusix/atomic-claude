@@ -15,7 +15,7 @@ Index your project first. From your project root:
 atomic code index
 ```
 
-This creates `.claude/.atomic-index/atomic.db` and adds it to `.gitignore`. The index is project-scoped and never committed.
+This creates `.atomic/.atomic-index/atomic.db` under the default state root and adds it to `.gitignore`. `atomic state migrate` deletes a legacy `.claude/.atomic-index/` rather than moving it, so run `atomic code index` once after migrating. Custom state roots are covered in [where the index lives](/reference/code-intel#where-the-index-lives). The index is project-scoped and never committed.
 
 After the initial index, keep it fresh with:
 
@@ -103,12 +103,12 @@ atomic code impact --depth 2 --json MyFunction
 atomic code search --json "UserService"
 ```
 
-The `agent-code-intel` partial instructs each subagent when and how to use these verbs, with a degradation contract: binary absent, no DB, or failed query → fall back to `sg`/`grep`. Investigator, reviewer, and wiki-inferrer compose it directly; the implementer (feature and surgical modes) receives it transitively through `agent-implementer-workflow`.
+The `agent-code-intel` partial instructs each subagent when and how to use these verbs, with a degradation contract: no DB or failed query → fall back to `sg`/`grep`. Investigator, reviewer, and wiki-inferrer compose it directly; the implementer (feature and surgical modes) receives it transitively through `agent-implementer-workflow`.
 
 
 ## Degradation
 
-The MCP server does not require a pre-built index. If `.claude/.atomic-index/atomic.db` does not exist, the daemon initializes an empty index on first run rather than erroring. An empty graph answers nothing useful, though, so build the index first with `atomic code index` and keep it warm with `atomic code sync`.
+The MCP server does not require a pre-built index. If `.atomic/.atomic-index/atomic.db` does not exist, the daemon initializes an empty index on first run rather than erroring. An empty graph answers nothing useful, though, so build the index first with `atomic code index` and keep it warm with `atomic code sync`.
 
 `atomic doctor` check 11 (`code-index`) reports index health:
 

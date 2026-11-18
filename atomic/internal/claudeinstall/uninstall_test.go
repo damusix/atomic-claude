@@ -119,6 +119,28 @@ func TestBuildUninstallPlan_MergeDetection(t *testing.T) {
 	}
 }
 
+// A CLAUDE.md holding exactly what install wrote is Atomic's alone, so uninstall
+// deletes it instead of asking the user to merge Atomic's own paragraph.
+func TestBuildUninstallPlan_InstalledClaudeMdIsAtomicOnly(t *testing.T) {
+	targetDir := t.TempDir()
+	preInstallDir := filepath.Join(targetDir, ".atomic", "pre-install")
+
+	if err := os.WriteFile(filepath.Join(targetDir, "CLAUDE.md"), readEmbedded(t, "bundle/CLAUDE.md"), 0o644); err != nil {
+		t.Fatalf("write CLAUDE.md: %v", err)
+	}
+	writeTestManifest(t, preInstallDir, []map[string]interface{}{
+		{"path": "CLAUDE.md", "sha256": "aaaaaa", "existed": true},
+	})
+
+	plan, err := claudeinstall.BuildUninstallPlan(targetDir, targetDir)
+	if err != nil {
+		t.Fatalf("BuildUninstallPlan: %v", err)
+	}
+	if len(plan.Delete) != 1 || plan.Delete[0] != "CLAUDE.md" {
+		t.Errorf("Delete = %v, Restore = %+v; want CLAUDE.md deleted as atomic-only", plan.Delete, plan.Restore)
+	}
+}
+
 func TestBuildUninstallPlan_NoMergeWhenUnchanged(t *testing.T) {
 	targetDir := t.TempDir()
 	preInstallDir := filepath.Join(targetDir, ".atomic", "pre-install")

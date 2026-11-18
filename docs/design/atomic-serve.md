@@ -6,16 +6,13 @@
 
 A wiki realm is browsable today only as raw markdown (Obsidian, or any markdown
 server), made navigable by `atomic wiki linkify` turning path citations into
-file-relative links. That is a folder of files, not a graph. Three things are latent
+file-relative links. That is a folder of files, not a graph. Two things are latent
 in the realm but never surfaced:
 
 
 - **The link graph.** Markdown links and Obsidian wikilinks already wire repos →
-  concerns → knowledge → buckets together, but nothing renders backlinks, orphan
-  detection, or a map of how knowledge connects.
-- **The provenance DAG.** `sources:` and fingerprint stamps already record which raw
-  capture fed which knowledge page, and which knowledge page a concern cites. Nothing
-  walks that chain or flags a stamp that has drifted from its source.
+  concerns → buckets together, but nothing renders backlinks, orphan
+  detection, or a map of how the realm's pages connect.
 - **The code graph.** Each member repo can be code-indexed, and (since realm
   federation landed) the realm holds N per-repo symbol graphs queryable from one place.
   Nothing presents them in a browser.
@@ -36,9 +33,8 @@ two near-identical local servers.
     - One top-level verb, `atomic serve`, peer to `atomic wiki` and `atomic code`,
       that renders a realm as a navigable graph in the browser.
     - Presentation only — zero new analysis. Every view wraps an engine that already
-      exists (wiki link parser, wiki staleness, bucket diff, code-intel query layer).
-    - Render the link graph, the provenance DAG, and (per member) the code graph from
-      the same server.
+      exists (wiki link parser, wiki membership drift, code-intel query layer).
+    - Render the link graph and (per member) the code graph from the same server.
     - Absorb the `code-web-explorer` follow-up: the per-repo Code Explorer becomes a
       mount inside `atomic serve`, not a standalone `atomic code serve`.
     - Reuse the realm-resolution substrate `atomic code` already uses (position-sensing
@@ -51,7 +47,7 @@ two near-identical local servers.
       does not compute cross-repo resolution. (Inherited from the federation non-goal.)
     - **A JS toolchain.** No npm, no SPA build. htmx + one graph lib vendored via
       `go:embed`. CGO-free so the release pipeline is unchanged.
-    - **Write operations.** No editing the wiki, re-stamping, or re-indexing from the
+    - **Write operations.** No editing the wiki or re-indexing from the
       UI. Those stay CLI verbs (`/refresh-wiki`, `atomic code index`). Serve observes.
     - **MCP / remote exposure.** localhost only in v1. Not an API surface.
     - Any change to `atomic wiki` or `atomic code` subcommands, the `<wiki-scan>` /
@@ -96,8 +92,8 @@ flowchart TD
     HTTP --> WIKI["WIKI model (link graph)"]
     HTTP --> RENDER["RENDER · goldmark + chroma + mermaid · CGO-free"]
     HTTP --> CODE["CODE model (federated symbol graphs)"]
-    WIKI --> WL["wiki link parser · frontmatter (stamps/sources)<br/>staleness (DRIFT/STALE/bucket) · bucket diff (manifests)"]
-    WL --> WM["realm markdown: repos / concerns / knowledge / buckets"]
+    WIKI --> WL["wiki link parser<br/>frontmatter<br/>membership drift (DRIFT)"]
+    WL --> WM["realm markdown: repos / concerns / buckets"]
     CODE --> CQ["code-intel query layer (position-sensing)<br/>realm root → fan out, [key]-grouped · member dir → that member alone<br/>search / callers / callees / impact / explore / node / files"]
     CQ --> CD["N per-repo graphs at &lt;realm&gt;/.atomic/&lt;key&gt;.db<br/>&lt;code-index&gt; block advertises keys · no member repo written"]
 ```
@@ -144,7 +140,7 @@ Regions, fixed:
 
 ```
 top    breadcrumb (realm › member › page)  +  search box with (md | code) toggle
-left   nav tree (repos · concerns · knowledge · code)
+left   nav tree (repos · concerns · buckets · code)
 middle content of the current page  — OR — the whole-system graph (mode toggle)
 right  graph OF the current page (top)  ▸  OUT links (from here)  ▸  IN links (into here)
 modal  a code file opens over a dimmed page: source + code-intel relationships
@@ -171,8 +167,8 @@ then its backlinks.
 │ ▾ concerns  │                                             │ ─────────────────  │
 │   payments  │ ## Architecture                             │ → OUT  (from here) │
 │   identity  │ See [payments](payments.md) and the         │  · payments.md     │
-│ ▾ knowledge │ [billing.go](src/billing.go) entrypoint.    │  · auth.md         │
-│   dunning   │                                             │  · src/billing.go ⟨⟩│
+│ ▾ buckets   │ [billing.go](src/billing.go) entrypoint.    │  · auth.md         │
+│   research  │                                             │  · src/billing.go ⟨⟩│
 │ ▾ code      │   ┌ src/billing.go ⟨code⟩ click → modal ──┐ │ ← IN  (into here)  │
 │   ⌕ search  │   │ func Charge(id) error { … }           │ │  · api/README      │
 │             │   └──────────────────────────────────────┘ │  · dunning.md      │
@@ -201,8 +197,8 @@ focused on it.
 │ ▾ concerns  │                            │                                    │
 │   payments  │        ○ dunning ◄─────────┘                                    │
 │   identity  │  node = page · repo · symbol     edge = link · import · call     │
-│ ▾ knowledge │  ● focus   color = fresh/stale   click node → page view          │
-│   dunning   │  [ filter: docs · code · concerns ]   [ layout: ELK ]            │
+│ ▾ buckets   │  ● focus   color = node type     click node → page view          │
+│   research  │  [ filter: docs · code · concerns ]   [ layout: ELK ]            │
 └─────────────┴──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -298,10 +294,10 @@ Serve introduces no new persistent state. It reads what already exists:
 | wiki membership + summaries | `<wiki-scan>` block in realm `CLAUDE.md`; `wiki/repos/**` | `atomic wiki scan` / `/refresh-wiki` | nav tree, repo nodes |
 | code membership + keys | `<code-index>` block in realm `CLAUDE.md` | `atomic code index` (realm scope) | which members have a code graph, their keys |
 | code graphs | `<realm>/.atomic/<key>.db` | `atomic code index` | the Code Explorer / federated search |
-| concerns + knowledge | `wiki/concerns/**`, `wiki/knowledge/**` | `/refresh-wiki` synthesis | concern / knowledge nodes, provenance DAG |
-| fingerprints + sources | YAML frontmatter (`reflects:` / `sources:`) | `atomic wiki stamp` | provenance edges, drift detection |
-| bucket manifests | `wiki/.buckets/<name>/` | `atomic wiki bucket` | bucket diff view |
-| staleness | computed | `atomic wiki stale`, doctor check 11 | realm-health front page badges |
+| concerns | `wiki/concerns/**` | `/refresh-wiki` | concern nodes |
+| buckets | `<wiki-buckets>` registry in `wiki/index.md`; `<bucket>/**/*.md`, including each folder's `index.md` | `atomic wiki bucket`, `atomic wiki scan`, the user | bucket nav group (folder tree per bucket) |
+| membership drift | computed | `atomic wiki stale` | realm-health front page badges |
+| code-index health | computed | doctor check 11 | realm-health front page badges |
 
 
 The realm root is a plain container (only `wiki/` is a git repo), so `<realm>/.atomic/`
@@ -354,7 +350,7 @@ SSE gives live-reload without a client framework.
 **Chosen: A (Cytoscape.js + ELK) from day one.** Building a graph engine is not the
 job — rendering the realm's existing graph is. A mature library buys layout, hit-testing,
 zoom/pan, and edge routing for free so the work stays on what matters: the node/edge
-model, the three edge classes, and the provenance overlay. The heavier vendored asset is
+model and its edge classes. The heavier vendored asset is
 accepted deliberately; assets embed via `go:embed`, so there is no CDN and the binary
 stays self-contained.
 
@@ -376,7 +372,7 @@ code-intel engines, rendered with goldmark/chroma/mermaid + htmx, graph via Cyto
   middle content with a `[ page | system ]` toggle (page content or the whole-realm
   graph) · right rail = the current page's graph then its OUT links then its IN links ·
   a code file opens in a modal carrying chroma-highlighted source beside its code-intel
-  relationships. Stale / bucket-diff / code-index badges ride as dots on nav items and
+  relationships. Membership-drift and code-index badges ride as dots on nav items and
   links, not a separate page.
 - **Code Explorer** mounts under a repo's Code tab when that member is indexed. Views
   wrap the engine query layer: search, node detail, callers, callees, impact, explore,
@@ -396,32 +392,20 @@ code-intel engines, rendered with goldmark/chroma/mermaid + htmx, graph via Cyto
     |------|----------------|
     | realm | contains → repo · (mount) federated code search |
     | repo | summary-link, signals-link, (mount) code-graph (single member) |
-    | concern | md-link, **fingerprint** → knowledge |
-    | knowledge | **fingerprint** → bucket file (`sources:`) |
+    | concern | md-link |
     | bucket | contains → captured files |
     | external URL | sink (registry page) |
     | symbol | calls / references / writes / contains |
 
-    Three edge classes drawn distinctly: md-link, wikilink, and **fingerprint /
-    provenance** (dashed — the citation DAG). Code edges are per-member sub-graphs
+    Two edge classes drawn distinctly: md-link and wikilink. Code edges are per-member sub-graphs
     entered via a repo node (single member) or via the realm node's federated search;
     no cross-repo edges are drawn.
 
-- **Provenance walk (the differentiator).** Nothing else renders this — it is latent in
-  the existing stamps. Click a concern, walk back to the raw capture that fed it:
-
-    ```
-    concern  ──cites──▶  knowledge page  ──sources──▶  bucket capture files
-       (fingerprint)        (fingerprint)               (live SHA vs stamped)
-    ```
-
-    A stamp mismatch turns the edge red and flags the node.
-
-- **Realm-health front page** renders the existing staleness report: per-repo /
-  per-concern / per-bucket badges, the provenance DAG's broken edges, **and** aggregate
+- **Realm-health front page** renders the existing membership-drift report as
+  per-repo badges, **and** aggregate
   code-index health from doctor check 11 (realm-aware — worst severity across all member
   dbs, naming only the repos needing action: `fresh` / `stale (run atomic code sync)` /
-  `not indexed`). Code-index badges sit beside the wiki staleness badges.
+  `not indexed`). Code-index badges sit beside the membership-drift badges.
 
 - **External-link registry** — every outbound URL across the realm collected into one
   page (URL, source pages, first-seen date) so external references are auditable and
@@ -439,18 +423,16 @@ behind a tier gate. A deep iteration phase follows to refine UX against real use
 ```
 v1    serve · scope resolve (realm / member / bare repo, shared with atomic code)
       · nav tree · md render (mermaid + chroma) · ⌘K search (markdown + federated code symbols)
-      · backlinks · staleness + code-index health badges · file dialog
-      · graph overlay (Cytoscape + ELK; global + local) · external-link registry · bucket diff view
+      · backlinks · membership-drift + code-index health badges · file dialog
+      · graph overlay (Cytoscape + ELK; global + local) · external-link registry
       · per-repo Code Explorer (search / callers / callees / impact / SQL schema view)
-      · provenance DAG walk
 iter  deep iteration phase — UX refinement, SSE live-reload, multi-realm switcher,
       performance passes, graph layout/filter tuning, and whatever v1 use surfaces
 ```
 
 
 Why so much in v1: every view wraps a query the engine already answers (wiki link
-parser, staleness, bucket diff, the federated `{ "<key>": <results> }` code layer) or a
-fingerprint already stamped (the provenance DAG). None of it is new analysis, so the only
+parser, membership drift, the federated `{ "<key>": <results> }` code layer). None of it is new analysis, so the only
 cost is presentation — and splitting presentation across release tiers adds coordination
 overhead without buying correctness. The graph ships in v1 because exploring the realm as
 a graph is the point of the feature, not a later polish; expect to iterate on it heavily.
@@ -484,6 +466,18 @@ None — all resolved 2026-06-13:
 - **Builds on code-intel realm federation** (`docs/design/code-intel-realm.md`). Serve
   consumes the federation substrate (per-member dbs, `<code-index>` block, shared
   resolver, doctor check 11) and adds no analysis.
-- **Reuses the wiki engine** (`atomic/internal/wiki/`): link parser, staleness
-  (`DRIFT` / `STALE` / `STALE bucket`), bucket diff manifests, fingerprint stamps. Serve
+- **Reuses the wiki engine** (`atomic/internal/wiki/`): link parser, membership
+  drift (`DRIFT`), bucket registry and indexes. Serve
   renders their output; it does not recompute.
+
+
+## Change log
+
+
+### 2026-10-19 — Removed provenance, knowledge, and bucket diff views
+
+**What changed:** The Problem, Goals, architecture diagram, UI mockups, storage table, graph model, Recommendation, scope tiers, and Relationship sections no longer describe the provenance DAG walk, knowledge pages and their nav group, fingerprint edges, the bucket diff view, or per-concern and per-bucket staleness badges. The realm-health page renders membership drift and code-index health. Buckets appear as a nav group: the `<wiki-buckets>` registry names them and each bucket's markdown files form its folder tree.
+
+**Why:** The fingerprints, bucket manifests, and `knowledge/` layer serve rendered were deleted with the realm wiki refresh tracking (`docs/spec/realm-wiki-drop-refresh.md`, criterion 8).
+
+**Removed:** the provenance walk as a v1 view, the fingerprint edge class, the knowledge node type, and the bucket diff view.

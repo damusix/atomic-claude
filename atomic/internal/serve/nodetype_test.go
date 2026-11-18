@@ -20,18 +20,6 @@ func TestNodeTypeResolverUnitCases(t *testing.T) {
 		wantType   string
 	}{
 		{
-			name:     "frontmatter type Knowledge → knowledge",
-			relpath:  "wiki/knowledge/topic.md",
-			content:  "---\ntype: Knowledge\n---\n# Topic\n",
-			wantType: "knowledge",
-		},
-		{
-			name:     "frontmatter type lowercase knowledge → knowledge",
-			relpath:  "wiki/knowledge/topic2.md",
-			content:  "---\ntype: knowledge\n---\n# Topic2\n",
-			wantType: "knowledge",
-		},
-		{
 			name:     "frontmatter type Concern → concern",
 			relpath:  "wiki/concerns/perf.md",
 			content:  "---\ntype: Concern\n---\n# Perf\n",
@@ -54,12 +42,6 @@ func TestNodeTypeResolverUnitCases(t *testing.T) {
 			relpath:  "wiki/concerns/latency.md",
 			content:  "# Latency\n",
 			wantType: "concern",
-		},
-		{
-			name:     "path convention knowledge/ → knowledge",
-			relpath:  "wiki/knowledge/patterns.md",
-			content:  "# Patterns\n",
-			wantType: "knowledge",
 		},
 		{
 			name:     "unknown frontmatter type with no path match → page",
@@ -133,8 +115,8 @@ func TestNodeTypeResolverUnitCases(t *testing.T) {
 func TestNodeTypeResolvedInLocalSubgraph(t *testing.T) {
 	root := t.TempDir()
 	// Typed by frontmatter.
-	writeFile(t, filepath.Join(root, "wiki", "knowledge", "auth.md"),
-		"---\ntype: Knowledge\n---\n# Auth\n\nSee [perf](../concerns/perf.md).\n")
+	writeFile(t, filepath.Join(root, "notes", "auth.md"),
+		"---\ntype: Repo\n---\n# Auth\n\nSee [perf](../wiki/concerns/perf.md).\n")
 	// Typed by path convention.
 	writeFile(t, filepath.Join(root, "wiki", "concerns", "perf.md"),
 		"# Perf\n")
@@ -144,8 +126,8 @@ func TestNodeTypeResolvedInLocalSubgraph(t *testing.T) {
 	defer shutdown()
 	waitReady(t, baseURL+"/healthz", 3*time.Second)
 
-	// depth=1 pulls in the concern the knowledge page links to.
-	resp, err := http.Get(baseURL + "/graph/data?node=wiki/knowledge/auth.md&depth=1")
+	// depth=1 pulls in the concern the repo page links to.
+	resp, err := http.Get(baseURL + "/graph/data?node=notes/auth.md&depth=1")
 	if err != nil {
 		t.Fatalf("GET /graph/data?node=...: %v", err)
 	}
@@ -162,8 +144,8 @@ func TestNodeTypeResolvedInLocalSubgraph(t *testing.T) {
 		typeByID[n.Data.ID] = n.Data.Type
 	}
 
-	if got := typeByID["wiki/knowledge/auth.md"]; got != "knowledge" {
-		t.Errorf("knowledge page: got type %q, want %q", got, "knowledge")
+	if got := typeByID["notes/auth.md"]; got != "repo" {
+		t.Errorf("repo page: got type %q, want %q", got, "repo")
 	}
 	if got := typeByID["wiki/concerns/perf.md"]; got != "concern" {
 		t.Errorf("concern page: got type %q, want %q", got, "concern")

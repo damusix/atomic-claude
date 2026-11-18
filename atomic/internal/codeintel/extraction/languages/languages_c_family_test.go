@@ -884,7 +884,7 @@ func TestCSharp_InterfaceMethod_ImplicitlyPublic(t *testing.T) {
 	}
 }
 
-func TestRegistry_For_CP8A_Languages(t *testing.T) {
+func TestRegistry_For_CFamilyLanguages(t *testing.T) {
 	t.Parallel()
 	reg := languages.NewRegistry()
 	tests := []struct {

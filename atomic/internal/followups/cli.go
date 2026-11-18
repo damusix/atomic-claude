@@ -29,10 +29,16 @@ func Run(args []string, repoRoot string, stdout, stderr io.Writer, clock func() 
 
 	switch verb {
 	case "path":
+		if code := rejectArgs(bareFlagSet(verb, stderr), verb, rest); code != 0 {
+			return code
+		}
 		fmt.Fprintln(stdout, dir)
 		return 0
 
 	case "render":
+		if code := rejectArgs(bareFlagSet(verb, stderr), verb, rest); code != 0 {
+			return code
+		}
 		return runRender(dir, stdout, stderr, clock())
 
 	case "list":
@@ -78,8 +84,8 @@ func runList(args []string, dir string, stdout, stderr io.Writer, today time.Tim
 	var asJSON bool
 	fs.BoolVar(&stale, "stale", false, "show only stale entries")
 	fs.BoolVar(&asJSON, "json", false, "output as JSON array")
-	if err := fs.Parse(args); err != nil {
-		return 2
+	if code := rejectArgs(fs, "list", args); code != 0 {
+		return code
 	}
 
 	entries, err := ListEntries(dir, ListOpts{StaleOnly: stale, Today: today})
@@ -114,8 +120,8 @@ func runAdd(args []string, dir, repoRoot string, stdout, stderr io.Writer, today
 	fs.StringVar(&origin, "origin", "", "origin text")
 	fs.StringVar(&file, "file", "", "optional file:lines reference")
 	fs.StringVar(&body, "body", "", "body content; use '-' to read from stdin")
-	if err := fs.Parse(args); err != nil {
-		return 2
+	if code := rejectArgs(fs, "add", args); code != 0 {
+		return code
 	}
 
 	// --kind is validated first, or a bad kind surfaces as "missing --severity".
@@ -179,19 +185,43 @@ func runClose(args []string, dir string, stdout, stderr io.Writer, today time.Ti
 	fs.SetOutput(stderr)
 	var reason string
 	fs.StringVar(&reason, "reason", "", "optional closure reason")
-	if err := fs.Parse(args); err != nil {
+	positional, err := cliutil.ParseInterspersed(fs, args)
+	if err != nil {
 		return 2
 	}
 
-	if len(fs.Args()) == 0 {
-		fmt.Fprintf(stderr, "Usage: atomic followups close <id> [--reason <r>]\n")
+	if len(positional) == 0 {
+		fs.Usage()
 		return 2
 	}
-	id := fs.Args()[0]
+	if len(positional) > 1 {
+		cliutil.UnexpectedArgs(fs, "followups close", positional[1:])
+		return 2
+	}
+	id := positional[0]
 
 	if err := CloseEntry(dir, id, reason, today); err != nil {
 		fmt.Fprintf(stderr, "atomic followups close: %v\n", err)
 		return 1
+	}
+	return 0
+}
+
+func bareFlagSet(verb string, stderr io.Writer) *flag.FlagSet {
+	fs := flag.NewFlagSet("followups-"+verb, flag.ContinueOnError)
+	cliutil.SetUsage(fs, "atomic followups "+verb)
+	fs.SetOutput(stderr)
+	return fs
+}
+
+func rejectArgs(fs *flag.FlagSet, verb string, args []string) int {
+	positional, err := cliutil.ParseInterspersed(fs, args)
+	if err != nil {
+		return 2
+	}
+	if len(positional) > 0 {
+		cliutil.UnexpectedArgs(fs, "followups "+verb, positional)
+		return 2
 	}
 	return 0
 }

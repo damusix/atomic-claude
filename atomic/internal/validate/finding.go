@@ -33,15 +33,22 @@ type summary struct {
 	Fail int
 }
 
-func summarize(findings []Finding) summary {
+// summarize counts WARN and FAIL findings, and as PASS each inspected path that
+// no finding names. inspected must use the same path keys as Finding.Path.
+func summarize(inspected []string, findings []Finding) summary {
 	var s summary
+	flagged := make(map[string]bool, len(findings))
 	for _, f := range findings {
+		flagged[f.Path] = true
 		switch f.Severity {
 		case "WARN":
 			s.Warn++
 		case "FAIL":
 			s.Fail++
-		default:
+		}
+	}
+	for _, p := range inspected {
+		if !flagged[p] {
 			s.Pass++
 		}
 	}

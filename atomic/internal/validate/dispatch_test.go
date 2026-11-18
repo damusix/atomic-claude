@@ -48,12 +48,12 @@ func buildMinimalRepo(t *testing.T) string {
 		t.Fatalf("write good-spec.md: %v", err)
 	}
 
-	claudeMD := `# CLAUDE.md
+	agentsMD := `# Atomic
 
 Minimal config for test.
 `
-	if err := os.WriteFile(filepath.Join(root, "context", "CLAUDE.md"), []byte(claudeMD), 0o644); err != nil {
-		t.Fatalf("write CLAUDE.md: %v", err)
+	if err := os.WriteFile(filepath.Join(root, "context", "AGENTS.md"), []byte(agentsMD), 0o644); err != nil {
+		t.Fatalf("write AGENTS.md: %v", err)
 	}
 
 	return root
@@ -270,10 +270,8 @@ func TestPerfBudget(t *testing.T) {
 		t.Logf("whole-repo validate run %d: %v", i+1, elapsed)
 	}
 
-	// A wall-clock budget only means something on hardware it controls. A
-	// developer machine runs this in tens of milliseconds, while a shared CI
-	// runner has measured the same work above the local budget on every
-	// attempt, so CI gets one loose enough that only the rules can breach it.
+	// Most of the cost is the projection gate; shared CI runners measured above
+	// 500 ms, so CI gets a looser budget.
 	budget := 500 * time.Millisecond
 	if os.Getenv("CI") != "" {
 		budget = 3 * time.Second
@@ -296,5 +294,73 @@ func findRepoRootForTest(startDir string) string {
 			return ""
 		}
 		dir = parent
+	}
+}
+
+func TestDispatch_PathRouting_TrailingJSONHonored(t *testing.T) {
+	root := buildMinimalRepo(t)
+
+	code, out := runFromDir(t, root, []string{filepath.Join("docs", "spec", "good-spec.md"), "--json"})
+	if code != 0 {
+		t.Errorf("got exit %d, want 0\noutput:\n%s", code, out)
+	}
+	if !strings.Contains(out, "schema_version") {
+		t.Errorf("trailing --json dropped, want JSON output:\n%s", out)
+	}
+	if strings.Contains(out, "dispatch") {
+		t.Errorf("--json was read as a path and routed:\n%s", out)
+	}
+}
+
+func TestDispatch_Artifacts_TrailingJSONHonored(t *testing.T) {
+	root := buildMinimalRepo(t)
+
+	code, out := runFromDir(t, root, []string{"artifacts", filepath.Join("docs", "spec", "good-spec.md"), "--json"})
+	if code != 0 {
+		t.Errorf("got exit %d, want 0\noutput:\n%s", code, out)
+	}
+	if !strings.Contains(out, "schema_version") {
+		t.Errorf("trailing --json dropped, want JSON output:\n%s", out)
+	}
+}
+
+func TestDispatch_Config_TrailingJSONHonored(t *testing.T) {
+	root := buildMinimalRepo(t)
+
+	code, out := runFromDir(t, root, []string{"config", "--json"})
+	if code != 0 {
+		t.Errorf("got exit %d, want 0\noutput:\n%s", code, out)
+	}
+	if !strings.Contains(out, "schema_version") {
+		t.Errorf("trailing --json dropped, want JSON output:\n%s", out)
+	}
+}
+
+// config and bundle validate the whole repo, so a path argument would be
+// silently ignored; it is rejected instead.
+func TestDispatch_ConfigAndBundle_RejectPathArgs(t *testing.T) {
+	root := buildMinimalRepo(t)
+
+	for _, sub := range []string{"config", "bundle"} {
+		code, out := runFromDir(t, root, []string{sub, "ignored", "--json"})
+		if code != 2 {
+			t.Errorf("%s: got exit %d, want 2\noutput:\n%s", sub, code, out)
+		}
+		if !strings.Contains(out, `unexpected argument(s): ["ignored"]`) {
+			t.Errorf("%s: want the stray argument named:\n%s", sub, out)
+		}
+	}
+}
+
+func TestDispatch_PathRouting_FlagAfterTerminatorIsPath(t *testing.T) {
+	root := buildMinimalRepo(t)
+
+	specPath := filepath.Join("docs", "spec", "good-spec.md")
+	_, out := runFromDir(t, root, []string{specPath, "--json", "--", "--suggest"})
+	if !strings.Contains(out, "schema_version") {
+		t.Fatalf("--json before -- is a flag, want JSON output:\n%s", out)
+	}
+	if !strings.Contains(out, `"path": "--suggest"`) {
+		t.Errorf("--suggest after -- is a path, want a dispatch finding for it:\n%s", out)
 	}
 }

@@ -2,7 +2,7 @@
 
 ## Goal
 
-After a successful binary swap by `atomic update`: first, refresh the `~/.claude` artifact bundle (default behavior; `--skip-claude-update` opts out); then automatically run `atomic doctor` (scoped to checks unaffected by the swap), surface FAILs only, and never block the update success path. One command updates everything; doctor verifies the refreshed state instead of flagging drift the user must fix by hand.
+After a successful binary swap by `atomic update`: first, converge every enrolled harness target with the replacement binary's own embedded corpus and run pending migrations (default behavior; `--skip-claude-update` skips convergence, migrations still run); then automatically run `atomic doctor` (scoped to checks unaffected by the swap), surface FAILs only, and never block the update success path. One command updates everything; doctor verifies the converged state instead of flagging drift the user must fix by hand.
 
 ## Non-goals
 
@@ -48,16 +48,18 @@ flowchart TD
     B -- no --> LK{acquire update lock}
     LK -- held less than 10min, no --force --> LR[refuse: name lock age; exit non-zero]
     LK -- acquired / stale takeover / --force --> D[fresh GitHub lookup]
-    D -- not newer --> Z1[print up to date; clear lock; exit 0]
+    D -- not newer --> P[no swap: this binary is the selected generation]
     D -- newer --> SM{staged version+checksum match?}
     SM -- yes --> SW[swap from staged archive, no re-download]
     SM -- no --> DL[download archive + verify + swap]
     SW --> UP[stamp updated_at; clear lock]
     DL --> UP
     UP --> R{--skip-claude-update?}
-    R -- no --> S[re-exec NEW binary: claude update --no-update-check, --no-hooks if hook absent]
-    R -- yes --> E
-    S --> E{--no-doctor?}
+    P --> R
+    R -- no --> S[converge enrolled targets: re-exec replacement binary as `update --__target-converge` after a swap, in-process when no swap]
+    S --> M[run pending migrations]
+    R -- yes --> M
+    M --> E{--no-doctor?}
     E -- yes --> Z[print 'updated to vX'; exit 0]
     E -- no --> F{config update.run_doctor?}
     F -- false --> Z
@@ -68,7 +70,7 @@ flowchart TD
     G -- err/panic --> J[print 'doctor self-check failed'; exit 0]
 ```
 
-Caption: the update lock and staged-swap decision sit ahead of the artifact refresh and doctor pass. `--force` bypasses only the lock-contention branch (`LK`) — it never weakens the checksum re-verify inside `SM`. Doctor invocation is at the `runUpdate` orchestration layer, not inside the `selfupdate` package. Update success exit is unconditional once the swap (staged or downloaded) succeeds.
+Caption: the update lock and staged-swap decision sit ahead of target convergence and the doctor pass. `--force` bypasses only the lock-contention branch (`LK`) — it never weakens the checksum re-verify inside `SM`. Convergence and migrations run at the `runUpdate` orchestration layer, never inside the `selfupdate` package; after a swap they run in the replacement binary, and when nothing was swapped the already-selected binary runs them in-process. Doctor invocation is likewise at the orchestration layer. Update success exit is unconditional once the swap (staged or downloaded) succeeds.
 
 ## Update lock and staged swap
 
@@ -78,16 +80,16 @@ Before deciding how to swap, `atomic update` always performs its own fresh GitHu
 
 The staged archive is produced out-of-band: a detached child, spawned at most once per hour by any `atomic` invocation (not `atomic update` alone) after stamping `last_check` in `state.json`, performs the GitHub lookup and — at most once per version, gated by config `update.stage` — downloads and checksum-verifies a release archive into `~/.cache/atomic/staged/`. See [`selfupdate-state.md`](./selfupdate-state.md) for the full state schema, spawn cadence, and staging gate.
 
-## Artifact auto-refresh contract
+## Post-swap target convergence contract
 
 Runs between the binary swap and the post-update doctor, in `runUpdate` (`atomic/cmd/atomic/main.go`).
 
-- **Default-on, no detection gate.** Anyone running `atomic update` is assumed to want the whole product current, so the refresh always runs unless `--skip-claude-update` is given. There is no managed-install detection: `claude update` is idempotent and its CLAUDE.md handling is safe on every input (block-aware replacement for tagged files, proposed-file for tagless — see [`atomic-binary.md`](./atomic-binary.md)).
-- **Mechanism**: re-exec the freshly swapped binary — `<exe> claude update --no-update-check` (args built by `artifactRefreshArgs`), streaming output. Re-exec is load-bearing: the running process still embeds the OLD bundle after the swap; an in-process `claudeinstall.Update` would install stale artifacts.
-- **Hook preservation**: when `hooks.IsInstalled($HOME)` reports no session-start hook, `--no-hooks` is appended to the re-exec. The refresh renews an existing registration but is never the thing that first registers hooks or overrides an explicit `--no-hooks` install choice.
-- **Opt-out**: `--skip-claude-update` skips the re-exec entirely (no nudge — the skip was explicit). No config key (add one if a real need appears).
-- **Failure**: re-exec error warns on stderr with `run 'atomic claude update' manually`; never changes the update exit code. Doctor still runs afterwards and surfaces real breakage.
-- **Ordering**: refresh strictly before doctor, so check 1 (install integrity) validates the refreshed state. The in-process doctor compares against the old binary's embedded manifest; any resulting skew is drift-shaped (WARN) and suppressed by the FAIL-only output rule below.
+- **Default-on, no detection gate.** Anyone running `atomic update` is assumed to want the whole product current, so every enrolled target is converged unless `--skip-claude-update` is given. An unenrolled home is a no-op, never an error, and there is no managed-install detection: convergence is idempotent and safe on every input.
+- **Mechanism**: convergence is the CP7A install engine (`install.Steps.ConvergeEnrolled`), auto-approved because running `atomic update` is the consent. After a swap, the running process still embeds the old corpus and must not publish, so it re-execs the replacement binary as `<exe> update --__target-converge` (forwarding `--skip-claude-update` and `--no-doctor`); the replacement re-acquires the lifecycle lock, recovers unresolved journals, and converges every enrolled target with its own generation. When nothing was swapped, this process already embeds the selected generation and converges in-process.
+- **Adapter mutations.** Each adapter applies its own narrow native writes during convergence — for Claude, the inline SessionStart registration and the `outputStyle` seed — and records their ledger ownership, so a target uninstall later removes exactly the members Atomic wrote (see [`uninstall.md`](./uninstall.md)). The update path no longer re-execs `claude update` or passes `--no-hooks`.
+- **Opt-out**: `--skip-claude-update` skips convergence entirely; migrations and doctor still run. No config key (add one if a real need appears).
+- **Failure**: a convergence error warns on stderr with `run \`atomic harness repair\` manually` and never changes the update exit code; a blocked plan prints `<target> <status> <blocker>` for the operator. Doctor still runs afterwards and surfaces real breakage.
+- **Ordering**: convergence strictly before doctor, so check 1 (install integrity) validates the converged state; migrations run between the two.
 
 ## Config schema addition
 
@@ -142,7 +144,7 @@ FAIL lines use the same format `atomic doctor` already emits (no reformatting), 
 | `--check` | yes | Unchanged; never triggers post-update doctor (no apply happened) |
 | `--channel <name>` | yes | Unchanged |
 | `--no-doctor` | yes | Disable post-update doctor for this invocation; overrides config |
-| `--skip-claude-update` | yes | Skip the post-swap `~/.claude` artifact refresh; binary swap only |
+| `--skip-claude-update` | yes | Skip the post-swap enrolled-target convergence; migrations and doctor still run |
 
 No `--verbose` flag is added by this spec. Today's `atomic update` does not have one, and post-update doctor output is deliberately FAIL-only.
 
@@ -193,6 +195,18 @@ For testability, `runUpdate` accepts a function-typed dependency `runDoctor func
 | `update.run_doctor` bool zero-value (false) indistinguishable from "absent" | medium | Use raw-map presence check at decode time (existing pattern at `config.go:79`) — explicit-false vs absent both have different semantics; `Default()` sets `RunDoctor: true` |
 
 ## Change log
+
+### 2026-09-20 — Post-swap convergence replaces the claude-update re-exec
+
+**What changed:** The post-swap step is now target convergence. `atomic update` converges every enrolled harness target through the CP7A install engine (auto-approved because the update is the consent), then runs pending migrations, then the post-update doctor. After a swap the replacement binary is re-exec'd as `update --__target-converge` (forwarding `--skip-claude-update` and `--no-doctor`) so it converges with its own embedded generation; when nothing was swapped the already-selected binary converges in-process. Each adapter applies its own narrow native writes during convergence — for Claude the SessionStart registration and the `outputStyle` seed, recorded as ledger ownership. `--skip-claude-update` now skips convergence only; migrations and doctor still run. Goal, the Architecture flow and caption, the `## Artifact auto-refresh contract` section (now `## Post-swap target convergence contract`), and the CLI flags table were updated.
+
+**Why:** `docs/spec/omp-plugin-compatibility.md` (CP7B) makes `atomic update` target-aware. The prior body described a `~/.claude` artifact refresh performed by re-execing `claude update`, plus a hook-preservation clause for `--no-hooks` and an already-current path that exited without converging — all retired by the CP7B implementation, so a fresh reader would have built the wrong path.
+
+**Superseded:** Prior body re-exec'd `<exe> claude update --no-update-check`, appending `--no-hooks` when no session-start hook was registered, and an already-current update printed "up to date" and exited without converging any target.
+
+### 2026-09-20 — Correction: the skip-convergence branch still passes migrations
+
+**Correction:** The Architecture flow routed the `--skip-claude-update` branch straight from `R` to the `--no-doctor?` decision, bypassing `M[run pending migrations]`. The code diverges: `runUpdatePostSwap` calls `deps.migrate(home)` whenever a home is resolved, gating only convergence on `!skipTargets`, and this section's own prose already said migrations still run. The flow now passes both branches through `M`.
 
 ### 2026-08-09 — Update lock, staged fast-path swap, and detached background check
 

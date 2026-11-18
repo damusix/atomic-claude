@@ -1,11 +1,23 @@
 {{define "squash-flow-preflight"}}
 <squash-preflight>
 
-1. Determine base:
+A squash runs only on a clean feature branch and is skipped when the branch carries a single commit.
+
+```mermaid
+flowchart TD
+    B{"On base?"} -->|yes| S1["Stop: nothing<br/>to squash"]
+    B -->|no| D{"Dirty tree?"}
+    D -->|yes| S2["Stop: commit<br/>or stash first"]
+    D -->|no| C{"One commit only?"}
+    C -->|yes| K1["Skip: one commit,<br/>nothing to squash"]
+    C -->|no| K["Squash steps"]
+```
+
+- **On base?**: compare `git branch --show-current` with the base from:
    {{ template "base-resolution" . }}
-2. `git branch --show-current` — if on base, stop: nothing to squash.
-3. `git status --porcelain` — if dirty, stop: commit or stash first.
-4. Count commits: `git rev-list --count <base>..HEAD` — if only 1, stop: nothing to squash.
+- **Dirty tree?**: `git status --porcelain`.
+- **One commit only?**: `git rev-list --count <base>..HEAD` prints `1`.
+- **Skip: one commit, nothing to squash**: skip the squash steps below. On the squash + merge path, merge-flow still runs.
 
 </squash-preflight>{{- end}}
 
@@ -16,7 +28,8 @@
 2. **Session reports** — resolve the report dir via `atomic where --json`'s `reports` field (never construct it). If it has `*.md` files, read them chronologically and pass as supplemental why-context alongside `SUBJECTS`. Paths come from `atomic where --json`; if what you find on disk does not match, run `atomic migrate --show-log` for the change history.
 3. `git reset --soft $(git merge-base HEAD <base>)` — collapse all branch commits into the index.
 4. {{ template "review-gate" . }}
-5. {{ template "doc-impact" . }}
+5. Doc impact. A surface already prompted for earlier in this invocation (the commit step ahead of a squash) is not prompted again, whatever the answer was; only surfaces the branch diff newly makes stale get a prompt.
+   {{ template "doc-impact" . }}
 6. Invoke `atomic-git-discipline` skill. Pre-fill a Conventional Commits message synthesized from `SUBJECTS` (plus session reports if present). Present for review, then commit via HEREDOC.
 7. **Clean up session reports** — on successful commit, delete the `reports`-resolved dir from step 2. If the commit failed, leave them.
 8. **Update implementation logs.** Find spec files with an `## Implementation log` section in the squashed diff:

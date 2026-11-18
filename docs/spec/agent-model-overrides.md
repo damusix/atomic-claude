@@ -22,7 +22,7 @@ Users pin any installed atomic agent to a cost tier via `atomic config agents`. 
 - **SC-DSV (dispatch-site verification — load-bearing gate):** No command or agent template passes `model:` as an explicit Agent tool parameter when dispatching any atomic agent (`atomic-implementer`, `atomic-reviewer`, `atomic-strategist`, `atomic-investigator`, `atomic-wiki-inferrer`). Frontmatter is the sole lever. If any dispatch site hardcodes `model:` at call time, the frontmatter patch is dead and the mechanism must pivot to dispatch-time override before any build work begins.
 - **SC1:** `config.toml [agents]` accepts full agent filename keys (e.g., `atomic-implementer`) with tier values from `{haiku, sonnet, opus, fable}`. `atomic config agents` writes them interactively via huh; `config.WritePersist` persists.
 - **SC2:** `checks_config.go` / `config.Validate` fails on any `[agents]` value outside the allowlist; unknown agent-filename keys produce a warning (non-fatal).
-- **SC3:** `atomic claude install` and `atomic claude update` patch `model:` in each agent file listed under `[agents]`; an absent entry leaves the bundled default unchanged.
+- **SC3:** `atomic claude install` and `atomic claude update` patch `model:` in each agent file listed under `[agents]`; an absent entry leaves the bundled default unchanged. `atomic install` and `atomic update` go through the harness engine, which ships agent files unchanged, so they apply no patch.
 - **SC4:** A fresh install with overrides set, followed by a binary upgrade and reinstall, preserves the tier choices. The tier is re-derived from config on every install, never baked into the installed file as truth.
 - **SC5:** `config.resolved.md` regeneration reflects active `[agents]` overrides so the auto-loaded resolved config is accurate.
 - **SC6:** `docs/reference/agents.md` documents the override mechanism; `/atomic-help` covers `atomic config agents`; `atomic validate artifacts` (A1) passes on `cliusage.go` registration.
@@ -35,7 +35,7 @@ Users pin any installed atomic agent to a cost tier via `atomic config agents`. 
 | 2 | Config schema extension — add `[agents] map[string]string` to `Config` struct (config schema v2 addition); allowlist validation in `config.Validate` and `checks_config.go` | `atomic/internal/config/config.go`, `atomic/internal/doctor/checks_config.go` | atomic-implementer (surgical) | 2 | SC1 + SC2: valid tier stored and loaded; invalid tier surfaces as `FAIL`; round-trip through `config.WritePersist` + `config.Load` is clean |
 | 3 | `atomic config agents` interactive verb — huh-driven per-agent tier prompt; `cliusage.go` registration + A1 description | `atomic/cmd/atomic/main.go` (or dedicated handler), `atomic/internal/cliusage/cliusage.go` | atomic-implementer (surgical) | 2–3 | SC1: `atomic config agents` prompts tier selection, writes `[agents]` table, exits 0; A1 lint passes; `atomic config agents --help` registered |
 | 4 | Install-time frontmatter patch — `claudeinstall.Apply` (or `applyAction`) reads `[agents]`, calls `frontmatter.Parse`+`Emit` to rewrite `model:` for each configured agent before writing to `~/.claude/agents/` | `atomic/internal/claudeinstall/install.go` | atomic-implementer (surgical) | 1–2 | SC3 + SC4: install with override patches `model:` in installed file; re-install after upgrade re-applies; absent entry leaves bundled default unchanged; `config.Load` not called before the agent file exists on disk |
-| 5 | Surfaces — `config.resolved.md` generation reflects active overrides; `docs/reference/agents.md` documents the mechanism; `templates/commands/atomic-help.md` updated; `make render` + `make -C atomic bundle` clean | `docs/reference/agents.md`, config resolved rendering path, `templates/commands/atomic-help.md`, rendered `commands/atomic-help.md` | atomic-implementer (feature) | ~5 | SC5 + SC6: overrides visible in rendered resolved config; reference doc accurate; MISSING-scan zero; bundle parity clean (`git diff --exit-code` on both render and bundle) |
+| 5 | Surfaces — `config.resolved.md` generation reflects active overrides; `docs/reference/agents.md` documents the mechanism; `templates/commands/atomic-help.md` updated; `make render` + `make -C atomic bundle` clean | `docs/reference/agents.md`, the rendered resolved-config path, `templates/commands/atomic-help.md`, rendered `commands/atomic-help.md` | atomic-implementer (feature) | ~5 | SC5 + SC6: overrides visible in rendered resolved config; reference doc accurate; MISSING-scan zero; bundle parity clean (`git diff --exit-code` on both render and bundle) |
 
 ## Risks
 
@@ -56,3 +56,10 @@ Users pin any installed atomic agent to a cost tier via `atomic config agents`. 
 **Why:** users wanted arbitrary Claude Code model ids (e.g. `claude-opus-4-8`) and independent per-agent reasoning-effort control, not just a fixed tier label.
 
 **Superseded:** SC1/SC2's flat-map schema and hard tier allowlist, and this file's `## Goal`/`## Data model` description of `config.toml [agents]` as `map[string]string` with allowlist validation — both are replaced by the nested `map[string]AgentOverride` schema in `docs/spec/agents-effort-config.md`.
+
+
+### 2026-11-10 — Install and update entry points
+
+**What changed:** SC3 states that `atomic install` and `atomic update` apply no `model:` patch; only the `atomic claude` verbs do.
+
+**Why:** a bare `atomic install` now installs into every installed harness and `atomic update` adopts a legacy Claude install, both through the harness engine, which ships agent files unchanged. Readers could assume the patch follows them.

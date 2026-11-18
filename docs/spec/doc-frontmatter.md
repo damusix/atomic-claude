@@ -163,8 +163,7 @@ docs/reference/conventions.md
    step after the implementation loop's checkpoints are all green
 2. for every `docs/spec/*.md` file the task's change set touched, the step parses its
    frontmatter, sets `status: shipped` and `shipped_sha` to the commit about to be made, and
-   emits the file back, the same parse -> mutate -> emit shape as `wiki/stamp.go`'s
-   `updateFrontmatterKey`
+   emits the file back with `atomic/internal/frontmatter`'s `Parse` and `Emit`
 3. the stamped files are staged into the same `chore(signals)` commit as the refresh, not a
    separate commit
 
@@ -194,4 +193,10 @@ docs/reference/conventions.md
 
 ## Change log
 
-<!-- Populated on first amendment after the spec is approved. Do not log drafting/refinement turns. -->
+### 2026-10-18 — Stamping pointer moved to the frontmatter package
+
+**What changed:** The finalize-stamping flow names `atomic/internal/frontmatter`'s `Parse` and `Emit` as the parse and emit step.
+
+**Why:** `wiki/stamp.go` is deleted.
+
+**Removed:** the pointer to `wiki/stamp.go`'s `updateFrontmatterKey` as the shape to copy. See `docs/spec/realm-wiki-drop-refresh.md`.

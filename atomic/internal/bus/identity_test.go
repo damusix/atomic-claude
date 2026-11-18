@@ -57,6 +57,37 @@ func TestSessionID_AbsentIsAClearErrorNeverAFallback(t *testing.T) {
 	}
 }
 
+func TestSessionID_FollowsTheDetectedHarness(t *testing.T) {
+	tests := []struct {
+		name   string
+		env    map[string]string
+		wantID string
+	}{
+		{"claude session", map[string]string{"CLAUDE_CODE_SESSION_ID": "claude-1"}, "claude-1"},
+		{"codex thread", map[string]string{"CODEX_THREAD_ID": "thread-1"}, "thread-1"},
+		{"nested claude and codex", map[string]string{"CLAUDE_CODE_SESSION_ID": "claude-1", "CODEX_THREAD_ID": "thread-1"}, ""},
+		{"omp has no identity", map[string]string{"AGENT": "1", "CI": "true"}, ""},
+		{"claude marker without a session id", map[string]string{"CLAUDECODE": "1"}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for k, v := range tt.env {
+				t.Setenv(k, v)
+			}
+			id, err := SessionID("")
+			if tt.wantID == "" {
+				if err == nil || !strings.Contains(err.Error(), "no session identity") {
+					t.Fatalf("SessionID = %q, %v; want a no-identity error", id, err)
+				}
+				return
+			}
+			if err != nil || id != tt.wantID {
+				t.Fatalf("SessionID = %q, %v; want %q", id, err, tt.wantID)
+			}
+		})
+	}
+}
+
 func TestState_LoadMissingFileYieldsEmptyState(t *testing.T) {
 	home := t.TempDir()
 

@@ -25,12 +25,12 @@ You orchestrate a retrospective audit. Subagents do the scanning (read-only). Yo
     ```
     atomic retro extract --shards 4 --out "$SCRATCH/history.md"
     ```
-    Default `--since` is the last retrospective run (30 days on first run); the binary names which on stderr. If `atomic` is absent or exits non-zero, announce `history extract unavailable — history scan skipped` and set the scope to current-only for Step 2b.
+    Default `--since` is the last retrospective run (30 days on first run); the binary names which on stderr. If it exits non-zero, announce `history extract unavailable — history scan skipped` and set the scope to current-only for Step 2b.
 4. Read `$LEARNINGS` if it exists. It carries: acceptance rates per category, modify-signal patterns, deprioritized finding types. Apply as soft weights during Phase 4 categorization. If absent, proceed — it will be created at the end of the run.
 
 ## Step 1 — Pick scope
 
-Prompt via `AskUserQuestion`:
+Ask the user a question:
 
 ```
 Question: What scope should this retrospective cover?
@@ -43,7 +43,7 @@ Store the answer as `$SCOPE`.
 
 ## Step 2 — Dispatch background agents in parallel
 
-Single message, two or three `Agent` tool calls. Briefs live in `$SCRATCH/`.
+Single message, one dispatch per agent below. Briefs live in `$SCRATCH/`.
 
 ### 2a. Discovery — `atomic-investigator` (always)
 
@@ -57,29 +57,29 @@ Catalog every config-shaped file at BOTH installed (~/.claude) and project level
 Look for:
 
 - Global: ~/.claude/CLAUDE.md, ~/.claude/CLAUDE.local.md, ~/.claude/commands/, ~/.claude/agents/, ~/.claude/skills/, ~/.claude/output-styles/, ~/.claude/rules/, ~/.claude/settings.json, ~/.claude/settings.local.json, ~/.atomic/config.toml, ~/.atomic/profile.md
-- Project: ./CLAUDE.md, ./CLAUDE.local.md, .claude/commands/, .claude/agents/, .claude/skills/, .claude/settings.json, .claude/settings.local.json, docs/wiki/index.md, .claude/project/followups/INDEX.md, .claude/project/followups/*.md
+- Project: ./CLAUDE.md, ./CLAUDE.local.md, .claude/commands/, .claude/agents/, .claude/skills/, .claude/settings.json, .claude/settings.local.json, docs/wiki/index.md, <state-root>/project/followups/INDEX.md, <state-root>/project/followups/*.md (<state-root> is the state_root field of `atomic where --json`, .atomic by default)
 - Memory: ~/.claude/projects/${PROJECT_SLUG}/memory/MEMORY.md and topic files
 
 For each artifact: path, one-line purpose, char count, line count.
 Do NOT propose changes. Inventory only.
 
-Respond in atomic style. Drop filler, pleasantries, hedging. Fragments OK. Technical terms exact. Inventory table only — no preamble, no echo of this brief.
+Drop filler, pleasantries, hedging. Fragments OK. Technical terms exact. Inventory table only — no preamble, no echo of this brief.
 ```
 
-Dispatch with `subagent_type: "atomic-investigator"`. Prompt: `Read $SCRATCH/discovery-brief.md and return the inventory.`
+Dispatch `atomic-investigator`. Prompt: `Read $SCRATCH/discovery-brief.md and return the inventory.`
 
-### 2b. History scan — one Sonnet runner per shard (full scope only)
+### 2b. History scan — one runner per shard (full scope only)
 
 Skip if `$SCOPE = "current-only"`.
 
-`$SCRATCH/history.1.md` … `history.4.md` hold the extract from Pre-flight step 3: numbered lines, one `## <date> · <project dir>` section per session, and inside each section one entry per line: `[MM-DD HH:MM] user: <text>`, `/verb args`, `[MM-DD HH:MM] skill: <skill> <args>`, or `[MM-DD HH:MM] agent: <subagent_type> — <description>`.
+`$SCRATCH/history.1.md` … `history.4.md` hold the extract from Pre-flight step 3: numbered lines, one `## <date> · <project dir>` section per session, and inside each section one entry per line: `[MM-DD HH:MM] user: <text>`, `/verb args`, `[MM-DD HH:MM] skill: <skill> <args>`, or `[MM-DD HH:MM] agent: <agent name> — <description>`.
 
 Write `$SCRATCH/history-brief.md`, shared by every shard runner (each is told its own file path in the dispatch prompt):
 
 ```markdown
 # History scan brief
 
-Read the assigned shard file. Each line is prefixed `<N> | ` with its own physical line number. Every entry is one of: `user:` (typed text), `/verb args` (slash command), `skill: <name> <args>`, or `agent: <subagent_type> — <description>`.
+Read the assigned shard file. Each line is prefixed `<N> | ` with its own physical line number. Every entry is one of: `user:` (typed text), `/verb args` (slash command), `skill: <name> <args>`, or `agent: <agent name> — <description>`.
 
 Filter for:
 
@@ -109,12 +109,12 @@ Return a table:
 
 Mark recurring patterns (same complaint in 2+ sessions). No raw transcripts. Read-only.
 
-Respond in atomic style. Drop filler, pleasantries, hedging. Fragments OK. Findings only — no preamble, no echo of this brief.
+Drop filler, pleasantries, hedging. Fragments OK. Findings only — no preamble, no echo of this brief.
 ```
 
-Dispatch one runner per shard file that exists, in the same message: `subagent_type: "general-purpose"`, `model: sonnet`. Prompt each: `Read $SCRATCH/history-brief.md. Your shard is $SCRATCH/history.<i>.md. Execute. Read-only.`
+Dispatch one runner per shard file that exists, in the same message: the harness's default general agent, by name, on the economical reasoning tier. Prompt each: `Read $SCRATCH/history-brief.md. Your shard is $SCRATCH/history.<i>.md. Execute. Read-only.`
 
-### 2c. Prior-retro audit — one Sonnet runner (full scope only, and only if `$RUNS_DIR` has entries)
+### 2c. Prior-retro audit — one runner (full scope only, and only if `$RUNS_DIR` has entries)
 
 Skip if no prior runs exist.
 
@@ -138,10 +138,10 @@ Return:
 
 Plus a separate list of `drifted` and `missing` items for re-surfacing (with target file and verify phrase), and a list of `skipped` + `suppressed` items whose `signal_keywords` reappear in the current run.
 
-Respond in atomic style. Drop filler, pleasantries, hedging. Fragments OK. Audit table + re-surface list only — no preamble, no echo of this brief.
+Drop filler, pleasantries, hedging. Fragments OK. Audit table + re-surface list only — no preamble, no echo of this brief.
 ```
 
-Dispatch with `subagent_type: "general-purpose"`, `model: sonnet`. Prompt: `Read $SCRATCH/prior-retro-brief.md.`
+Dispatch the harness's default general agent, by name, on the economical reasoning tier. Prompt: `Read $SCRATCH/prior-retro-brief.md.`
 
 ## Step 3 — Analyze current conversation (foreground, while agents run)
 
@@ -223,20 +223,25 @@ Parse the outputs:
 
 These findings carry the binary's own remediation text — the LLM does not paraphrase it. Recommendations are the binary's verbatim `--fix` suggestion when present.
 
-If `atomic` is not on `PATH` (binary not installed in this project), skip this step entirely and announce `atomic binary absent — deterministic audits skipped, falling through to LLM checks only.` Continue.
-
 ### 5a. Enforcement-gap detection → hook proposal
 
-For each rule in `CLAUDE.md` / `~/.claude/CLAUDE.md` / skills:
+For each rule in `CLAUDE.md` / `~/.claude/CLAUDE.md` / skills, a single violation strengthens the wording and a repeated one proposes a hook.
 
-- Did the current conversation violate it? Single violation → propose **strengthen** (NEVER/ALWAYS prefix, move higher).
-- Did history scan show 2+ violations across sessions, OR did current conversation violate it 2+ times? Propose **convert to hook**.
+```mermaid
+flowchart TD
+    V{"Violations?"} -->|none| K["No finding"]
+    V -->|one, this session| S["Propose strengthen"]
+    V -->|repeated| H["Propose hook"]
+```
+
+- **Violations?**: repeated means 2+ across sessions in the history scan, or 2+ in the current conversation.
+- **Propose strengthen**: NEVER/ALWAYS prefix, move higher.
 
 When proposing a hook, generate the full `.claude/settings.json` patch ready to paste. Pick the right event:
 
 | Rule shape | Hook event |
 |------------|-----------|
-| Forbidden bash flag or command pattern | `PreToolUse` matcher `Bash`, command greps tool_input, exits 2 on match |
+| Forbidden bash flag or command pattern | `PreToolUse` matcher on the shell tool's name, command greps tool_input, exits 2 on match |
 | Forbidden tool entirely | `PreToolUse` matcher `<ToolName>`, command exits 2 unconditionally |
 | Required follow-up after a tool ran | `PostToolUse` matcher `<ToolName>`, command runs validation |
 | Periodic announcement / reminder | `Notification` |
@@ -411,7 +416,7 @@ For each selected item, you will be asked per-finding individually (per axiom 3 
 Your selection:
 ```
 
-Validate indices the same way `/git-cleanup` does. After valid selection, walk each picked finding one at a time via `AskUserQuestion`.
+Validate indices the same way `/git-cleanup` does. After valid selection, walk each picked finding one at a time, asking the user a question for each.
 
 **Standard findings** (most tiers):
 
@@ -460,13 +465,49 @@ On "Accept new": append the new fact to the matching section in `~/.atomic/profi
 
 `<deterministic>` section facts are excluded — they should never appear here.
 
-**Sub-option findings** (e.g. hook conversion in `critical` tier): after Accept, follow up with a second `AskUserQuestion` for the sub-option (strengthen / hook-project / hook-global / both).
+**Sub-option findings** (e.g. hook conversion in `critical` tier): after Accept, ask the user a second question for the sub-option (strengthen / hook-project / hook-global / both).
+
+### 6c. Walk the picked findings
+
+Each picked finding is answered and recorded before the next one, and the walk reaches the apply step only when every pick is recorded or the user stops at a checkpoint.
+
+```mermaid
+flowchart TD
+    N["Next picked finding"] --> Q{"Answer?"}
+    Q -->|open issue| P["Print the command"]
+    Q -->|modify| MF["Modify flow"]
+    Q -->|other| R["Record decision"]
+    P --> R
+    MF --> R
+    R --> C{"Checkpoint<br/>says stop?"}
+    C -->|yes| SK["Skip the rest"]
+    C -->|no| M{"More picked?"}
+    M -->|yes| N
+    M -->|no| AP["Step 7: apply"]
+    SK --> AP
+```
+
+- **Answer?**: per finding type in 6b.
+- **Print the command**: per the atomic-meta block in 6b.
+- **Modify flow**: below.
+- **Checkpoint says stop?**: after every 5 findings walked, offer `5 findings walked, K remaining. Continue, or apply what we have and skip the rest?`
+- **Skip the rest**: record the remaining indices as `disposition: "skip"` (not `suppressed` — the user actively chose to stop, the signal is "audit fatigue this session").
 
 **Modify flow** (turn-boundary, not inline read).
 
-`AskUserQuestion` does not collect free-text, and there is no inline-read primitive in the harness. The only way to get the user's replacement wording is to **end the assistant turn** and resume from their next message. The flow:
+A question to the user offers fixed options and does not collect free text, and there is no inline-read primitive in the harness, so the only way to get the user's replacement wording is to end the assistant turn and resume from their next message. The apply phase cannot run until every Modify has resolved.
 
-1. When the user picks `Modify` in the AskUserQuestion for finding `[N]`, persist the pending state to `$SCRATCH/pending-modify.json`:
+```mermaid
+flowchart TD
+    S["Save pending state"] --> P["Print modify prompt"]
+    P --> E["End the turn"]
+    E --> R{"Next message<br/>is wording?"}
+    R -->|yes| C["Capture, resume walk"]
+    R -->|no| A["Record skip, resume"]
+```
+
+- **Save pending state**: write `$SCRATCH/pending-modify.json`:
+
     ```json
     {
       "finding_index": N,
@@ -474,39 +515,51 @@ On "Accept new": append the new fact to the matching section in `~/.atomic/profi
       "remaining_indices": [<list of unwalked findings>]
     }
     ```
-2. Print exactly:
+
+- **Print modify prompt**: print exactly:
+
     ```
     Modify [N]: <one-line finding summary>
     Original recommendation: <text>
 
     Paste your replacement wording in your next message. It will be used verbatim when applying.
     ```
-3. End the assistant turn. Do not call further tools.
-4. On the next user message, read `$SCRATCH/pending-modify.json`, capture the user's entire message as `decision.modified_content`, delete the pending file, and resume the indexed walk at the next pending finding.
 
-This is a real turn boundary — the apply phase cannot run until every Modify has resolved. If the user instead replies with something off-script (a question, a redirect), abandon the Modify (record as `disposition: "skip"` with a note `"modify abandoned: user redirected"`) and continue the walk from where it stopped.
-
-After every 5 findings walked, offer a checkpoint: `5 findings walked, K remaining. Continue, or apply what we have and skip the rest?` Skip-the-rest records remaining indices as `disposition: "skip"` (not `suppressed` — the user actively chose to stop, the signal is "audit fatigue this session").
+- **End the turn**: do not call further tools.
+- **Next message is wording?**: an off-script reply (a question, a redirect) is not wording.
+- **Capture, resume walk**: read `$SCRATCH/pending-modify.json`, capture the user's entire message as `decision.modified_content`, delete the pending file, and resume the indexed walk at the next pending finding.
+- **Record skip, resume**: `disposition: "skip"` with the note `"modify abandoned: user redirected"`, then continue the walk from where it stopped.
 
 ## Step 7 — Apply
 
 Announce: `Applying K approved changes across J files.`
 
-For each approved decision, in priority order:
+Decisions apply in priority order, and every write is verified after the fact.
 
-1. Read the target file.
-2. Decide the `verify_phrase` **before** writing — patch-unique, not concept-unique. Pick a literal substring of the bytes you are about to write that would not exist if the change were absent. For a hook patch, that's the exact `grep -qE '<PATTERN>' && { echo 'blocked: <REASON>'` slice — not the rule name (`--no-verify`), which exists in many places. For a CLAUDE.md sentence add, the verbatim new sentence. For a memory consolidation, a distinctive phrase from the merged content. The test: would this exact substring exist in the target file *only because the change was applied*? If not, pick a longer slice.
+```mermaid
+flowchart TD
+    D["Next decision"] --> K{"Skip or<br/>routed-to-issue?"}
+    K -->|yes| L["Log only"]
+    K -->|no| V["Read target, pick<br/>verify phrase"]
+    V --> A["Apply change"]
+    A --> C{"Verify passes?"}
+    C -->|no| F["Mark failed, warn"]
+    C -->|yes| M{"More decisions?"}
+    L --> M
+    F --> M
+    M -->|yes| D
+    M -->|no| P["Print changes table"]
+```
 
-   **Inverted case for deletes.** Memory-file consolidation deletes the source file. There is nothing to grep for. Record `verify_phrase: null` and `verify_absence: true` with `target_file` = the deleted path. Next run's prior-retro audit treats this as: landed if the file is absent, drifted if the file reappeared with similar content.
+- **Log only**: no file write; the decision is persisted in the run log. A skip carries its `signal_keywords` so future runs can detect recurrence. A routed-to-issue decision is the user's to file with `/report-issue-with-atomic`.
+- **Read target, pick verify phrase**: decide the `verify_phrase` **before** writing — patch-unique, not concept-unique. Pick a literal substring of the bytes you are about to write that would not exist if the change were absent. For a hook patch, that's the exact `grep -qE '<PATTERN>' && { echo 'blocked: <REASON>'` slice — not the rule name (`--no-verify`), which exists in many places. For a CLAUDE.md sentence add, the verbatim new sentence. For a memory consolidation, a distinctive phrase from the merged content. The test: would this exact substring exist in the target file *only because the change was applied*? If not, pick a longer slice.
 
-   **Acceptable side effect.** If the user later edits the change in good faith — softens "NEVER" to "Avoid", reformats the hook with `jq --indent 2` — the next prior-retro audit fires `drifted` on it. That is correct behavior. Drift means "the original change is gone." Whether it was replaced by something better is a separate signal not in scope.
-3. For Modify decisions, use the user's text from `$SCRATCH/pending-modify.json` instead of the original recommendation.
-4. Apply the change (edit / append / new file / hook patch).
-5. **Verify-after-apply.** Re-read the target file (or `ls` for delete cases) and grep for the `verify_phrase` recorded in step 2. If absent (or if a delete target still exists), the write failed silently — set `decision.disposition = "failed"`, capture stderr / the apply error in `decision.failure_reason`, surface a one-line warning to the user (`[N] write failed: <reason> — finding will re-surface in next run`), and continue to the next decision. Do NOT include failed items in the changes-applied table. The verify step is non-negotiable: a silent write failure is worse than a loud one because the user thinks the change landed and the next run's drift audit will report `drifted` ambiguously (as if the change was rolled back, not as if it never landed).
-6. For "convert to hook" — see the merge recipe below. Sub-step 4 (Apply) becomes the jq-merge sequence; sub-step 5 (Verify) greps for the hook command-line in the resulting `.hooks.<event>` array.
-7. For memory consolidation that deletes files — first integrate content into the target (skill or CLAUDE.md), confirm by re-reading, then delete the source memory file and update `MEMORY.md`. Sub-step 5 (Verify) tests the deleted-path-still-absent condition.
-8. For "skip" decisions — no file write. Just persisted in the run log with `signal_keywords` so future runs can detect recurrence. Sub-steps 3-5 are skipped.
-9. For "routed-to-issue" decisions (atomic-meta tier) — no file write. The user runs `/report-issue-with-atomic` themselves. Just persisted in the run log. Sub-steps 3-5 are skipped.
+    **Inverted case for deletes.** Memory-file consolidation deletes the source file. There is nothing to grep for. Record `verify_phrase: null` and `verify_absence: true` with `target_file` = the deleted path. Next run's prior-retro audit treats this as: landed if the file is absent, drifted if the file reappeared with similar content.
+
+    **Acceptable side effect.** If the user later edits the change in good faith — softens "NEVER" to "Avoid", reformats the hook with `jq --indent 2` — the next prior-retro audit fires `drifted` on it. That is correct behavior. Drift means "the original change is gone." Whether it was replaced by something better is a separate signal not in scope.
+- **Apply change**: edit / append / new file / hook patch. A Modify decision uses the user's text from `$SCRATCH/pending-modify.json` instead of the original recommendation. A hook conversion uses the merge recipe below. A memory consolidation that deletes files first integrates the content into the target (skill or CLAUDE.md), confirms by re-reading, then deletes the source memory file and updates `MEMORY.md`.
+- **Verify passes?**: re-read the target file (or `ls` for delete cases) and grep for the `verify_phrase`. A hook conversion greps for the hook command-line in the resulting `.hooks.<event>` array; a delete passes while the deleted path stays absent. Non-negotiable: a silent write failure is worse than a loud one, because the user thinks the change landed and the next run's drift audit reports `drifted` ambiguously (as if the change was rolled back, not as if it never landed).
+- **Mark failed, warn**: set `decision.disposition = "failed"`, capture stderr / the apply error in `decision.failure_reason`, and warn `[N] write failed: <reason> — finding will re-surface in next run`. Failed items stay out of the changes-applied table.
 
 ### Hook merge recipe
 
@@ -529,7 +582,7 @@ PROPOSED=$(jq --argjson patch "$PATCH" --arg ev "$EVENT" \
 echo "$PROPOSED" | jq .hooks
 ```
 
-Then confirm with the user via `AskUserQuestion`: `Apply this hook merge to <TARGET>? (yes / no)`. On yes:
+Then ask the user a question to confirm: `Apply this hook merge to <TARGET>? (yes / no)`. On yes:
 
 ```bash
 echo "$PROPOSED" > "$TARGET.tmp" && mv "$TARGET.tmp" "$TARGET"
@@ -640,7 +693,7 @@ Atomic. No narration. Print every shell command before running it (axiom 3). Fin
 ## Rules
 
 - Always full sweep. `$ARGUMENTS` weights priority, never narrows scope. **Why:** narrowing skips audits the user didn't know to ask for; the value is surfacing the unknown unknowns.
-- Indexed selection (axiom 4) when finding count >4. `AskUserQuestion` only for per-item Accept/Modify/Skip (or Open-issue/Skip for atomic-meta tier) after the indexed pick. **Why:** paginating 12 findings through 4-option widgets is worse UX than one printed list.
+- Indexed selection (axiom 4) when finding count >4. A question to the user only for per-item Accept/Modify/Skip (or Open-issue/Skip for atomic-meta tier) after the indexed pick. **Why:** paginating 12 findings through 4-option widgets is worse UX than one printed list.
 - Atomic-meta findings never write files in this command. They route to `/report-issue-with-atomic` — the user runs it. **Why:** issue creation is a public action with persistent state on GitHub; per axiom 3 (destructive ops), the user invokes the publishing verb themselves so they can edit the body before submission.
 - Per-item confirm before any file write or hook patch (axiom 3). No "apply all" shortcut. **Why:** advisory rules getting promoted to enforcement hooks change tool behavior globally; batch-accepting hides the blast radius.
 - Memory consolidation: never delete a memory file before grep-verifying that the content lives in the target. The consolidate-then-clean order is mandatory. **Why:** unverified redundancy claims silently destroy rules.
@@ -648,7 +701,7 @@ Atomic. No narration. Print every shell command before running it (axiom 3). Fin
 - Prior-retro drifted/missing findings re-enter the current run at tier 1. Previously skipped OR suppressed findings re-enter at tier 2 only when their `signal_keywords` match a current-run signal. **Why:** the audit-trail is itself a deliverable; users want confidence that past accepts stuck, and skipped/suppressed items shouldn't nag unless the underlying friction is still present. Suppressed re-surfaces are weighted equally with skipped re-surfaces — the user never had the chance to actively decline a suppressed item.
 - Never edit `~/.claude/settings.json` or `.claude/settings.json` without printing the JSON patch first and confirming. Delegate to `/update-config` skill when present. **Why:** settings.json changes affect tool permissions and hook execution — they need a visible diff.
 - No commits. End by suggesting `/commit`; let the user inspect first. **Why:** mixed audit + ship is opaque; separating them keeps the diff reviewable.
-- Read-only agents only — discovery, history scan, prior-retro audit all use read-only agents (`atomic-investigator`, plus Sonnet-backed `general-purpose` runners). Only the orchestrator writes. **Why:** parallel agents writing the same files is a race condition without coordination overhead.
+- Read-only agents only — discovery, history scan, prior-retro audit all use read-only agents (`atomic-investigator`, plus runners on the harness's default general agent). Only the orchestrator writes. **Why:** parallel agents writing the same files is a race condition without coordination overhead.
 - Atomic-tier carve-out for state: `retro-runs/` and `retro-learnings.md` live in `~/.atomic/`, not in memory (axiom 2 carve-out for shell-readable durable state). **Why:** the next run needs to grep past run logs deterministically; memory is conversational and not addressable from a shell.
 
 ## Open behaviors

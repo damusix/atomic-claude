@@ -2,8 +2,8 @@
 name: atomic-documentation
 description: >
   Diff-driven documentation surface classifier. Given a diff (staged, branch, or
-  range), reads the project's indexed ## Documentation surfaces table from CLAUDE
-  instructions, matches the diff against it, and emits a structured list of
+  range), reads the project's indexed ## Documentation surfaces table from its
+  instruction files, matches the diff against it, and emits a structured list of
   proposed edits. Two modes: maintenance (commit flow — stale/incomplete only,
   never suggests new pages) and authoring (/documentation explicit — full
   discovery, gap detection, content generation). Auto-fires on "doc this change",
@@ -28,14 +28,14 @@ This skill reads the project's indexed documentation surfaces, matches a diff ag
 
 | Surface | Where | Style |
 |---------|-------|-------|
-| **How Claude talks** | TUI replies | Atomic output style: terse, fragments OK, drop articles. Governed by `output-styles/atomic.md`. |
-| **How files are written** | All file content | The `atomic-writing` skill, everywhere: README, guides, reference, specs, designs, wiki pages, `CLAUDE.md`, and the prompt artifacts under `commands/`, `agents/`, `skills/`, `rules/`. One voice; length is set by what the surface carries. |
+| **How the assistant talks** | TUI replies | Atomic output style: fragments in labels, list items, and status lines; full sentences in explanations. Governed by `output-styles/atomic.md`. |
+| **How files are written** | All file content | The `atomic-writing` skill, everywhere: README, guides, reference, specs, designs, wiki pages, `AGENTS.md`, and the prompt artifacts under `commands/`, `agents/`, `skills/`, `rules/`. One voice; length is set by what the surface carries. |
 
 There is no separate terse-technical voice. A spec and a README differ in length and structure, not in voice, and either one prefers a diagram over a paragraph when the content has a shape.
 
 ## How surface routing works
 
-The skill reads the `## Documentation surfaces` table from the project's CLAUDE instructions. Search order: `claude.local.md` or `CLAUDE.local.md` (treated as a pair) → `CLAUDE.md`. First file containing the heading wins.
+The skill reads the `## Documentation surfaces` table from the project's instruction files. Search order: a local override file → the shared project steering `AGENTS.md` → any adjacent native loader. First file containing the heading wins.
 
 Expected table format:
 
@@ -69,16 +69,13 @@ reason: migration adds refund_status column to orders table
 action: update orders entity in ERD, add field to orders table
 
   [y] Yes — update now
-  [l] Later — create a follow-up (atomic followups add)
-  [r] Remind me — schedule a reminder (/remind-me flow)
+  [l] Later — record a follow-up
   [s] Skip — no action, no record
 ```
 
 **Yes** → skill opens the file, reads current content, reads the diff, makes the targeted edit (see Content generation below), stages the file.
 
-**Later** → runs `atomic followups add` with `severity: nit`, `origin: /commit-only doc-impact`, title derived from surface path and diff summary.
-
-**Remind me** → natural-language time inference same as `/remind-me`. Creates a reminder.
+**Later** → record through the resolved issue tracker, falling back to the local ledger, per the invoking command's follow-up sink; this skill records nothing itself.
 
 **Skip** → no action, no record.
 
@@ -88,17 +85,30 @@ action: update orders entity in ERD, add field to orders table
 
 ### Authoring mode (invoked by `/documentation`)
 
-Full pipeline. User opted in to spending time on docs.
+Full pipeline. User opted in to spending time on docs. Diff classification runs only when a range is given; the scan, the new-page suggestions, and the per-surface walk always run.
 
-1. Run `atomic docs scan` (deterministic heading extraction; falls back to Bash filesystem walk if binary absent). Lists discovered doc files with H1 + first 3 H2s.
-2. Compare scan against the indexed surfaces table. Surface any unindexed docs: "Found N doc files not in your surfaces table. Add them?"
-3. If a diff range is provided, match it against indexed surfaces. Classify as stale, incomplete, or missing.
-4. For domains identified by signals with no doc surface and 5+ files: suggest creating a new page (heuristic gate — small utility modules don't need a page).
-5. Walk surfaces with the user, per surface:
-   - **Stale/incomplete** → same Yes/Later/Remind/Skip as maintenance mode. "Yes" generates the full content immediately.
-   - **Missing** → `[n] New` generates a full page draft (ERDs, flowcharts, prose, tables as appropriate), writes the file, offers to add it to the surfaces table in CLAUDE.md, notes where to link it (index, sidebar, README).
-6. Stage edited/created files.
-7. Emit summary: edited / deferred / skipped / created.
+```mermaid
+flowchart TD
+    S["Scan doc files"] --> U{"Unindexed docs?"}
+    U -->|yes| A["Offer to index them"]
+    U -->|no| R{"Diff range given?"}
+    A --> R
+    R -->|yes| C["Classify surfaces"]
+    R -->|no| G["Suggest new pages"]
+    C --> G
+    G --> W["Walk each surface"]
+    W --> T["Stage and summarize"]
+```
+
+- **Scan doc files**: `atomic docs scan` (deterministic heading extraction). Lists discovered doc files with H1 + first 3 H2s. On a non-zero exit, print its stderr and stop.
+- **Unindexed docs?**: compare the scan against the indexed surfaces table.
+- **Offer to index them**: `Found N doc files not in your surfaces table. Add them?`
+- **Classify surfaces**: match the range against indexed surfaces as stale, incomplete, or missing.
+- **Suggest new pages**: for domains identified by signals with no doc surface and 5+ files (heuristic gate — small utility modules don't need a page).
+- **Walk each surface**: with the user, per surface:
+    - **Stale/incomplete** → same Yes/Later/Skip as maintenance mode. "Yes" generates the full content immediately.
+    - **Missing** → `[n] New` generates a full page draft (ERDs, flowcharts, prose, tables as appropriate), writes the file, offers to add it to the surfaces table in the project instructions, notes where to link it (index, sidebar, README).
+- **Stage and summarize**: stage edited/created files, then emit the summary: edited / deferred / skipped / created.
 
 </authoring_mode>
 
@@ -125,7 +135,7 @@ Generate a full draft using the doc type that fits the content:
 - **New multi-step process** → flow doc: Mermaid flowchart (happy path → error/edge paths), step descriptions.
 - **Architectural decision** → ADR: context, decision, consequences. Short. Point-in-time.
 
-After generating: write the file, offer to add it to the `## Documentation surfaces` table in CLAUDE.md, note where to link it.
+After generating: write the file, offer to add it to the `## Documentation surfaces` table in the project instructions, note where to link it.
 
 ### Mermaid generation
 
@@ -184,16 +194,22 @@ surfaces:
 
 `impact_type` values: `stale | incomplete | missing`. Maintenance mode never emits `missing`.
 
-Parser contract (caller side):
+Parser contract (caller side): a malformed or absent block reads as "no surfaces", and a bad entry is skipped without aborting the rest.
 
-1. Search model output for the last fenced code block tagged `yaml` or `yml` (alias; both accepted).
-2. If found, parse as YAML. On parse error, fall back to "no surfaces."
-3. If no fenced `yaml`/`yml` block is present, treat as "no surfaces."
-4. If parsed YAML lacks a `surfaces` key or `surfaces` is not a list, treat as "no surfaces."
-5. Surfaces with unknown `voice` values are logged and skipped; do not abort.
-6. Surface entries missing required fields (`path`, `voice`) are logged and skipped; do not abort.
-7. Surface entries with unknown fields (e.g. `impact_type`, `reason`, `suggested_change`) are accepted — only `path` and `voice` are required.
-8. Empty `surfaces: []` is valid and means "explicitly nothing to update."
+```mermaid
+flowchart TD
+    B{"Last yaml block<br/>found?"} -->|no| N["No surfaces"]
+    B -->|yes| P{"Parses, surfaces<br/>is a list?"}
+    P -->|no| N
+    P -->|yes| E{"Entry has path and<br/>a known voice?"}
+    E -->|no| L["Log and skip entry"]
+    E -->|yes| K["Accept entry"]
+```
+
+- **Last yaml block found?**: the last fenced code block tagged `yaml` or `yml` (alias; both accepted) in the model output.
+- **Parses, surfaces is a list?**: a parse error, a missing `surfaces` key, or a non-list `surfaces` all mean "no surfaces." Empty `surfaces: []` is valid and means "explicitly nothing to update."
+- **Entry has path and a known voice?**: checked per entry; `path` and `voice` are the only required fields.
+- **Accept entry**: unknown fields (e.g. `impact_type`, `reason`, `suggested_change`) are accepted.
 
 </output_format>
 

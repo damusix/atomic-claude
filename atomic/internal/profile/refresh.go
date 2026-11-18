@@ -2,11 +2,13 @@ package profile
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/damusix/atomic-claude/atomic/internal/config"
@@ -63,25 +65,64 @@ func IsStale(lastcheck, today string, days int) bool {
 	return diff >= time.Duration(days)*24*time.Hour
 }
 
-// Refresh re-detects every registry tool and rewrites profile.md's ## Environment
-// section, stamped with date. The caller injects date; time.Now is never called
-// here. Reports whether the file was written.
+// Refresh autodetects workflow preferences, then rewrites ## Environment with
+// date. Reports whether it wrote; an unchanged result writes nothing.
 func Refresh(home, date string) (bool, error) {
+	return refresh(home, date, defaultRefreshOpts(home))
+}
+
+func defaultRefreshOpts(home string) refreshOpts {
+	return refreshOpts{probe: WorkflowProbe{Home: home}, stderr: os.Stderr}
+}
+
+// refreshOpts holds the seams tests replace. A nil registry means the default
+// one; []RegistryEntry{} probes nothing.
+type refreshOpts struct {
+	probe    WorkflowProbe
+	registry []RegistryEntry
+	stderr   io.Writer
+}
+
+func refresh(home, date string, opts refreshOpts) (bool, error) {
+	probe, stderr := opts.probe, opts.stderr
 	profilePath := config.ProfilePath(home)
 
-	existing, err := os.ReadFile(profilePath)
-	if err != nil && !os.IsNotExist(err) {
-		return false, fmt.Errorf("profile refresh: read %s: %w", profilePath, err)
+	content, err := readProfileFile(profilePath)
+	if err != nil {
+		return false, err
 	}
-	content := string(existing)
+
+	// Before the tool probes: a refusal leaves lastcheck stale, so each session
+	// would pay for them.
+	detection := DetectWorkflow(probe)
+	if _, err := ApplyWorkflowDetection(content, detection); err != nil {
+		fmt.Fprintf(stderr, "profile refresh: %s not updated: %v\n", profilePath, err)
+		return false, nil
+	}
 
 	env := CaptureEnv()
-	tools := DetectAll(DetectOptions{})
+	tools := DetectAll(DetectOptions{Registry: opts.registry})
 	shell := DetectShell(ShellEnvOptions{})
-
 	envSection := RenderEnvironmentSection(env, tools, shell, date)
 
-	newContent := RewriteEnvironmentSection(content, envSection)
+	unlock, err := LockProfile(home)
+	if err != nil {
+		return false, fmt.Errorf("profile refresh: %w", err)
+	}
+	defer unlock()
+	// Re-read: `atomic workflow set` may have written while the probes ran.
+	if content, err = readProfileFile(profilePath); err != nil {
+		return false, err
+	}
+	withWorkflow, err := ApplyWorkflowDetection(content, detection)
+	if err != nil {
+		fmt.Fprintf(stderr, "profile refresh: %s not updated: %v\n", profilePath, err)
+		return false, nil
+	}
+	newContent := RewriteEnvironmentSection(withWorkflow, envSection)
+	if newContent == content {
+		return false, nil
+	}
 
 	// Temp file beside the destination, then rename — an interrupted write must
 	// not truncate the user's profile.
@@ -101,9 +142,45 @@ func Refresh(home, date string) (bool, error) {
 	return true, nil
 }
 
+func readProfileFile(path string) (string, error) {
+	b, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return "", fmt.Errorf("profile refresh: read %s: %w", path, err)
+	}
+	return string(b), nil
+}
+
+// LockProfile blocks until it holds an exclusive flock for home's profile.
+// Every read-modify-write of the profile runs between it and unlock.
+func LockProfile(home string) (unlock func(), err error) {
+	// A separate file, never profile.md itself: writers replace profile.md by
+	// rename, which would hand the next writer a different, unlocked inode.
+	dir := filepath.Dir(config.ProfilePath(home))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, fmt.Errorf("profile lock: mkdir %s: %w", dir, err)
+	}
+	path := filepath.Join(dir, "profile.lock")
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("profile lock: open %s: %w", path, err)
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		f.Close()
+		return nil, fmt.Errorf("profile lock: flock %s: %w", path, err)
+	}
+	return func() {
+		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		_ = f.Close()
+	}, nil
+}
+
 // RefreshIfStale is a no-op while lastcheck is within days of today. A missing
 // lastcheck counts as infinitely stale.
 func RefreshIfStale(home, today string, days int) (bool, error) {
+	return refreshIfStale(home, today, days, defaultRefreshOpts(home))
+}
+
+func refreshIfStale(home, today string, days int, opts refreshOpts) (bool, error) {
 	profilePath := config.ProfilePath(home)
 
 	existing, err := os.ReadFile(profilePath)
@@ -118,5 +195,5 @@ func RefreshIfStale(home, today string, days int) (bool, error) {
 			}
 		}
 	}
-	return Refresh(home, today)
+	return refresh(home, today, opts)
 }

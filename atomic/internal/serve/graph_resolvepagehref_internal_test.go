@@ -32,8 +32,8 @@ func TestResolvePageHref_LeadingSlashBundleRelative(t *testing.T) {
 	hrefFile(t, root, "repos/alpha-service.md")
 	hrefFile(t, root, "concerns/perf.md")
 	hrefFile(t, root, "src/main.go") // non-.md, routes to /file/
-	hrefDir(t, root, "knowledge/")
-	hrefFile(t, root, "knowledge/observability.md")
+	hrefDir(t, root, "notes/")
+	hrefFile(t, root, "notes/observability.md")
 
 	// README makes the dir-index resolution fire.
 	hrefDir(t, root, "wiki/")

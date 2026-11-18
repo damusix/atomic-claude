@@ -435,21 +435,13 @@ window.GraphCore = (function() {
     return Math.max(1, Math.min(5, q));
   }
 
-  // computeLinkStyling assigns per-link color/width by delegating each link's
-  // classes string to the profile's linkStyle() hook — cosmos.gl links carry
-  // no dash-pattern API (checked against the unminified 3.1.0 .d.ts:
-  // GraphConfigInterface has no line-style option), so the distinct-styling
-  // contract for provenance/kind edges is COLOR (+ width) only, same as
-  // before the extraction; only the per-classes DECISION (which colors/
-  // widths a given edge-kind vocabulary maps to — "fingerprint"/"drift"/
-  // "wikilink" for the docs profile, "contains" vs "calls"/"imports" for a
-  // future code profile) moved to the profile. This function stays the
-  // mechanical array-building loop.
   // How far a tinted edge is mixed toward white. High enough that the darkest
   // ramp shade still clears the canvas at the faintest tier's alpha, low
   // enough that the hue is still legible as the source node's.
   var TINT_LIFT = 0.4;
 
+  // cosmos.gl 3.1.0 links have no dash-pattern API, so the profile's
+  // linkStyle() hook can vary an edge kind only by color, alpha, and width.
   function computeLinkStyling(adapted, colors, profile, pointColors) {
     var n = adapted.linkClasses.length;
     var linkColors = new Float32Array(n * 4);
@@ -458,11 +450,8 @@ window.GraphCore = (function() {
       var styled = profile.linkStyle(adapted.linkClasses[i], colors);
       var r = styled.color[0], g = styled.color[1], b = styled.color[2];
       // A link the profile marks `tint` takes its hue from the node it leaves,
-      // at the alpha the profile chose. One flat edge color over a whole graph
-      // reads as grey haze; tinting makes a hub's fan-out legible as one
-      // structure. Only the generic tier tints — an edge kind the profile
-      // colors deliberately (fingerprint, drift, calls) keeps that color,
-      // since there the color IS the information.
+      // at the alpha the profile chose. One flat edge color over a whole
+      // graph reads as grey haze; tinting makes a hub's fan-out legible.
       if (styled.tint && pointColors) {
         var s = adapted.links[i * 2];
         // Lifted toward white. The tint's job is to say WHICH node the edge
@@ -1957,8 +1946,7 @@ window.GraphCore = (function() {
     debugState: debugState,
     simRunning: simRunning,
     // hexToRGBA01 is exposed for profiles that need to convert their own
-    // palette hex values into cosmos's [r,g,b,a] 0..1 format (e.g. the docs
-    // profile's fingerprint/drift provenance edge colors).
+    // palette hex values into cosmos's [r,g,b,a] 0..1 format.
     hexToRGBA01: hexToRGBA01
   };
 }());

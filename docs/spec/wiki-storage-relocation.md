@@ -64,12 +64,21 @@ Path constants, file-writing targets, doctor checks, inferrer agent template, an
 |------|-----------|-----------|
 | `docs/wiki/` falls under an existing `.gitignore` pattern and scan output is silently untracked | Med | CP6: verify `git status docs/wiki/` after first `/refresh-wiki` run; add `!docs/wiki/` negation if any parent pattern matches |
 | `checks_refs.go` search order change leaves the doctor failing when both old and new paths coexist (mid-migration state — relevant once C ships) | Med | CP2: test the new path in isolation; document in C's spec that the doctor is path-aware, not layout-aware |
-| `frontmatterTypeToClass` collision between `"Index"` (serve node kind) and an existing type string | Low | CP5: read `graph.go`'s full mapping before adding; the existing cases are `Concern`, `Knowledge`, `Repo`, `Bucket`; `Index` and `Domain` are not in the set |
+| `frontmatterTypeToClass` collision between `"Index"` (serve node kind) and an existing type string | Low | CP5: read `graph.go`'s full mapping before adding; the existing cases are `Concern`, `Repo`, `Bucket`; `Index` and `Domain` are not in the set |
 | Inferrer dispatched from `refresh-signals` still writes to the old `.claude/project/` paths because the agent template renders stale | Med | CP3 immediately re-runs `make render` after template edit and verifies via diff; CP6 gate requires render parity before commit |
 | `docs/wiki/CLAUDE.md` not created on first run: subagent nested-memory delivery requires the file to exist | Low | CP3: inferrer Step 8 writes `docs/wiki/CLAUDE.md` if absent (idempotent); spec explicitly states first-run creation is required |
 
 
 ## Change log
+
+
+### 2026-10-18 — `Knowledge` node type removed
+
+**What changed:** the `frontmatterTypeToClass` risk row no longer lists `Knowledge` among the existing cases.
+
+**Why:** `atomic serve` no longer classifies a `knowledge` node type.
+
+**Removed:** the `Knowledge` case; see `docs/spec/realm-wiki-drop-refresh.md`.
 
 
 ### 2026-09-01 — Correction: Workstream D described as pending

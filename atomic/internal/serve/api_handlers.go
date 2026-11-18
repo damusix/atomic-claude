@@ -276,9 +276,7 @@ func NewAPINavHandler(opts NavOptions) http.Handler {
 			if fn == nil {
 				fn = computeStaleness
 			}
-			staleMembers, bucketDiffs := fn(opts.RealmRoot, opts.WikiIndexPath)
-			opts.StaleMembers = staleMembers
-			opts.BucketDiffs = bucketDiffs
+			opts.StaleMembers = fn(opts.RealmRoot, opts.WikiIndexPath)
 		}
 
 		if opts.IsRealmScope {

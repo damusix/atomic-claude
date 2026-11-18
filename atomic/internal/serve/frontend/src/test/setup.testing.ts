@@ -8,6 +8,7 @@ import * as matchers from "@testing-library/jest-dom/matchers";
 import { cleanup } from "@testing-library/react";
 import { __resetLoadScriptCacheForTest } from "../utils/loadScript";
 import { __settleForTest as settleMemberStore } from "../utils/memberStore";
+import { __resetElkForTest } from "../utils/mermaidElk";
 
 expect.extend(matchers);
 
@@ -17,13 +18,14 @@ afterEach(async () => {
   // an unfinished one retries into the next file's fetch spy. See
   // memberStore.__settleForTest.
   await settleMemberStore();
-  // loadScript's `loaded` Map and railCytoscapeStyle's `window.__railCy` are
-  // both module-level state shared across every test FILE in the process
+  // loadScript's `loaded` Map, mermaidElk's pending load and railCytoscapeStyle's
+  // `window.__railCy` are all module-level state shared across every test FILE in the process
   // (bun:test does not reset modules between files). Individual suites that
   // exercise the real script-load path (MiniGraph, Rail, mountMermaid, the
   // App /graph route) already reset what they touch, but relying on every
   // suite to remember is fragile — a leaked cache entry or leaked instance
   // silently short-circuits an unrelated file's test. Reset centrally too.
   __resetLoadScriptCacheForTest();
+  __resetElkForTest();
   delete window.__railCy;
 });

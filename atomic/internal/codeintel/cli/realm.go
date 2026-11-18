@@ -189,7 +189,12 @@ func prepareMembers(
 		res.Config = cfg
 		res.Members = nonExcludedMembers(cfg.Members)
 	} else if res.Config == nil {
-		fmt.Fprintf(stderr, "atomic code %s: no realm config at %s/.atomic/code.toml — run `atomic code index` first\n", verb, res.RealmRoot)
+		cfgPath, err := realm.ConfigPath(res.RealmRoot)
+		if err != nil {
+			fmt.Fprintf(stderr, "atomic code %s: realm state root: %v\n", verb, err)
+			return nil, res, 1
+		}
+		fmt.Fprintf(stderr, "atomic code %s: no realm config at %s — run `atomic code index` first\n", verb, cfgPath)
 		return nil, res, 1
 	}
 
@@ -197,16 +202,26 @@ func prepareMembers(
 	return members, res, -1
 }
 
-// indexRealmAll indexes each member into <realm>/.atomic/<key>.db. A member
+// indexRealmAll indexes each member into <realm-state-root>/<key>.db. A member
 // that fails is warned about and skipped; the rest of the run continues.
 func indexRealmAll(realmRoot string, members []realm.MemberEntry, extraArgs []string, stdout, stderr io.Writer) int {
 	ctx := context.Background()
 	overallOK := true
 
+	if err := realm.EnsureDBIgnore(realmRoot); err != nil {
+		fmt.Fprintf(stderr, "atomic code index: ignore databases: %v\n", err)
+		return 1
+	}
+
 	for _, m := range members {
 		memberAbs := filepath.Join(realmRoot, m.Path)
 		// Never inside the member repo.
-		dbPath := filepath.Join(realmRoot, ".atomic", m.Key+".db")
+		dbPath, err := realm.WriteDBPath(realmRoot, m.Key)
+		if err != nil {
+			fmt.Fprintf(stderr, "[%s] resolve state root: %v (skipping)\n", m.Key, err)
+			overallOK = false
+			continue
+		}
 
 		eng, err := engine.NewWithDBPath(memberAbs, dbPath)
 		if err != nil {

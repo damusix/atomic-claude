@@ -15,6 +15,8 @@
     "@logosdx/observer": "^2.5.3",
     "@logosdx/react": "^6.0.0",
     "@logosdx/utils": "^7.1.0",
+    "@mermaid-js/layout-elk": "0.2.3",
+    "mermaid": "11.17.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router": "^7.11.0"

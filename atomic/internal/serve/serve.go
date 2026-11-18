@@ -24,7 +24,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/damusix/atomic-claude/atomic/internal/cliutil"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/realm"
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
 // DisplayScope is the serve-level scope label derived from the realm resolver.
@@ -116,6 +118,13 @@ func RunWithContext(ctx context.Context, opts Options) int {
 		opts.Stderr = os.Stderr
 	}
 
+	// Handlers reach the served root's state through path helpers that exit
+	// the process on a refusal; refuse here, before anything is serving.
+	if _, err := config.RepositoryStateDir(opts.TargetDir); err != nil {
+		fmt.Fprintf(opts.Stderr, "atomic serve: %v\n", err)
+		return 1
+	}
+
 	scope, err := ResolveDisplayScope(opts.TargetDir, opts.ClaudeMDPath)
 	if err != nil {
 		fmt.Fprintf(opts.Stderr, "atomic serve: scope resolve: %v\n", err)
@@ -167,7 +176,7 @@ func RunWithContext(ctx context.Context, opts Options) int {
 	mux.Handle("/api/file/", NewAPIFileHandler(opts.TargetDir))
 	mux.Handle("/api/rail/", NewAPIRailHandler(navRoot, store))
 	mux.Handle("/api/nav", NewAPINavHandler(navOpts))
-	// The staleness walk takes seconds on a real realm and /api/nav is the
+	// The staleness walk covers the whole realm and /api/nav is the
 	// shell's first request, so warm it here. If it has not finished by the
 	// time the request lands, the request computes it itself.
 	if isRealmScope && navOpts.StalenessFn == nil {
@@ -435,13 +444,17 @@ func parseFlags(args []string, stdout, stderr io.Writer) (Options, error) {
 	fs.BoolVar(&open, "open", false, "open the browser after startup (best-effort)")
 	fs.StringVar(&host, "host", "127.0.0.1", "bind address (use 0.0.0.0 to expose the read-only viewer on the LAN)")
 
-	if err := fs.Parse(args); err != nil {
+	positional, err := cliutil.ParseInterspersed(fs, args)
+	if err != nil {
 		return Options{}, err
+	}
+	if len(positional) > 1 {
+		return Options{}, cliutil.UnexpectedArgs(fs, "serve", positional[1:])
 	}
 
 	targetDir := ""
-	if fs.NArg() > 0 {
-		targetDir = fs.Arg(0)
+	if len(positional) > 0 {
+		targetDir = positional[0]
 	}
 	if targetDir == "" {
 		var err error

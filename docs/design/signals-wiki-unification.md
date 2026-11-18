@@ -12,7 +12,7 @@ Two parallel knowledge subsystems run near-identical pipelines:
 - **signals** — per-repo context map at `.claude/project/signals*`. `scan → infer → wire @-ref`. Machine-written, regenerable, disposable cache.
 - **wiki** — cross-repo knowledge at `<root>/wiki/` (a separate repo). `scan → classify → synthesize`. Committed audit trail, partly hand-curated (buckets).
 
-Both scan a tree, infer structure, write an indexed router, and track staleness by content hash. The cost of two systems: duplicated agent logic, two refresh commands (`refresh-signals` vs `refresh-wiki`), two storage conventions, two mental models. The OKF-alignment work and `atomic serve` already render both as one navigable graph — storage and tooling have not caught up to that unified view.
+Both scan a tree, infer structure, write an indexed router, and track staleness (signals by content hash, the realm by membership drift). The cost of two systems: duplicated agent logic, two refresh commands (`refresh-signals` vs `refresh-wiki`), two storage conventions, two mental models. The OKF-alignment work and `atomic serve` already render both as one navigable graph — storage and tooling have not caught up to that unified view.
 
 
 ## Goals / Non-goals
@@ -32,7 +32,6 @@ Non-goals:
 - No change to realm-wiki storage **location**: `<root>/wiki/` stays. Only repo-scope moves (to `docs/wiki/`).
 - No new third staleness mechanism — the committed `scan.md` (via git) is the diff baseline; `<scan-sha>` only disambiguates double-scan / stale-scan cases. Reconcile with the existing `atomic signals stale` content hash and the impl-phase SHA-range refresh.
 - Not bundling Cobra with the semantic work.
-- No behavior change to bucket synthesis beyond adopting the shared frontmatter/router contract.
 - `migrate` is not a one-shot script. One-off relocation logic that cannot replay across versions is rejected.
 
 
@@ -50,7 +49,7 @@ flowchart TD
     B -->|repo| C["references/repo.md<br/>root: &lt;repo&gt;/docs/wiki/"]
     B -->|realm| D["references/realm.md<br/>root: &lt;root&gt;/wiki/ (separate repo)"]
     C --> E["index.md router · @-ref'd<br/>domain/*.md · scan.md · CLAUDE.md (steering)"]
-    D --> F["index.md router<br/>repos/* · concerns/* · knowledge/*"]
+    D --> F["index.md router<br/>repos/* · concerns/*"]
     G["atomic-wiki-inferrer AGENT"] -->|loads skill,<br/>isolated context + sub-dispatch| A
 ```
 
@@ -58,7 +57,7 @@ flowchart TD
 | Scope | `<wiki-type>` | Root | Contents |
 |-------|---------------|------|----------|
 | repo | `repo` | `<repo>/docs/wiki/` | the repo's own signals-as-wiki (this is the relocation) |
-| realm | `realm` | `<root>/wiki/` (separate repo, **unchanged**) | cross-repo summaries + concerns + bucket knowledge |
+| realm | `realm` | `<root>/wiki/` (separate repo, **unchanged**) | cross-repo summaries + concerns + bucket registry |
 
 
 ## `docs/wiki/` layout (repo scope)
@@ -83,7 +82,7 @@ Control blocks inside `index.md` (machine-managed, mirroring the existing `<wiki
 
 Every generated doc carries OKF-style frontmatter (`type:` / `description:` / bundle-relative cross-links), reusing the schema and `frontmatterTypeToClass` mapping already established in `docs/spec/okf-alignment.md` and `graph.go:resolveNodeType`. This makes signals docs first-class nodes in the same graph `atomic serve` renders.
 
-Types: `index.md` → `Index`, `<domain>.md` → `Domain` (new `frontmatterTypeToClass` cases alongside the existing `Concern` / `Knowledge` / default `page`). `scan.md` is the exception — raw machine output, **no frontmatter**, never a graph node. The B spec adds the two new type cases.
+Types: `index.md` → `Index`, `<domain>.md` → `Domain` (new `frontmatterTypeToClass` cases alongside the existing `Concern` / default `page`). `scan.md` is the exception — raw machine output, **no frontmatter**, never a graph node. The B spec adds the two new type cases.
 
 
 ## Loading mechanism (verified)
@@ -104,7 +103,7 @@ Design: `index.md` is `@`-ref'd from the root `CLAUDE.md`/`CLAUDE.local.md` (loa
 Both scopes need a boilerplate `CLAUDE.md` written once, idempotently, on first touch:
 
 - repo scope: `docs/wiki/CLAUDE.md` — the steering scaffold (OKF FM + commented hint sections).
-- realm scope: `<root>/wiki/CLAUDE.md` — new, contains only `@index.md`. Closes an asymmetry: a member repo's own root `CLAUDE.md` already carries `@docs/wiki/index.md` (loads at session start), but a realm's wiki repo had no self-referencing `CLAUDE.md` at all — cd into it directly and nothing auto-loads `index.md`. The global `<wikis>` block in `~/.claude/CLAUDE.md` (`atomic/internal/wiki/registry.go:34-56`) stays as-is for cross-realm staleness tracking; it is deliberately never `@-ref`'d (a flat list spanning every realm on the machine) and is not a substitute for a repo loading its own memory file.
+- realm scope: `<root>/wiki/CLAUDE.md` — new, contains only `@index.md`. Closes an asymmetry: a member repo's own root `CLAUDE.md` already carries `@docs/wiki/index.md` (loads at session start), but a realm's wiki repo had no self-referencing `CLAUDE.md` at all — cd into it directly and nothing auto-loads `index.md`. The global `<wikis>` block in `~/.claude/CLAUDE.md` (`atomic/internal/wiki/registry.go:34-56`) stays as-is for realm discovery by `atomic where`, the code-intel realm resolver, and doctor; it is deliberately never `@-ref`'d (a flat list spanning every realm on the machine) and is not a substitute for a repo loading its own memory file.
 
 Fixed content with no judgment call is a deterministic transform (`CLAUDE.md` Principles: "prefer code over the model for … deterministic transforms"). Two places wrote it as an LLM-executed bash heredoc instead: `templates/commands/refresh-wiki.md` R3 and `skills/atomic-wiki/references/repo.md` Step 8c (repo scope only; realm scope had no creation path at all). Both carry a comment demanding the scaffold text stay byte-identical across the two copies — a duplication burden a single Go source eliminates.
 
@@ -215,7 +214,7 @@ Program-level decisions are locked (see Recommendation). Rows below were resolve
 | 5 | Artifact-prune UX | per-artifact prompt vs batched vs auto | **batched confirm** — one prompt listing all removed artifacts (axiom 3); only ever touches `install.artifacts`, never user-added. `atomic uninstall` also reads `[install]` to remove the agents/commands/etc atomic installed |
 | 6 | config.toml hygiene | hand-edit vs machine-owned | **machine-owned** — no hand-editing; `[agents]` set via interactive `atomic config agents` (huh), `[install]`/`[repos]` written by install/migrate. Comment-preservation hazard moot |
 | 7 | Scaffold-file creation mechanism | LLM-executed heredoc (current, repo scope only) vs new CLI verb vs fold into `atomic migrate` | **new `atomic wiki init --scope repo\|realm` verb** — fixed content is a deterministic transform, not a judgment call; `atomic migrate` is reserved for one-time version-gated layout changes (wrong semantic fit for "ensure this scaffold exists," which must be safe to re-run outside any version bump) |
-| 8 | Realm self-reference | leave as-is (only the global `<wikis>` registry) vs add `<root>/wiki/CLAUDE.md` | **add it** — `@index.md` only, written by the same CLI verb from decision 7, hooked off `wiki.Scan()`. Symmetric with repo scope's member-root `@docs/wiki/index.md`; does not replace the global registry (different job: cross-realm staleness vs single-repo memory load) |
+| 8 | Realm self-reference | leave as-is (only the global `<wikis>` registry) vs add `<root>/wiki/CLAUDE.md` | **add it** — `@index.md` only, written by the same CLI verb from decision 7, hooked off `wiki.Scan()`. Symmetric with repo scope's member-root `@docs/wiki/index.md`; does not replace the global registry (different job: realm discovery across the machine vs single-repo memory load) |
 
 
 ## Recommendation
@@ -376,3 +375,13 @@ Seven specs, derived from this design, in sequence **B → C → D → E → F �
 **Why:** Post-merge audit of `next` found (1) fixed-content file creation implemented as an agent-executed heredoc instead of deterministic code, contradicting this repo's own "prefer code over the model for deterministic transforms" principle, and (2) realm-scope wiki repos had no `CLAUDE.md`, unlike repo scope's member-root `@docs/wiki/index.md` — an asymmetry with no design rationale, just an omission.
 
 **Superseded:** The `docs/wiki/` layout table's `docs/wiki/CLAUDE.md` "Written by" cell (`user / setup`) — now `atomic wiki init --scope repo`. Row 1 of the sub-decisions table ("Steering file name") is unaffected — the file name/location/loading-mechanism decision stands; only *how it gets created* changed.
+
+### 2026-10-19 — Removed realm knowledge pages and bucket synthesis
+
+**What changed:** The realm row of the scope table, the routing diagram, and the type list no longer name `knowledge/` pages or the `Knowledge` type, and the non-goal about bucket synthesis is gone. The Problem paragraph says the realm tracks membership drift, and the `<wikis>` block's job, in the realm-self-reference text and decision row 8, is realm discovery instead of cross-realm staleness tracking.
+
+**Why:** Bucket synthesis, the `knowledge/` layer, realm content fingerprints, and the staleness consumers of `<wikis>` (`CheckStaleness`, `MarkDirty`, the session-start nudge) were deleted (`docs/spec/realm-wiki-drop-refresh.md`).
+
+**Superseded:** the `<wikis>` registry's role as the cross-realm staleness-tracking input.
+
+**Removed:** the bucket-synthesis non-goal and `knowledge/` as realm content.

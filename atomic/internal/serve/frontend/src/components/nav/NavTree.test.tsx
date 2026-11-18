@@ -27,7 +27,7 @@ const NAV_FIXTURE: NavResponse = {
       items: [
         {
           label: "research",
-          children: [{ label: "notes", relpath: "wiki/.buckets/research/notes.md" }],
+          children: [{ label: "notes", relpath: "research/notes.md" }],
         },
       ],
     },
@@ -69,7 +69,7 @@ describe("NavTree", () => {
     expect(screen.getByText("External links registry")).toBeInTheDocument();
 
     const staleRepo = screen.getByText("atomic-claude").closest("a");
-    expect(staleRepo?.querySelector(".nav-badge-stale")).not.toBeNull();
+    expect(staleRepo?.querySelector(".nav-badge-stale")?.getAttribute("aria-label")).toBe("membership drift");
 
     const freshRepo = screen.getByText("noorm").closest("a");
     expect(freshRepo?.querySelector(".nav-badge-stale")).toBeNull();

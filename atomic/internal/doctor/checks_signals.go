@@ -87,7 +87,7 @@ func RunCheckRouterWith(root string) Result {
 	}
 
 	if !routerRefWired(root) {
-		return Result{Severity: WARN, Detail: "docs/wiki/index.md not @-ref'd in CLAUDE.md, claude.local.md, CLAUDE.local.md, or claude.md"}
+		return Result{Severity: WARN, Detail: "docs/wiki/index.md not @-ref'd in claude.local.md, CLAUDE.local.md, AGENTS.md, CLAUDE.md, or claude.md"}
 	}
 
 	referenced := parseRouterDomains(string(raw))
@@ -107,18 +107,11 @@ func RunCheckRouterWith(root string) Result {
 	return Result{Severity: PASS, Detail: "router present, @-ref'd, all domain files consistent"}
 }
 
-// routerRefWired reports whether any CLAUDE.md-family file @-refs the router.
+// routerRefWired reports whether a repository steering file Claude loads
+// @-refs the router.
 func routerRefWired(root string) bool {
-	for _, name := range candidateFiles {
-		raw, err := os.ReadFile(filepath.Join(root, name))
-		if err != nil {
-			continue
-		}
-		if strings.Contains(string(raw), routerRef) {
-			return true
-		}
-	}
-	return false
+	_, ok := wiredRefFile(root, routerRef)
+	return ok
 }
 
 // parseRouterDomains reads the Domains table's Detail column, returning bare
@@ -186,12 +179,13 @@ func extractLinkTarget(cell string) (string, bool) {
 	return target, true
 }
 
-// excludedWikiFiles are never domain files — the router itself, the raw scan
-// dump, and the steering file — so they are not orphans when unreferenced.
+// excludedWikiFiles are wiki infrastructure, never domain files, so they are not
+// orphans when unreferenced.
 var excludedWikiFiles = map[string]bool{
 	"index.md":  true,
 	"scan.md":   true,
 	"CLAUDE.md": true,
+	"AGENTS.md": true,
 }
 
 // findOrphanDomains lists docs/wiki/ files absent from the router table. The

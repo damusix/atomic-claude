@@ -45,7 +45,7 @@ function groupToTreeNodeModel(group: NavGroup): TreeNodeModel {
 function StaleBadge({ node }: { node: NavNode }) {
   if (!node.stale) return null;
   return (
-    <span className="nav-badge nav-badge-stale" title="stale" aria-label="stale">
+    <span className="nav-badge nav-badge-stale" title="membership drift" aria-label="membership drift">
       ●
     </span>
   );

@@ -1,9 +1,10 @@
 package config
 
 import (
-	"fmt"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -12,26 +13,8 @@ import (
 func TestResolveHarnessDirFromHome_Default(t *testing.T) {
 	home := t.TempDir()
 	got := resolveHarnessDirFromHome(home)
-	if got != harnessDirDefault {
-		t.Errorf("resolveHarnessDirFromHome(empty home) = %q, want %q", got, harnessDirDefault)
-	}
-}
-
-// A real config.toml in a temp home resolves through the actual Load path, not
-// just the seam.
-func TestResolveHarnessDirFromHome_RealConfigFile(t *testing.T) {
-	home := t.TempDir()
-	cfg := Default()
-	if err := Set(cfg, "harness.dir", ".pi"); err != nil {
-		t.Fatalf("Set: %v", err)
-	}
-	if err := WritePersist(TOMLPath(home), cfg); err != nil {
-		t.Fatalf("WritePersist: %v", err)
-	}
-
-	got := resolveHarnessDirFromHome(home)
-	if got != ".pi" {
-		t.Errorf("resolveHarnessDirFromHome(home with harness.dir=.pi) = %q, want \".pi\"", got)
+	if got != stateDirDefault {
+		t.Errorf("resolveHarnessDirFromHome(empty home) = %q, want %q", got, stateDirDefault)
 	}
 }
 
@@ -47,190 +30,54 @@ func TestResolveHarnessDirFromHome_MalformedConfig(t *testing.T) {
 	}
 
 	got := resolveHarnessDirFromHome(home)
-	if got != harnessDirDefault {
-		t.Errorf("resolveHarnessDirFromHome(malformed config) = %q, want default %q", got, harnessDirDefault)
+	if got != stateDirDefault {
+		t.Errorf("resolveHarnessDirFromHome(malformed config) = %q, want default %q", got, stateDirDefault)
 	}
 }
 
-// A harness.dir written straight to disk, bypassing Set's validation, must fall
-// back to the default rather than reach filepath.Join unvalidated in the
-// repo-local helpers — a path-escape risk for values like "..".
-func TestResolveHarnessDirFromHome_InvalidStoredValueFallsBack(t *testing.T) {
-	cases := []string{"..", ".", "foo/bar"}
-	for _, invalid := range cases {
-		t.Run(invalid, func(t *testing.T) {
-			home := t.TempDir()
-			if err := os.MkdirAll(Dir(home), 0o755); err != nil {
-				t.Fatal(err)
-			}
-			content := fmt.Sprintf("[harness]\ndir = %q\n", invalid)
-			if err := os.WriteFile(TOMLPath(home), []byte(content), 0o644); err != nil {
-				t.Fatal(err)
-			}
-
-			got := resolveHarnessDirFromHome(home)
-			if got != harnessDirDefault {
-				t.Errorf("resolveHarnessDirFromHome(invalid stored value %q) = %q, want default %q", invalid, got, harnessDirDefault)
-			}
-		})
-	}
-}
-
-// TestResolveHarnessDir_AtomicHarnessEnv: ATOMIC_HARNESS names the harness
-// directly (no leading dot) and wins over everything else.
-func TestResolveHarnessDir_AtomicHarnessEnv(t *testing.T) {
+// The retired harness variable is not a rung: with no state.dir configured the
+// resolution lands on the built-in default, and no fingerprint changes it.
+func TestResolveHarnessDir_IgnoresHarnessEnvironment(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("ATOMIC_HARNESS", "pi")
-	got := resolveHarnessDir(home)
-	if got != ".pi" {
-		t.Errorf("resolveHarnessDir(ATOMIC_HARNESS=pi) = %q, want \".pi\"", got)
-	}
-}
-
-// A leading dot in the env value is normalized rather than double-dotted.
-func TestResolveHarnessDir_AtomicHarnessEnv_LeadingDotTolerated(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("ATOMIC_HARNESS", ".pi")
-	got := resolveHarnessDir(home)
-	if got != ".pi" {
-		t.Errorf("resolveHarnessDir(ATOMIC_HARNESS=.pi) = %q, want \".pi\"", got)
-	}
-}
-
-// An invalid ATOMIC_HARNESS falls through to the next rung rather than erroring.
-// Both fingerprint envs are cleared so ambient ones cannot mask the fallthrough
-// (this suite may itself run under a harness), and the landing rung is made
-// observable with a config value no fingerprint rung can produce.
-func TestResolveHarnessDir_AtomicHarnessEnv_InvalidFallsThrough(t *testing.T) {
-	cases := []string{"foo/bar", "..", "."}
-	for _, invalid := range cases {
-		t.Run(invalid, func(t *testing.T) {
-			home := t.TempDir()
-			t.Setenv("ATOMIC_HARNESS", invalid)
-			t.Setenv("PI_CODING_AGENT", "")
-			t.Setenv("CLAUDECODE", "")
-			cfg := Default()
-			if err := Set(cfg, "harness.dir", ".pi"); err != nil {
-				t.Fatalf("Set: %v", err)
-			}
-			if err := WritePersist(TOMLPath(home), cfg); err != nil {
-				t.Fatalf("WritePersist: %v", err)
-			}
-			got := resolveHarnessDir(home)
-			if got != ".pi" {
-				t.Errorf("resolveHarnessDir(ATOMIC_HARNESS=%q) = %q, want config fallthrough %q", invalid, got, ".pi")
-			}
-		})
-	}
-}
-
-func TestResolveHarnessDir_PiFingerprint(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("PI_CODING_AGENT", "true")
-	got := resolveHarnessDir(home)
-	if got != ".pi" {
-		t.Errorf("resolveHarnessDir(PI_CODING_AGENT=true) = %q, want \".pi\"", got)
-	}
-}
-
-func TestResolveHarnessDir_ClaudeFingerprint(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("CLAUDECODE", "1")
-	got := resolveHarnessDir(home)
-	if got != ".claude" {
-		t.Errorf("resolveHarnessDir(CLAUDECODE=1) = %q, want \".claude\"", got)
-	}
-}
-
-func TestResolveHarnessDir_AtomicHarnessBeatsFingerprints(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("ATOMIC_HARNESS", "custom")
 	t.Setenv("PI_CODING_AGENT", "true")
 	t.Setenv("CLAUDECODE", "1")
-	got := resolveHarnessDir(home)
-	if got != ".custom" {
-		t.Errorf("resolveHarnessDir = %q, want \".custom\"", got)
+	got := resolveHarnessDirFromHome(home)
+	if got != stateDirDefault {
+		t.Errorf("resolveHarnessDirFromHome with harness env = %q, want default %q", got, stateDirDefault)
 	}
 }
 
-// The nested-harness case: pi launched from within Claude Code exposes both
-// fingerprints, and PI wins.
-func TestResolveHarnessDir_PiBeatsClaudecodeWhenBothSet(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("PI_CODING_AGENT", "true")
-	t.Setenv("CLAUDECODE", "1")
-	got := resolveHarnessDir(home)
-	if got != ".pi" {
-		t.Errorf("resolveHarnessDir(both fingerprints) = %q, want \".pi\"", got)
-	}
-}
-
-func TestResolveHarnessDir_FingerprintBeatsConfig(t *testing.T) {
-	home := t.TempDir()
-	cfg := Default()
-	if err := Set(cfg, "harness.dir", ".other"); err != nil {
-		t.Fatalf("Set: %v", err)
-	}
-	if err := WritePersist(TOMLPath(home), cfg); err != nil {
-		t.Fatalf("WritePersist: %v", err)
-	}
-	t.Setenv("PI_CODING_AGENT", "true")
-	got := resolveHarnessDir(home)
-	if got != ".pi" {
-		t.Errorf("resolveHarnessDir(fingerprint + config) = %q, want \".pi\"", got)
-	}
-}
-
-func TestResolveHarnessDir_ConfigWinsOverDefaultWhenNoEnv(t *testing.T) {
-	// Clear ambient env: this suite may itself run under a harness whose
-	// fingerprint would otherwise leak in.
-	t.Setenv("ATOMIC_HARNESS", "")
-	t.Setenv("PI_CODING_AGENT", "")
-	t.Setenv("CLAUDECODE", "")
-	home := t.TempDir()
-	cfg := Default()
-	if err := Set(cfg, "harness.dir", ".other"); err != nil {
-		t.Fatalf("Set: %v", err)
-	}
-	if err := WritePersist(TOMLPath(home), cfg); err != nil {
-		t.Fatalf("WritePersist: %v", err)
-	}
-	got := resolveHarnessDir(home)
-	if got != ".other" {
-		t.Errorf("resolveHarnessDir(config only) = %q, want \".other\"", got)
-	}
-}
-
-// The seam makes harnessDir() return the override without touching the real
-// home or the process cache.
-func TestSetHarnessDirForTest_Override(t *testing.T) {
-	restore := SetHarnessDirForTest(".pi")
+// The seam makes the repo-local helpers use the override without touching the
+// real home or the process cache.
+func TestSetStateDirForTest_Override(t *testing.T) {
+	restore := SetStateDirForTest(".pi")
 	defer restore()
 
-	if got := harnessDir(); got != ".pi" {
-		t.Errorf("harnessDir() under seam = %q, want \".pi\"", got)
+	if got := IndexDir(""); got != ".pi/.atomic-index" {
+		t.Errorf("IndexDir() under seam = %q, want \".pi/.atomic-index\"", got)
 	}
 }
 
 // A nested call's restore func puts back the previous override.
-func TestSetHarnessDirForTest_Restore(t *testing.T) {
-	restoreOuter := SetHarnessDirForTest(".pi")
+func TestSetStateDirForTest_Restore(t *testing.T) {
+	restoreOuter := SetStateDirForTest(".pi")
 	defer restoreOuter()
 
-	restoreInner := SetHarnessDirForTest(".foo")
-	if got := harnessDir(); got != ".foo" {
-		t.Fatalf("harnessDir() under inner seam = %q, want \".foo\"", got)
+	restoreInner := SetStateDirForTest(".foo")
+	if got := IndexDir(""); got != ".foo/.atomic-index" {
+		t.Fatalf("IndexDir() under inner seam = %q, want \".foo/.atomic-index\"", got)
 	}
 
 	restoreInner()
-	if got := harnessDir(); got != ".pi" {
-		t.Errorf("after inner restore, harnessDir() = %q, want \".pi\"", got)
+	if got := IndexDir(""); got != ".pi/.atomic-index" {
+		t.Errorf("after inner restore, IndexDir() = %q, want \".pi/.atomic-index\"", got)
 	}
 }
 
 // Every repo-local helper joins root + the overridden harness.dir + its suffix.
 func TestRepoLocalHelpers_UnderNonDefaultHarnessDir(t *testing.T) {
-	restore := SetHarnessDirForTest(".pi")
+	restore := SetStateDirForTest(".pi")
 	defer restore()
 
 	root := "/repo"
@@ -244,9 +91,8 @@ func TestRepoLocalHelpers_UnderNonDefaultHarnessDir(t *testing.T) {
 		{"FollowupsDir", FollowupsDir(root), filepath.Join(root, ".pi", "project", "followups")},
 		{"IndexDir", IndexDir(root), filepath.Join(root, ".pi", ".atomic-index")},
 		{"IndexDBPath", IndexDBPath(root), filepath.Join(root, ".pi", ".atomic-index", "atomic.db")},
-		{"WorktreesDir", WorktreesDir(root), filepath.Join(root, ".pi", "worktrees")},
+		{"WorktreeDir", WorktreeDir(root, "omp", ""), filepath.Join(root, ".pi", "worktrees")},
 		{"RepoConfigPath", RepoConfigPath(root), filepath.Join(root, ".pi", "atomic.toml")},
-		{"RemindersDirLegacy", RemindersDirLegacy(root), filepath.Join(root, ".pi", ".scratchpad", "reminders")},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -257,10 +103,75 @@ func TestRepoLocalHelpers_UnderNonDefaultHarnessDir(t *testing.T) {
 	}
 }
 
+// Only Claude keeps worktrees in .claude; any other or unknown harness uses the
+// state root, so a new harness never lands in .claude by accident.
+func TestWorktreeDir_KeyedByHarness(t *testing.T) {
+	defer SetStateDirForTest(".state")()
+
+	root := "/repo"
+	cases := []struct {
+		harness, want string
+	}{
+		{"claude", filepath.Join(root, ".claude", "worktrees")},
+		{"omp", filepath.Join(root, ".state", "worktrees")},
+		{"codex", filepath.Join(root, ".state", "worktrees")},
+		{"zed", filepath.Join(root, ".state", "worktrees")},
+		{"", filepath.Join(root, ".state", "worktrees")},
+	}
+	for _, tc := range cases {
+		if got := WorktreeDir(root, tc.harness, ""); got != tc.want {
+			t.Errorf("WorktreeDir(%q) = %q, want %q", tc.harness, got, tc.want)
+		}
+	}
+}
+
+// A preference outranks the harness default; relative ones anchor at the
+// repository root, and off passes through for the caller to interpret.
+func TestWorktreeDir_PreferenceWinsAndOffStaysOff(t *testing.T) {
+	defer SetStateDirForTest(".state")()
+
+	root := "/repo"
+	for _, harness := range []string{"claude", "omp"} {
+		if got, want := WorktreeDir(root, harness, "trees"), filepath.Join(root, "trees"); got != want {
+			t.Errorf("%s relative preference = %q, want %q", harness, got, want)
+		}
+		if got := WorktreeDir(root, harness, "/elsewhere/wt"); got != "/elsewhere/wt" {
+			t.Errorf("%s absolute preference = %q, want /elsewhere/wt", harness, got)
+		}
+		if got := WorktreeDir(root, harness, "off"); got != "off" {
+			t.Errorf("%s off preference = %q, want off", harness, got)
+		}
+	}
+}
+
+func TestWorkflowPrefsPath_InStateRoot(t *testing.T) {
+	defer SetStateDirForTest(".state")()
+
+	got, err := WorkflowPrefsPath("/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join("/repo", ".state", "workflow-preferences.md"); got != want {
+		t.Errorf("WorkflowPrefsPath = %q, want %q", got, want)
+	}
+}
+
+func TestWorkflowPrefsPath_AmbiguousStateRootIsAnError(t *testing.T) {
+	home := withHome(t)
+	writeStateDirConfig(t, home, ".state")
+	repo := t.TempDir()
+	populate(t, repo, ".atomic")
+	populate(t, repo, ".claude")
+
+	if _, err := WorkflowPrefsPath(repo); !errors.Is(err, ErrAmbiguousStateRoot) {
+		t.Errorf("error = %v, want ErrAmbiguousStateRoot", err)
+	}
+}
+
 // With the seam pinned to the built-in default, every helper resolves under
-// ".claude" — today's layout, byte for byte.
+// ".atomic".
 func TestRepoLocalHelpers_DefaultHarnessDir(t *testing.T) {
-	restore := SetHarnessDirForTest(harnessDirDefault)
+	restore := SetStateDirForTest(stateDirDefault)
 	defer restore()
 
 	root := "/repo"
@@ -269,14 +180,13 @@ func TestRepoLocalHelpers_DefaultHarnessDir(t *testing.T) {
 		got  string
 		want string
 	}{
-		{"ScratchpadDir", ScratchpadDir(root), filepath.Join(root, ".claude", ".scratchpad")},
-		{"ProjectDir", ProjectDir(root), filepath.Join(root, ".claude", "project")},
-		{"FollowupsDir", FollowupsDir(root), filepath.Join(root, ".claude", "project", "followups")},
-		{"IndexDir", IndexDir(root), filepath.Join(root, ".claude", ".atomic-index")},
-		{"IndexDBPath", IndexDBPath(root), filepath.Join(root, ".claude", ".atomic-index", "atomic.db")},
-		{"WorktreesDir", WorktreesDir(root), filepath.Join(root, ".claude", "worktrees")},
-		{"RepoConfigPath", RepoConfigPath(root), filepath.Join(root, ".claude", "atomic.toml")},
-		{"RemindersDirLegacy", RemindersDirLegacy(root), filepath.Join(root, ".claude", ".scratchpad", "reminders")},
+		{"ScratchpadDir", ScratchpadDir(root), filepath.Join(root, ".atomic", ".scratchpad")},
+		{"ProjectDir", ProjectDir(root), filepath.Join(root, ".atomic", "project")},
+		{"FollowupsDir", FollowupsDir(root), filepath.Join(root, ".atomic", "project", "followups")},
+		{"IndexDir", IndexDir(root), filepath.Join(root, ".atomic", ".atomic-index")},
+		{"IndexDBPath", IndexDBPath(root), filepath.Join(root, ".atomic", ".atomic-index", "atomic.db")},
+		{"WorktreeDir", WorktreeDir(root, "omp", ""), filepath.Join(root, ".atomic", "worktrees")},
+		{"RepoConfigPath", RepoConfigPath(root), filepath.Join(root, ".atomic", "atomic.toml")},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -284,5 +194,86 @@ func TestRepoLocalHelpers_DefaultHarnessDir(t *testing.T) {
 				t.Errorf("%s = %q, want %q", tc.name, tc.got, tc.want)
 			}
 		})
+	}
+}
+
+func writeRawConfig(t *testing.T, home, body string) {
+	t.Helper()
+	if err := os.MkdirAll(Dir(home), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(TOMLPath(home), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A stored harness.dir changes no resolution, draws no warning, and is dropped
+// by the next write.
+func TestStoredHarnessDirIsInert(t *testing.T) {
+	home := withHome(t)
+	writeRawConfig(t, home, "[harness]\ndir = \".pi\"\n")
+	resetStateResolutionCacheForTest()
+
+	if got := resolveHarnessDirFromHome(home); got != stateDirDefault {
+		t.Errorf("resolveHarnessDirFromHome = %q, want %q", got, stateDirDefault)
+	}
+	repo := t.TempDir()
+	got, err := ResolveStateLocation(repo)
+	if err != nil {
+		t.Fatalf("ResolveStateLocation: %v", err)
+	}
+	if got.Root != filepath.Join(repo, stateDirDefault) {
+		t.Errorf("resolution = %+v, want %s", got, stateDirDefault)
+	}
+
+	cfg, warns, err := Load(TOMLPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warns) != 0 {
+		t.Errorf("warnings = %v, want none", warns)
+	}
+	if err := WritePersist(TOMLPath(home), cfg); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(TOMLPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "harness") {
+		t.Errorf("rewritten config still carries harness:\n%s", raw)
+	}
+}
+
+func TestHarnessDirIsAnUnknownKey(t *testing.T) {
+	cfg := Default()
+	if err := Set(cfg, "harness.dir", "x"); err == nil || !strings.Contains(err.Error(), "unknown key") {
+		t.Errorf("Set(harness.dir) error = %v, want unknown key", err)
+	}
+	if _, ok := Resolved(cfg)["harness.dir"]; ok {
+		t.Error("Resolved still lists harness.dir")
+	}
+}
+
+func TestStoredPiTableLoadsSilentlyAndIsDroppedOnWrite(t *testing.T) {
+	home := withHome(t)
+	writeRawConfig(t, home, "[pi.agents.scout]\nmodel = \"x\"\n")
+
+	cfg, warns, err := Load(TOMLPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warns) != 0 {
+		t.Errorf("warnings = %v, want none", warns)
+	}
+	if err := WritePersist(TOMLPath(home), cfg); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(TOMLPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "[pi") {
+		t.Errorf("config write kept the [pi] table:\n%s", data)
 	}
 }

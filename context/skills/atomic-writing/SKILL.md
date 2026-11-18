@@ -2,14 +2,14 @@
 name: atomic-writing
 description: >
   One voice for every file the repo ships: README, docs/guides/, docs/reference/,
-  docs/spec/, docs/design/, docs/research/, docs/wiki/, CLAUDE.md, and the prompt
+  docs/spec/, docs/design/, docs/research/, docs/wiki/, AGENTS.md, and the prompt
   artifacts under commands/, agents/, skills/, rules/, and output-styles/. Clear,
   direct, technical, and visual wherever the content has a shape. No marketing
   language, no AI-tell phrases, no em dashes in prose, no throat-clearing. The voice
   is constant; length is set by what the surface has to carry. Prefer a diagram,
   table, or tree over a paragraph when the content has a shape, because a drawn flow
   carries a logic better than a paragraph does for a human reader and a model alike.
-  Structure comes before sentences: a page answers what-is-this, how, where, what-bites,
+  Structure comes before sentences: a page answers what-is-this, how, where, what-can-go-wrong,
   what-else, in that order. references/mermaid.md carries diagram type selection, the
   layout limits (direction, width, density, color), and the rules that decide whether a
   block renders; references/exemplar-*.md carry finished page shapes to imitate per
@@ -39,12 +39,12 @@ The reason is a contract that reads well to only one party is broken. A spec an 
 
 | | Atomic output style | Atomic-writing (this skill) |
 |---|---|---|
-| **Governs** | How Claude talks in the terminal | What Claude writes into files |
+| **Governs** | How the assistant talks in the terminal | What the assistant writes into files |
 | **Where** | TUI replies to the user | Every `.md` file that ships in the repo |
-| **Form** | Fragments OK, drop articles, ASCII only | Full sentences where prose is right, Mermaid where a picture is right |
+| **Form** | Fragments in labels, list items, and status lines; full sentences in explanations; ASCII only | Full sentences where prose is right, Mermaid where a picture is right |
 | **Lives in** | `output-styles/atomic.md` | This skill |
 
-Nothing else splits. There is no separate "terse technical" voice for specs, designs, `CLAUDE.md`, or agent prompts.
+Nothing else splits. There is no separate "terse technical" voice for specs, designs, `AGENTS.md`, or agent prompts.
 
 ## Same voice, different length
 
@@ -57,7 +57,7 @@ Length is set by the job the surface does, not by a compression quota and not by
 | `docs/spec/`, `docs/design/` | Carry a contract a human approves and an agent implements | Shortest that carries the contract in full; the structure is the contract |
 | `docs/wiki/` | Orient a reader to a codebase | Dense. Facts with paths, no throat-clearing |
 | `docs/research/` | Record what was found and why a path was chosen | As long as the evidence needs |
-| `CLAUDE.md`, `rules/` | Instruct, in every session | Tightest. Every line costs tokens on every turn |
+| `AGENTS.md`, `rules/` | Instruct, in every session | Tightest. Every line costs tokens on every turn |
 | `commands/`, `agents/`, `skills/`, `output-styles/` | Instruct an agent mid-task | Tight. Instruct plainly, cut rationale that only defends the instruction |
 
 Tight is not cryptic. Cutting filler is always right. Cutting the contract to save a line is never right.
@@ -71,7 +71,7 @@ A document answers the reader's questions in the order the reader asks them:
 1. **What is this, and why do I care?** Purpose in the reader's terms: what they gain, or what breaks without it. Not mechanism.
 2. **How does it work?** The shape. One diagram or one worked flow, plus the reasoning that connects it.
 3. **Where is it?** Paths, symbols, and entry points, in one table rather than several lists.
-4. **What will bite me?** The constraints where being wrong is expensive.
+4. **What can go wrong?** The constraints where being wrong is expensive.
 5. **What else does this touch?** Pointers to adjacent surfaces.
 
 Not every document needs all five, and a surface with its own defined structure (a spec's checkpoint table, a reference page's lookup tables) keeps that structure. The order does not invert. A page that opens on a path inventory and reaches its purpose in the last paragraph is backwards, however well each paragraph is written.
@@ -102,15 +102,16 @@ Not every document needs all five, and a surface with its own defined structure 
     | Content | Form | In `docs/` | In prompt artifacts |
     |---------|------|-----------|---------------------|
     | Steps passing between actors | sequence | Mermaid `sequenceDiagram` | numbered steps with `->` effects |
-    | Branching process | flowchart | Mermaid `flowchart` | ASCII arrow chain |
+    | Branching process | flowchart | Mermaid `flowchart` | Mermaid `flowchart` |
     | Entities and relations | ER | Mermaid `erDiagram` | crow's-foot ASCII |
-    | States and transitions | state machine | Mermaid `stateDiagram-v2` | `Draft -> Paid -> Shipped` |
+    | States and transitions | state machine | Mermaid `stateDiagram-v2` | Mermaid `stateDiagram-v2` |
+    | Straight sequence, no branch | list | numbered list | numbered list |
     | Containment or nesting | tree | indented tree | indented tree |
     | Options against criteria | table | table | table |
 
-    Prompt artifacts may use Mermaid when the flow carries the instruction and prose would take more lines; otherwise use the ASCII form, which costs fewer tokens at equal clarity. For the full route vocabulary and the discipline caps, see `output-styles/atomic.md`.
+    In a prompt artifact, steps that branch, loop, stop early, or route on a verdict, exit code, or mode are drawn as Mermaid, and the diagram replaces the steps rather than sitting beside them. A section with a single two-way condition stays one sentence of prose; the diagram starts at two or more decisions, a loop, or a multi-way route. Under the diagram, a bulleted list keyed by node label (`**<label>**: …`) carries only what a label cannot: exact commands, flags, error strings, output lines, and rules. For the full route vocabulary and the discipline caps of the ASCII forms, see `output-styles/atomic.md`.
 
-    **Every diagram makes one claim, and the caption above it states that claim.** "The signals pipeline" is a title. "The scan runs before the infer step, so a domain writer never reads a stale substrate" is a claim. If the only caption available is "here is the system", the content is an inventory: write the table instead. The prose must stand without the picture, because a reader on a renderer that does not support Mermaid gets the raw fenced block. The diagram compresses; it does not carry.
+    **Every diagram makes one claim, and the caption above it states that claim.** "The signals pipeline" is a title. "The scan runs before the infer step, so a domain writer never reads a stale substrate" is a claim. If the only caption available is "here is the system", the content is an inventory: write the table instead. In a `docs/` file, the prose must stand without the picture, because a reader on a renderer that does not support Mermaid gets the raw fenced block; there the diagram compresses, it does not carry.
 
     **Draw as many diagrams as the subject has shapes.** A pipeline, a lifecycle, and a request path are three claims, so they are three diagrams, and collapsing them into one canvas or into prose loses all three. There is no cap on how many a page carries; the cap is per diagram, on how much any one of them tries to say.
 
@@ -124,7 +125,7 @@ Not every document needs all five, and a surface with its own defined structure 
 
     Label nodes with the real identifier (`pruneDeleted`, `AuthGuard.verify()`), not a generic noun ("cleanup", "check auth"). A renamed symbol then turns up in grep; a vague label goes stale in silence. Encode distinctions in shape or line style, not color: `{diamond}` for a decision, `[(cylinder)]` for a store, `-.->` for async. Color encodes nothing, breaks on dark backgrounds, and fails colorblind readers.
 
-    Before writing a Mermaid block into a `docs/` file, read `references/mermaid.md`: it picks the type from the reader's question and lists what breaks rendering. Identifier labels are the reason it matters here, since a bare `verify(token)` is a parse error and `verify("token")` is not.
+    Before writing a Mermaid block into a `docs/` file or a prompt artifact, read `references/mermaid.md`: it picks the type from the reader's question and lists what breaks rendering. Identifier labels are the reason it matters here, since a bare `verify(token)` is a parse error and `verify("token")` is not.
 
     **Diagrams belong to explanation and reference.** A concepts page or a design doc is where a claim about how something works earns a picture, and a reference page earns one for a data model or a type hierarchy. A how-to is ordered steps the reader is executing, not modeling, so it rarely wants one. A tutorial almost never does: a learner on rails does not need a map of the territory, and a diagram invites exactly the decision-making a tutorial exists to remove.
 
@@ -180,9 +181,11 @@ Not every document needs all five, and a surface with its own defined structure 
 
 15. **Let length follow content.** Do not compress a five-sentence explanation into a fragment because compression is a virtue, and do not pad a table into paragraphs because prose feels more finished. Mix forms by what the content is: paragraphs carry reasoning and motivation, lists carry enumerable things, diagrams carry shapes, tables carry comparisons. A page built from one form alone is usually the wrong page.
 
-16. **Instruct plainly in prompt artifacts.** In `commands/`, `agents/`, `skills/`, `rules/`, and `CLAUDE.md`, give the instruction and the constraint. Rationale earns its place when it changes what the reader does at the edges, which is what a `**Why:**` line is for. Rationale that only defends the instruction against an imagined objection is noise, and it costs tokens on every turn.
+16. **Instruct plainly in prompt artifacts.** In `commands/`, `agents/`, `skills/`, `rules/`, and `AGENTS.md`, give the instruction and the constraint. Rationale earns its place when it changes what the reader does at the edges, which is what a `**Why:**` line is for. Rationale that only defends the instruction against an imagined objection is noise, and it costs tokens on every turn.
 
 17. **A wiki page never counts things in the repo.** No LOC totals, file counts, percentages, or language tables, and no count of verbs, artifacts, domains, checks, resolvers, steps, lenses, icons, registry entries, tests, or sections. Name the things, or let the list that follows stand on its own. A version and a documented contract value are not counts and stay: `Go 1.25`, a pinned dependency, a 3s timeout, a 16 MiB buffer, a 500-file gate, a port.
+
+18. **Keep the grammar.** When text must shrink, remove a whole idea first. Prior reading studies link most of the constructions below to harder parsing. Keep articles, and keep `that` where the next words are hard to predict. Limit noun stacks to two ("the timeout for job retries", not "job retry timeout"). Use a conventional verb rather than an ad-hoc noun ("add a footnote", not "footnote it"); `commit` and `index` are conventional. Keep the subject next to its verb. Prefer the common phrase over a coined pair ("reader-patience budget"). Identifiers keep their exact form.
 
 ## Structural tells
 
@@ -192,7 +195,7 @@ Check these on prose surfaces: `README.md`, `docs/guides/`, `docs/design/`, `doc
 - Closing line that states what the section proved? Cut it.
 - Summary or Conclusion section restating the page? End on the last fact.
 - Every fact serves one claim, and no exception appears? Put the dropped exception back. If none exists, the check passes; add no hedge.
-- Nothing on the page the reader would not have guessed? Name the likely wrong assumption in the what-will-bite-me section.
+- Nothing on the page the reader would not have guessed? Name the likely wrong assumption in the what-can-go-wrong section.
 - Same register from first line to last? Quote the page's transcript or error string. Do not roughen prose on purpose.
 - Consecutive sentences opening the same way? Vary the openers.
 - Sentence over 30 words, or an aside nested inside a clause? Split it where a clause ends, and move the aside to its own sentence. Keep a `, so` or colon join when the result stays under 30 words; do not bridge a split with `therefore`, `thus`, `nonetheless`, or `This means`. A short parenthetical that replaces an em dash (rule 7) stays.
@@ -201,7 +204,7 @@ Read the page twice. The first read covers the first five checks. The second cov
 
 ## Quick checklist before saving
 
-- Read the headings alone, in order. Do they answer what-is-this, how, where, what-bites, what-else? If the first one is an inventory, the page is upside down.
+- Read the headings alone, in order. Do they answer what-is-this, how, where, what-can-go-wrong, what-else? If the first one is an inventory, the page is upside down.
 - A heading that admits anything ("Notes", "Other", "worth knowing")? Rename it after the question it answers, or redistribute its contents.
 - One concern split into parallel lists by file type? Merge into one table grouped by responsibility.
 - Content has a shape and no diagram? Consider drawing it. Diagram that only restates the prose? Cut it.
@@ -223,7 +226,8 @@ Read the page twice. The first read covers the first five checks. The second cov
 - Three-item rhythm list (`speed, quality, cost`)? Drop to two, or break the rhythm.
 - Marketing word (game-changer, lean into, deep dive)? Replace.
 - Stock AI phrase or reveal formula (load-bearing, it's worth noting, what nobody tells you)? Cut it and state the fact it was decorating.
-- Inanimate noun doing a human verb? Name the human.
+- Inanimate noun doing a human verb? Name the human, or use the literal verb ("returns False", not "swallows").
+- Three nouns in a row, an ad-hoc noun used as a verb, or a dropped article? Rewrite per rule 18.
 - Throat-clearing opener ("Here's the thing")? Cut.
 - Binary-contrast structure ("not X. Y.")? State Y.
 - In a prompt artifact: paragraph that only defends an instruction? Cut it.
@@ -263,9 +267,9 @@ Read the page twice. The first read covers the first five checks. The second cov
 
 **False agency and adverbs:**
 
-> Before: *The signals workflow inherently keeps Claude genuinely informed about the codebase as it evolves.*
+> Before: *The signals workflow inherently keeps the assistant genuinely informed about the codebase as it evolves.*
 >
-> After: *The signals workflow refreshes a snapshot of the codebase whenever the source tree changes, so each Claude session opens with a current map of the project.*
+> After: *The signals workflow refreshes a snapshot of the codebase whenever the source tree changes, so each session opens with a current map of the project.*
 
 **Defensive rationale in an artifact:**
 
@@ -279,16 +283,16 @@ Read the page twice. The first read covers the first five checks. The second cov
 
 ## Boundaries
 
-- **Scope: file contents.** Claude's TUI replies follow the atomic output style, not this skill. Everything the repo writes to a file follows this skill.
+- **Scope: file contents.** The assistant's TUI replies follow the atomic output style, not this skill. Everything the repo writes to a file follows this skill.
 - **Structure passes through unchanged.** Frontmatter, fenced code, command examples, file paths, identifier names, error strings, and Mermaid node labels: never reformat or rephrase. This skill governs prose and chooses between prose and picture. It does not restyle a contract.
 - **Spec checkpoint tables, `## Change tree`, `## Outline`, and `## Flows` keep their defined formats.** Those formats are specified in `rules/specs/spec-currency.md` and are the contract itself. This skill governs the prose around them and encourages a diagram alongside them, never a replacement for them.
 - **Do not rewrite a file's voice as a side effect of an unrelated edit.** Voice work is its own change. Editing one section of a spec does not license rewriting the other twelve.
 - **CHANGELOG entries follow the project's existing tone.** This skill nudges new entries toward plainness but does not rewrite older entries on sight.
-- **Comments in source code follow the comment rules in `CLAUDE.md`, not this skill.** This skill is for markdown files, not inline code comments.
+- **Comments in source code follow the comment rules in `AGENTS.md`, not this skill.** This skill is for markdown files, not inline code comments.
 
 ## Reference files
 
-- `references/mermaid.md` — picking a diagram type from the reader's question, the layout limits (direction, width, density, color), and the label and syntax rules that decide whether a block renders or ships as a raw fence. Read before writing a Mermaid block into a `docs/` file.
+- `references/mermaid.md` — picking a diagram type from the reader's question, the layout limits (direction, width, density, color), and the label and syntax rules that decide whether a block renders or ships as a raw fence. Read before writing a Mermaid block into a `docs/` file or a prompt artifact.
 - `references/exemplar-reference-page.md` — the shape of a finished reference page for a config file, format, or subsystem. Read before writing a `docs/reference/` page a reader will use for lookup.
 - `references/exemplar-tool-page.md` — the shape of a finished tool reference: worked example first, then the model, then per-verb lookup. Read before writing a page for a CLI tool, daemon, or protocol.
 

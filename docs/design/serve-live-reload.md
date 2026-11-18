@@ -66,7 +66,7 @@ sequenceDiagram
 The tick path is bounded by construction, not by assertion:
 
 - **Per tick, no change**: one stat-only walk (the fingerprint manifest). No content reads, no subprocesses.
-- **Per tick, on change**: rebuild of nav paths + link graph — `.md` stat + content reads only. The full-view graph JSON and the provenance DAG are **not** in the tick path: they stay lazily assembled on `/graph/data` demand behind the existing fp-keyed singleflight, exactly as today. `BuildProvenanceDAG` performs per-citation content SHA-256 reads and git subprocess calls (`provenance.go:212,256`) — that cost is paid only when a system view is actually open and fetches, never by the ticker.
+- **Per tick, on change**: rebuild of nav paths + link graph — `.md` stat + content reads only. The full-view graph JSON is **not** in the tick path: it stays lazily assembled on `/graph/data` demand behind the existing fp-keyed singleflight.
 - **Overrun**: if a rebuild is still in flight when the next tick fires, the tick is skipped (non-blocking check). No queued or back-to-back rebuilds.
 - **Torn writes**: the manifest excludes files whose mtime is within a quiet window (~2s) of now — an agent mid-write does not flip the fp until the file settles, so half-written content is never pushed. The window is constructor-injectable alongside the tick interval.
 - **Mid-walk vanish**: a file deleted between stat and content read is skipped for that rebuild without error; the next tick picks up the deletion (the manifest diff reports it).
@@ -85,7 +85,7 @@ These are contracts, not sketches — the spec encodes each as a success criteri
 ## Reconciliation rules (client)
 
 - The SSE event carries `{fp, changed: [relpaths]}` — the manifest diff the rebuild already computed. The list is capped (~100 entries); when over cap the field is omitted and clients treat everything as changed. The fp-equal no-op guard stays as the outer storm guard.
-- **Page mode**: pane + rail refetch only when the displayed page's relpath is in `changed` (or the field is omitted). Nav refetches on any change, but an SSE-triggered nav refetch skips the realm staleness computation (`computeStaleness` → `wiki.Stale` shells git per member; that stays on ordinary navigation only). Scroll is preserved via a named mechanism — the **`live-swap` marker**: SSE-triggered htmx swaps mark the target, and the `htmx:after:swap` reset (`layout.html:1221-1224`) skips marked swaps. The marker applies to page-mode htmx swaps only; system mode patches via raw `/graph/data` fetch and shares the `EventSource` dispatcher (one boot script, both reconcile handlers registered on it), not the marker.
+- **Page mode**: pane + rail refetch only when the displayed page's relpath is in `changed` (or the field is omitted). Nav refetches on any change, but an SSE-triggered nav refetch skips the realm staleness computation (`computeStaleness` → `wiki.Stale` walks every realm member; that stays on ordinary navigation only). Scroll is preserved via a named mechanism — the **`live-swap` marker**: SSE-triggered htmx swaps mark the target, and the `htmx:after:swap` reset (`layout.html:1221-1224`) skips marked swaps. The marker applies to page-mode htmx swaps only; system mode patches via raw `/graph/data` fetch and shares the `EventSource` dispatcher (one boot script, both reconcile handlers registered on it), not the marker.
 - **System mode**: fetch `/graph/data`, diff elements by id. Removed → `cy.remove()`; added → `cy.add()` seeded at a neighbor's position + offset, then scoped cola layout on the new collection only; no `fit()`, viewport untouched. **Degenerate fallback**: when `(added + removed) / (nodes + edges currently mounted) > 0.5`, or no instance is mounted, run a full re-layout — which may re-fit; a mostly-new graph has no stable frame worth preserving, accepted.
 - **Layout cache**: the IndexedDB position cache re-keys from the whole-realm fp to a hash of the sorted element-id set — prose-only edits no longer invalidate cached positions — and the superseded entry is pruned on re-key, bounding growth.
 - **Connectivity indicator**: a minimal status affordance (dot or equivalent) reflects `EventSource` state — live / reconnecting / disconnected — so silent staleness after a drop is distinguishable from "no changes".
@@ -108,3 +108,17 @@ These are contracts, not sketches — the spec encodes each as a success criteri
 ## Open questions
 
 (none — rail mini-graph updates by plain refetch with the pane; it is depth-1 and tiny, not worth a patch path)
+
+
+## Change log
+
+
+### 2026-10-19 — Removed the provenance DAG from the tick-cost note
+
+**What changed:** The per-tick cost note no longer names the provenance DAG or `BuildProvenanceDAG`'s content reads and git calls. The page-mode note says the skipped `wiki.Stale` call costs a realm member walk, not a git call per member.
+
+**Why:** `atomic serve` no longer builds a provenance DAG, and `wiki.Stale` runs no git (`docs/spec/realm-wiki-drop-refresh.md`, criteria 3 and 8; `docs/spec/serve-live-reload.md` change log).
+
+**Superseded:** the skipped nav-time `wiki.Stale` call shelled git per realm member.
+
+**Removed:** the provenance DAG as lazily assembled work.

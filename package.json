@@ -9,8 +9,9 @@
     },
     "devDependencies": {
         "@fortawesome/fontawesome-free": "^7.2.0",
+        "@mermaid-js/layout-elk": "^0.2.3",
         "animejs": "^4.5.0",
-        "mermaid": "^11.16.1",
+        "mermaid": "^11.17.0",
         "playwright": "1.61.1",
         "vitepress": "2.0.0-alpha.20",
         "vitepress-plugin-mermaid": "^2.0.17",

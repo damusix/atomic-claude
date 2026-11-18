@@ -14,7 +14,7 @@ Buckets today are a registered folder with a name, a path, and a hand-written `i
 
 The wiki already solves the equivalent problem one level up: realm members are listed deterministically by `buildMembersSection` + `DeriveMemberDescription` (`atomic/internal/wiki/wiki.go:631`), which reads a summary's frontmatter `description:` and falls back to the first prose line. That mechanism is correct and shipped. It simply stops at the bucket boundary.
 
-Two-level index the feature establishes:
+Index the feature establishes, one `index.md` per folder:
 
 ```
 wiki/index.md
@@ -23,12 +23,12 @@ wiki/index.md
        |
        v  derived from each bucket's index.md frontmatter
 <bucket>/index.md
-  <bucket-docs>        <- code-owned region: ## Docs + one entry per TOPIC
+  <bucket-docs>        <- code-owned region: ## Docs + one entry per direct child
   </bucket-docs>
        |
-       v  derived from each doc's frontmatter
-<bucket>/<slug>.md           simple topic
-<bucket>/<slug>.md + <slug>/ router topic (subtree collapses under the router)
+       v  derived from each child's frontmatter, or its index.md for a folder
+<bucket>/<slug>/index.md             item, listing its stage folders
+<bucket>/<slug>/01_raw/index.md      stage, listing its files
 ```
 
 
@@ -36,15 +36,14 @@ wiki/index.md
 
 
 - **Goals:**
-    - Deterministic two-level index: the realm indexes its buckets, each bucket indexes its own docs. Code walks and writes; the model never authors a listing.
+    - Deterministic index at every level: the realm indexes its buckets, and every folder in a bucket indexes its direct children. Code walks and writes; the model never authors a listing.
     - A frontmatter contract for bucket docs rich enough to drive that index (`title`, `type`, `description`, `tags`, `status`, `created`).
-    - `atomic wiki bucket doc <bucket> <slug>` scaffolds a doc — frontmatter, H1, lede placeholder, guidance comments — for the model to finish.
+    - `atomic wiki bucket doc <bucket> <slug>` scaffolds an item (`<slug>/index.md` with frontmatter, H1, and a lede comment, plus `<slug>/01_raw/index.md`) for the model to finish.
     - `atomic wiki bucket skill <bucket>` scaffolds a per-bucket management skill so the authoring rules are written once and auto-fire thereafter.
-    - Encode the doc-shape convention: one topic per `.md`; a topic that outgrows a file becomes `<slug>.md` (router) plus a `<slug>/` subtree.
+    - Encode the item shape: one item per slug folder, its work in numbered stage folders starting at `01_raw/`, so raw material and research share one bucket.
 
 - **Non-goals:**
     - Rejecting or quarantining frontmatter-free files. Raw capture stays frictionless; unindexed files are listed as such, never refused.
-    - Changing manifest or staleness granularity. `WalkBucket` keeps hashing every file recursively — indexing is per-topic, staleness is per-file, and they stay independent.
     - Shipping per-bucket skills in the install bundle. They are realm-local and user-owned; `atomic claude install` never touches them.
     - A central tag or type vocabulary. Both stay producer-defined, consistent with OKF §4.1 and the existing `docs/spec/okf-alignment.md` non-goal "no central `type` registry".
     - Generating doc bodies. The scaffold stops after the lede.
@@ -58,14 +57,15 @@ wiki/index.md
 
 | # | Approach | Pros | Cons |
 |---|----------|------|------|
-| A1 | Per-file — index every `.md` in the bucket | Trivial walk; matches the manifest walk exactly | A router topic with 12 subtopic files produces 13 entries; destroys "one topic per file"; the index becomes a file dump |
-| A2 | **Per-topic — `<slug>/` collapses under its `<slug>.md` router** | Index reflects topics, which is the unit the user actually thinks in; router subtree stays navigable via its own file | Two walk granularities in one package (indexing vs manifest); needs an explicit note so a future reader does not "fix" the divergence |
+| A1 | Per-file: one flat listing of every `.md` in the bucket | Trivial walk | A topic with 12 subtopic files produces 13 entries; the index becomes a file dump |
+| A2 | Per-topic: one listing per bucket, `<slug>/` collapsing under a sibling `<slug>.md` router | Index reflects topics | Built and replaced: an agent entering a deep bucket had no map of each folder |
+| A3 | **Per-folder: an `index.md` in every folder, listing its direct children** | An agent descends one index at a time and loads only the layer it needs; one listing rule at every depth; no router or orphan cases | More files written on a rebuild, so unchanged files are skipped |
 
 ### B. Where the generated listings live
 
 | # | Approach | Pros | Cons |
 |---|----------|------|------|
-| B1 | Extend the `<wiki-buckets>` machine block with a `description` attr, no separate listing | One artifact; parse-back is exact | Conflates registry (identity) with presentation; block is consumed by `stale` and `serve`, so a schema change ripples |
+| B1 | Extend the `<wiki-buckets>` machine block with a `description` attr, no separate listing | One artifact; parse-back is exact | Conflates registry (identity) with presentation; block is consumed by `scan`, the `bucket` verbs, and `serve`, so a schema change ripples |
 | B2 | Heading-bounded generated sections — find `## Buckets`, regenerate to the next `## ` | No delimiters to explain | **Unsafe.** A heading has a start but no end. A user typing a paragraph between entries, or after the list but before the next heading, leaves code unable to distinguish generated from authored: the rebuild either eats the prose or strands it. Same failure for a user who deletes the next heading. |
 | B3 | **Explicit XML-delimited managed regions at both levels — `<bucket-docs>` and `<wiki-bucket-list>`** | The region has a real end; content outside is preserved byte-for-byte regardless of what the user types; a *visible* delimiter is self-documenting — it tells the user where not to type; matches the eight-example house style (`<atomic>`, `<wikis>`, `<wiki-scan>`, `<wiki-buckets>`, `<wiki-type>`, `<scan-sha>`, `<wiki-schema>`, `<code-index>`) | Two tags to keep paired; needs a CommonMark blank-line rule so the listing inside still renders as markdown |
 | B4 | A separate generated file per bucket (`<bucket>/INDEX.md`) | No splicing logic at all | A second index file next to `index.md` is confusing; splits the bucket's meaning across two files |
@@ -95,34 +95,36 @@ C2, with the C3 behavior available on demand: the upstream doc confirms a `<skil
 | # | Approach | Pros | Cons |
 |---|----------|------|------|
 | D1 | Extend `atomic template <name>` with bucket-doc templates | Reuses the shipped `doctemplate` package outright | `atomic template` writes to **stdout** by contract; the model then has to place the file. Loses the computed path, the collision check, and the `created:` stamp |
-| D2 | **New `atomic wiki bucket doc` verb in the `wiki` package, reusing the `doctemplate` embed idiom** | Owns the computed path (`<bucket>/<slug>.md`), refuses to clobber, stamps `created:` in code | A second embedded-template site in the tree |
+| D2 | **New `atomic wiki bucket doc` verb in the `wiki` package, reusing the `doctemplate` embed idiom** | Owns the computed path (`<bucket>/<slug>/index.md` and `01_raw/index.md`), refuses to clobber, stamps `created:` in code | A second embedded-template site in the tree |
 
-The distinction that settles it: `atomic template` *emits* a skeleton, `atomic wiki bucket doc` *places* one. Placement is the whole value here — the path is derived from bucket plus slug, the router variant creates a sibling directory, and the collision check is what makes the command safe to re-run. Reuse the `//go:embed templates/*.md` idiom, not the command.
+The distinction that settles it: `atomic template` *emits* a skeleton, `atomic wiki bucket doc` *places* one. Placement is the whole value here — the path is derived from bucket plus slug, the scaffold creates the item folder and its first stage, and the collision check is what makes the command safe to re-run. Reuse the `//go:embed templates/*.md` idiom, not the command.
 
 
 ## Recommendation
 
 
-A2 + B3 + C2 + D2.
+A3 + B3 + C2 + D2.
 
-The spine of the design is a rule the codebase already enforces elsewhere and that this feature extends downward: **code computes and writes every derived value; the model writes prose.** It is the same rule as `atomic wiki stamp` (`realm.md`: "code-written fingerprints are verifiable; LLM-authored ones drift silently") and the same mechanism as `DeriveMemberDescription`. Applying it to bucket docs means the two indexes are regenerated on every `atomic wiki scan` at zero model cost and cannot drift, because nothing about them is remembered.
+The spine of the design is a rule the codebase already enforces elsewhere and that this feature extends downward: **code computes and writes every derived value; the model writes prose.** It is the same mechanism as `DeriveMemberDescription`. Applying it to bucket docs means every index is regenerated on every `atomic wiki scan` at zero model cost and cannot drift, because nothing about them is remembered.
 
-The derivation ladders keep capture frictionless. A doc with full frontmatter gets a rich entry; a doc with none still gets a title (H1, then filename stem) and a description (first prose line), and lands under `### Unindexed` — visible, listed, never rejected. That is what lets a 16-file `raw/` dump coexist with an authored `research/` report under one contract.
+The derivation ladders keep capture frictionless. A doc with full frontmatter gets a rich entry; a doc with none still gets a title (H1, then filename stem) and a description (first prose line), and lands under `### Unindexed` — visible, listed, never rejected. That is what lets a 16-file dump in an item's `01_raw/` coexist with its authored findings under one contract.
 
-Sequence per topic, from creation to index:
+Sequence per item, from creation to index:
 
 ```
 atomic wiki bucket doc research seo
-    -> writes research/seo.md   (frontmatter + created: stamped, H1, lede placeholder)
-    -> refuses if the file exists
+    -> writes research/seo/index.md          (frontmatter + created: stamped, H1, lede comment)
+    -> writes research/seo/01_raw/index.md   (title, description, created)
+    -> refuses if research/seo exists
+    -> rebuilds research/ indexes
 
-model fills title / description / tags / body
+model fills title / description / tags / body, adds stages
     <- guided by .claude/skills/research-management/SKILL.md
 
 atomic wiki scan  (or  atomic wiki bucket index research)
-    -> walks research/ per topic
-    -> reads each topic's frontmatter, applies the fallback ladders
-    -> splices the <bucket-docs> region in research/index.md
+    -> walks every folder under research/
+    -> reads each child's frontmatter, applies the fallback ladders
+    -> splices the <bucket-docs> region in each folder's index.md
     -> regenerates the <wiki-bucket-list> region in wiki/index.md
 ```
 
@@ -130,7 +132,7 @@ atomic wiki scan  (or  atomic wiki bucket index research)
 ## Worked example
 
 
-A fictional realm, `acme-labs`, with three buckets exercising every case the contract has to handle: a simple topic, a router topic, an experiment carrying code, and a raw bucket with no frontmatter anywhere.
+A fictional realm, `acme-labs`, with two buckets exercising every case the contract has to handle: an item with authored stages, an experiment carrying code, a stage holding raw dumps with no frontmatter, and numbered stages `2_` and `10_` that must sort by number.
 
 ### On disk
 
@@ -144,44 +146,48 @@ acme-labs/                              <- realm root
 ├── wiki/                               <- the wiki repo
 │   ├── index.md                        <- <wiki-buckets> block + ## Buckets + ## Members
 │   ├── CLAUDE.md                       <- "@index.md"
-│   ├── repos/
-│   ├── knowledge/
-│   └── .buckets/                       <- manifests (baseline/previous/current)
+│   └── repos/
 ├── experiments/                        <- bucket
 │   ├── index.md
-│   ├── ghost-theme-spike.md            <- simple topic
-│   ├── vector-store-bench.md           <- router topic
-│   └── vector-store-bench/
-│       ├── CLAUDE.md                   <- created by --router
-│       ├── bench.py
-│       └── results.md
+│   └── vector-store-bench/             <- item
+│       ├── index.md
+│       ├── 01_raw/
+│       │   ├── index.md
+│       │   └── bench.py
+│       └── 02_findings/
+│           ├── index.md
+│           └── results.md
 ├── research/                           <- bucket
 │   ├── index.md
-│   ├── seo.md                          <- simple topic
-│   ├── coding-agents.md                <- router topic
-│   └── coding-agents/
-│       ├── claude-sdk.md
-│       ├── langchain.md
-│       ├── mastra.md
-│       └── google-genai.md
-├── raw/                                <- bucket, unstructured by design
-│   ├── index.md
-│   ├── directus-export.md              <- no frontmatter, has H1 + prose
-│   └── call-notes-2026-07-11.md        <- no frontmatter, no H1, no prose
+│   ├── coding-agents/                  <- item
+│   │   ├── index.md
+│   │   ├── 01_raw/
+│   │   │   ├── index.md
+│   │   │   ├── directus-export.md      <- no frontmatter, has H1 + prose
+│   │   │   └── call-notes-2026-07-11.md <- no frontmatter, no H1, no prose
+│   │   ├── 2_findings/
+│   │   │   ├── index.md
+│   │   │   ├── claude-sdk.md
+│   │   │   └── mastra.md
+│   │   └── 10_publish/
+│   │       └── index.md
+│   └── seo/                            <- item, stages not started
+│       ├── index.md
+│       └── 01_raw/index.md
 └── storefront/                         <- a member repo, not a bucket
 ```
 
-`research/coding-agents` is the shape from the motivating case: one shallow topic composed of vendor subtopics. It is a single index entry, not five.
+`research/coding-agents` is the shape from the motivating case: one topic, its raw capture, its vendor findings, and a publish stage, each folder carrying its own listing. `bench.py` sits in a stage folder and is not listed, because listings name only markdown.
 
-### A fully-specified topic
+### A fully-specified item
 
-`research/coding-agents.md` — `created` was stamped by the scaffold; everything else the model wrote.
+`research/coding-agents/index.md` — `created` was stamped by the scaffold; the model wrote the rest outside the region.
 
 ```markdown
 ---
 title: Coding agents
 type: Research
-description: Survey of agent SDKs and orchestration frameworks, one subtopic per vendor.
+description: Survey of agent SDKs and orchestration frameworks, one finding per vendor.
 tags: [agents, sdk, orchestration]
 status: active
 created: 2026-07-14
@@ -189,38 +195,52 @@ created: 2026-07-14
 
 # Coding agents
 
-Comparison of the major agent-building SDKs. Each vendor gets a subtopic under
-`coding-agents/`; this file carries the comparison and routes to them.
-```
-
-### Generated bucket index
-
-`research/index.md` — everything outside the region is the user's, preserved byte-for-byte.
-
-```markdown
-# research
-
-
-Authored research reports: distilled, citeable write-ups that feed wiki synthesis.
-Raw material behind a report belongs in `raw/`.
-
-
-## Conventions
-
-One topic per file. A topic that outgrows one file becomes a router: keep the
-summary in `<slug>.md` and break subtopics into `<slug>/`.
+Comparison of the major agent-building SDKs. Raw exports live in `01_raw/`,
+one finding per vendor in `2_findings/`.
 
 <bucket-docs>
 
 ## Docs
 
-- [Coding agents](coding-agents.md) - Survey of agent SDKs and orchestration frameworks, one subtopic per vendor. · tags: agents, sdk, orchestration · router (4 docs)
-- [SEO](seo.md) - Technical SEO checklist for the marketing sites. · tags: seo, marketing
+- [Raw](01_raw/index.md) - Source material collected for coding-agents
+- [Findings](2_findings/index.md) - One write-up per vendor SDK.
+- [Publish](10_publish/index.md) - Final comparison for the blog.
 
 </bucket-docs>
 ```
 
-`raw/index.md` — same machinery, nothing to derive from.
+`2_findings` lists before `10_publish` because a numeric prefix sorts by its integer value; as text, `10_` would come first.
+
+### Generated bucket index
+
+`research/index.md` — everything outside the region is the user's, preserved byte-for-byte. Each item is one entry linking to its own `index.md`.
+
+```markdown
+---
+title: research
+type: Bucket
+description: Research items, from raw capture to published write-up.
+---
+
+# research
+
+Research items, from raw capture to published write-up.
+
+## Conventions
+
+One item per folder. Collect sources in `01_raw/`; number later stages.
+
+<bucket-docs>
+
+## Docs
+
+- [Coding agents](coding-agents/index.md) - Survey of agent SDKs and orchestration frameworks, one finding per vendor. · tags: agents, sdk, orchestration
+- [SEO](seo/index.md) - Technical SEO checklist for the marketing sites.
+
+</bucket-docs>
+```
+
+`research/coding-agents/01_raw/index.md` — same machinery, nothing to derive from in its children.
 
 ```markdown
 <bucket-docs>
@@ -229,7 +249,7 @@ summary in `<slug>.md` and break subtopics into `<slug>/`.
 
 ### Unindexed
 
-- [Directus export](directus-export.md) - Full CMS collection dump pulled 2026-07-02, awaiting synthesis.
+- [Directus export](directus-export.md) - Full CMS collection dump pulled 2026-07-02.
 - [call-notes-2026-07-11](call-notes-2026-07-11.md)
 
 </bucket-docs>
@@ -245,16 +265,14 @@ Note the blank line inside each tag pair — without it CommonMark treats the wh
 <wiki-buckets>
 <bucket name="experiments" path="/home/you/acme-labs/experiments"/>
 <bucket name="research" path="/home/you/acme-labs/research"/>
-<bucket name="raw" path="/home/you/acme-labs/raw"/>
 </wiki-buckets>
 
 <wiki-bucket-list>
 
 ## Buckets
 
-- [experiments](../experiments) - Spikes and prototypes, tried before committing to an approach.
-- [raw](../raw) - Unprocessed dumps awaiting synthesis. Anything goes.
-- [research](../research) - Authored research reports: distilled, citeable write-ups that feed wiki synthesis.
+- [experiments](../experiments/index.md) - Spikes and prototypes, tried before committing to an approach.
+- [research](../research/index.md) - Research items, from raw capture to published write-up.
 
 </wiki-bucket-list>
 
@@ -267,25 +285,25 @@ Note the blank line inside each tag pair — without it CommonMark treats the wh
 </wiki-member-list>
 ```
 
-Registry and presentation stay separate and are both machine-owned: `<wiki-buckets>` is the parse-back registry (`stale`, `serve`), `<wiki-bucket-list>` is the rendered listing. `<wiki-member-list>` is the migrated form of the shipped `## Members` markers, so one file no longer carries two delimiter syntaxes.
+Registry and presentation stay separate and are both machine-owned: `<wiki-buckets>` is the parse-back registry (`scan`, the `bucket` verbs, `serve`), `<wiki-bucket-list>` is the rendered listing. `<wiki-member-list>` is the migrated form of the shipped `## Members` markers, so one file no longer carries two delimiter syntaxes.
 
-The block keeps absolute paths because `stale` and `serve` resolve them from any cwd. The listing renders a link relative to `wiki/index.md` (`../<name>`), matching how `atomic wiki linkify` already emits file-relative links.
+The block keeps absolute paths because the `bucket` verbs and `serve` resolve them from any cwd. The listing renders a link relative to `wiki/index.md` (`../<name>/index.md`), matching how `atomic wiki linkify` already emits file-relative links.
 
 ### Where every rendered value came from
 
 | Rendered | Source | Rung |
 |---|---|---|
-| `Coding agents` | `research/coding-agents.md` frontmatter `title` | 1 |
+| `Coding agents` | `research/coding-agents/index.md` frontmatter `title` | 1 |
 | `Survey of agent SDKs…` | same file, frontmatter `description` | 1 |
 | `agents, sdk, orchestration` | same file, frontmatter `tags` | only rung |
-| `router (4 docs)` | `coding-agents/` exists beside `coding-agents.md`; 4 `.md` descendants | walk |
-| `Directus export` | `raw/directus-export.md` first H1 (no frontmatter) | 2 |
+| `Raw`, `Source material collected for coding-agents` | `01_raw/index.md` frontmatter `title` and `description`, written by the scaffold; the description names the slug | 1 |
+| `Directus export` | `01_raw/directus-export.md` first H1 (no frontmatter) | 2 |
 | `Full CMS collection dump…` | same file, first prose line | 2 |
 | `call-notes-2026-07-11` | filename stem (no frontmatter, no H1) | 3 |
 | *(link-only entry, no ` - ` separator)* | no frontmatter, no prose line — ladder exhausted | exhausted |
-| `research` description | `research/index.md` first prose line | 2 |
+| `research` description | `research/index.md` frontmatter `description` | 1 |
 
-Nothing in either generated region is remembered — a rebuild after any edit reproduces it exactly, which is what makes the indexes safe to regenerate on every `atomic wiki scan`.
+Nothing in any generated region is remembered — a rebuild after any edit reproduces it exactly, which is what makes the indexes safe to regenerate on every `atomic wiki scan`.
 
 
 ## Open questions
@@ -293,5 +311,17 @@ Nothing in either generated region is remembered — a rebuild after any edit re
 
 - **Does `type:` belong on bucket docs at all?** The per-bucket skill can declare one (`type: Experiment`, `type: Research`), and `serve`'s `resolveNodeType` degrades unknown values to `page` via path-convention fallback, so arbitrary values are safe. Carrying it costs one line and buys future graph coloring. Carried in the contract as optional; revisit if it stays unused.
 - **`status:` lifecycle values are per-bucket** (`active`/`dead-end`/`graduated` for experiments; `open`/`done` for tickets). Left producer-defined and declared by each bucket's skill rather than validated centrally — a central enum would be exactly the registry the OKF non-goals rule out.
-- **Should `atomic wiki scan` rebuild bucket indexes, or only `atomic wiki bucket index`?** Spec has scan doing both levels so one deterministic pass converges, with the targeted verb available for a single bucket. If scan turns out to be too slow on large raw buckets, the walk is the thing to profile — it is already O(files) for the manifest.
+- **Scan cost on large buckets.** `atomic wiki scan` rebuilds every folder index of every bucket, writing only files whose content changed; `atomic wiki bucket index <bucket>` targets one. If scan turns out slow on a large bucket, profile the walk.
 - **Unverified:** whether a realm root that is not itself a git repository still yields `.claude/skills/` discovery from a session started there. The upstream doc phrases the walk as "up to the repository root" without stating the non-repo case. Worth confirming before the guide text promises it.
+
+
+## Change log
+
+
+### 2026-10-19 — Index at every level, items as stage folders
+
+**What changed:** The index diagram, Goals, Approach A, Approach D, the Recommendation, the creation sequence, and the worked example describe an `index.md` in every bucket folder listing its direct children, and items scaffolded as `<slug>/index.md` plus numbered stage folders starting at `01_raw/`. The example realm folds the separate `raw` bucket into `research` items, and the example `research/index.md` carries the frontmatter `bucket add` now stubs, so its description comes from rung 1. The open question on whether scan rebuilds bucket indexes is settled.
+
+**Why:** Per-folder indexes and staged items replaced the router shape (`docs/spec/bucket-icm-structure.md`), and bucket manifests and `wiki/knowledge/` were deleted with the realm wiki refresh tracking (`docs/spec/realm-wiki-drop-refresh.md`).
+
+**Superseded:** A2, the per-topic index with `<slug>/` collapsing under a `<slug>.md` router, the `--router` scaffold, a separate `raw` bucket, and the non-goal tying index granularity to the manifest walk.

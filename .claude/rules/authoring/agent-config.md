@@ -70,7 +70,7 @@ You can write multiple paragraphs.
 | `tools` | string or array | ✗ | Available tools; missing = all tools; `"*"` = all tools; empty string/array = no tools. Separators: comma OR space (e.g., `"Bash, Read"` or `"Bash Read"`) |
 | `disallowedTools` | string or array | ✗ | Tools to exclude from available set (same format as `tools`) |
 | `permissionMode` | string | ✗ | One of: `"default"`, `"acceptEdits"`, `"plan"`, `"bypassPermissions"`, `"dontAsk"` (and internally `"auto"`, gated by `TRANSCRIPT_CLASSIFIER` feature flag) |
-| `effort` | string or int | ✗ | One of `"low"`, `"medium"`, `"high"`, `"max"`, or a positive integer. Effort is also gated by per-model support (`modelSupportsEffort`) |
+| `effort` | string | ✗ | One of `"low"`, `"medium"`, `"high"`, `"xhigh"`, `"max"`. Effort is also gated by per-model support (`modelSupportsEffort`) |
 | `initialPrompt` | string | ✗ | **Main agent only.** Prepended to first user turn; slash commands are processed |
 | `memory` | string | ✗ | Memory scope: `"user"`, `"project"`, or `"local"`. Only applied if `autoMemoryEnabled` is on |
 | `skills` | string or array | ✗ | Skill names to preload (e.g., `"commit, review"`) |

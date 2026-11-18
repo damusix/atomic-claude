@@ -7,12 +7,14 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
 func setupListDir(t *testing.T) (string, time.Time) {
 	t.Helper()
 	tmp := t.TempDir()
-	dir := filepath.Join(tmp, ".claude", "project", "followups")
+	dir := config.FollowupsDir(tmp)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}

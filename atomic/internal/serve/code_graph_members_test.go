@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/serve"
 )
 
@@ -48,7 +49,7 @@ func TestCodeGraphMembers_RepoScope_Unindexed(t *testing.T) {
 
 func TestCodeGraphMembers_RepoScope_Indexed(t *testing.T) {
 	realmRoot := t.TempDir()
-	db := filepath.Join(realmRoot, ".claude", ".atomic-index", "atomic.db")
+	db := config.IndexDBPath(realmRoot)
 	if err := os.MkdirAll(filepath.Dir(db), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -87,7 +88,7 @@ func TestCodeGraphMembers_RealmFederation_ListsBuiltAndUnbuilt(t *testing.T) {
 	})
 
 	// The federation db is never built here, so memberDB falls back to this.
-	alphaDB := filepath.Join(realmRoot, "repos", "alpha", ".claude", ".atomic-index", "atomic.db")
+	alphaDB := config.IndexDBPath(filepath.Join(realmRoot, "repos", "alpha"))
 	if err := os.MkdirAll(filepath.Dir(alphaDB), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}

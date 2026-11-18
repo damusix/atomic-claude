@@ -20,13 +20,29 @@ hunch → /gather-evidence → /pressure-test → /atomic-plan → /challenge-sw
 
 ## Parse arguments
 
-`$ARGUMENTS` may be empty, a hypothesis phrase, or a path to a markdown file.
+`$ARGUMENTS` is empty, a hypothesis phrase, or a path to a markdown file, and a path is read only when it is a markdown file inside the repo.
 
-1. Token starts with `@` or ends in `.md` (resolved relative to cwd, absolute allowed, must exist) → **target document**. Read it. Treat the document's central claims as the hypothesis set.
-2. Anything else → **hypothesis seed** prose. Use it as-is.
-3. Empty `$ARGUMENTS` → scrape the recent conversation for the most recent unverified factual claim the **user** made (not your own assertions). If multiple candidates exist, pick the most recent one and ask the user to confirm or substitute before continuing. If none exists, ask: *"What hypothesis do you want me to gather evidence on?"*
+```mermaid
+flowchart TD
+    A{"Argument shape?"} -->|path| P{"Exists and<br/>is markdown?"}
+    P -->|no| X["Stop"]
+    P -->|yes| R{"Inside repo?"}
+    R -->|no| X
+    R -->|yes| T["Target document"]
+    A -->|prose| S["Hypothesis seed"]
+    A -->|empty| C{"User claim in<br/>conversation?"}
+    C -->|yes| F["Confirm or<br/>substitute"]
+    C -->|no| Q["Ask for one"]
+```
 
-**Path safety.** Resolve absolute path. If the file doesn't exist or isn't markdown, print one line: `path '<x>' not found (or not markdown) — pass a hypothesis phrase instead.` and stop. If the path resolves outside `git rev-parse --show-toplevel`, print: `path '<x>' outside repo — continuing without target.` and stop.
+- **Argument shape?**: a token starting with `@` or ending in `.md` is a path (relative to cwd, absolute allowed).
+- **Exists and is markdown?**: resolve the absolute path. No: `path '<x>' not found (or not markdown) — pass a hypothesis phrase instead.`
+- **Inside repo?**: the path resolves under `git rev-parse --show-toplevel`. No: `path '<x>' outside repo — continuing without target.`
+- **Target document**: read it and treat its central claims as the hypothesis set.
+- **Hypothesis seed**: use the prose as-is.
+- **User claim in conversation?**: the most recent unverified factual claim the **user** made, not your own assertions.
+- **Confirm or substitute**: a single candidate is confirmed too; with several, pick the most recent. Ask the user to confirm or substitute before continuing.
+- **Ask for one**: *"What hypothesis do you want me to gather evidence on?"*
 
 <workflow>
 
@@ -36,16 +52,25 @@ hunch → /gather-evidence → /pressure-test → /atomic-plan → /challenge-sw
 
 Restate the hypothesis as a **falsifiable claim**. One sentence. Name what would have to be true.
 
-If the hypothesis is vague ("this would be cleaner", "X is better than Y", "we should use Z"):
+A refusal case exits immediately, and a vague hypothesis gets exactly one sharpen round before it exits as unfalsifiable.
 
-- **One sharpen round.** Ask: *"What specific behavior, fact, or capability are you betting on? Frame so it can be checked."*
-- If the sharpened version is falsifiable → continue to SCOPE.
-- If it still can't be made falsifiable → exit with: `hypothesis is unfalsifiable — this is /pressure-test territory, not /gather-evidence. Try running /pressure-test instead.`
+```mermaid
+flowchart TD
+    K{"Refusal case?"} -->|needs access| X1["Exit: needs access"]
+    K -->|predictive| X2["Exit: predictive"]
+    K -->|no| F{"Falsifiable?"}
+    F -->|yes| S["Go to SCOPE"]
+    F -->|vague| H["One sharpen round"]
+    H --> F2{"Falsifiable now?"}
+    F2 -->|yes| S
+    F2 -->|no| X3["Exit: unfalsifiable"]
+```
 
-Refusals (exit immediately, name the reason):
-
-- Requires credentials or access not available in-session → `cannot gather — needs <X>. Provide or run after acquiring access.`
-- Predicts future state ("will this scale", "will users like this") → `predictive claims can't be gathered, only reasoned. Try /pressure-test or build a small probe.`
+- **Exit: needs access**: the claim requires credentials or access not available in-session. Print `cannot gather — needs <X>. Provide or run after acquiring access.`
+- **Exit: predictive**: the claim predicts future state ("will this scale", "will users like this"). Print `predictive claims can't be gathered, only reasoned. Try /pressure-test or build a small probe.`
+- **Falsifiable?**: vague looks like "this would be cleaner", "X is better than Y", "we should use Z".
+- **One sharpen round**: ask *"What specific behavior, fact, or capability are you betting on? Frame so it can be checked."*
+- **Exit: unfalsifiable**: print `hypothesis is unfalsifiable — this is /pressure-test territory, not /gather-evidence. Try running /pressure-test instead.`
 
 ### 2. SCOPE
 
@@ -70,16 +95,16 @@ Pull evidence **both for and against** the hypothesis. Confirmation bias is the 
 
 **Tool routing — judgment, not table-lookup:**
 
-- **Library / framework / API claims** → `context7` first (`resolve-library-id` → `query-docs`). Then `WebFetch` against the official docs URL if context7 misses or the library isn't indexed.
-- **Codebase claims** ("function X is called from N places", "we already have a Z pattern", "changing X affects Y") → when a code-intel index is present: for an open-ended claim where the symbol name is unknown ("do we already have pattern Z"), lead with `atomic code explore "<natural-language query>"` — one shot returns the relevant symbols, files, and relationships, scoping the surface before you commit to a targeted query. Once you have the symbol, `atomic code callers <symbol>` answers "called from N places" and `atomic code impact <symbol>` answers "changing X affects Y" directly and authoritatively (Tier 1 — real graph edges, not filename guesses); fall back to `ast-grep` (`sg run -p '<pattern>' -l <lang>`) when the index is absent. Use `grep`/`Grep` for literal strings, log messages, config values regardless. **Note:** `/gather-evidence` may query `atomic code` inline — it owns its evidence-gathering tokens. This is the documented exception to the parents-delegate rule (commands that run in the main context and dispatch subagents for graph queries); evidence gathering is single-threaded by design (behavioral rule 5) and the token cost here is intentional.
+- **Library / framework / API claims** → `context7` first (`resolve-library-id` → `query-docs`). Then fetch the official docs URL directly if context7 misses or the library isn't indexed.
+- **Codebase claims** ("function X is called from N places", "we already have a Z pattern", "changing X affects Y") → when a code-intel index is present: for an open-ended claim where the symbol name is unknown ("do we already have pattern Z"), lead with `atomic code explore "<natural-language query>"` — one shot returns the relevant symbols, files, and relationships, scoping the surface before you commit to a targeted query. Once you have the symbol, `atomic code callers <symbol>` answers "called from N places" and `atomic code impact <symbol>` answers "changing X affects Y" directly and authoritatively (Tier 1 — real graph edges, not filename guesses); fall back to `ast-grep` (`sg run -p '<pattern>' -l <lang>`) when the index is absent. Use `grep` for literal strings, log messages, and config values regardless. **Note:** `/gather-evidence` may query `atomic code` inline — it owns its evidence-gathering tokens. This is the documented exception to the parents-delegate rule (commands that run in the main context and dispatch subagents for graph queries); evidence gathering is single-threaded by design (behavioral rule 5) and the token cost here is intentional.
 - **Behavioral claims** ("does the current code return Y for input X") → write a script to `tmp/`, run it, capture output. Real execution beats reasoning about behavior.
 - **CLI / tool claims** → `--help`, `man`, then official docs.
 - **Historical / git claims** ("when was X introduced", "was Y ever removed") → `git log -p`, `git show`, `git blame`.
 - **External service / API behavior** → `curl` with `-s -o /dev/null -w '%{http_code}'`, verify status and response shape.
 - **Performance claims** → benchmark in `tmp/`. Real numbers, not estimates.
-- **General factual claims with no library or codebase target** → `WebSearch` last resort. Prefer official-domain results. If only Tier-3 or Tier-4 hits surface, say so.
+- **General factual claims with no library or codebase target** → a web search as last resort. Prefer official-domain results. If only Tier-3 or Tier-4 hits surface, say so.
 
-**WebSearch discipline.** Prefer official domains (the project's own site, the org's GitHub, the standard body's site). Skip personal blogs, listicles, content-farm SEO results unless they're the only signal — and flag them as Tier 4 when used.
+**Web search discipline.** Prefer official domains (the project's own site, the org's GitHub, the standard body's site). Skip personal blogs, listicles, content-farm SEO results unless they're the only signal — and flag them as Tier 4 when used.
 
 **Evidence collection rules:**
 
@@ -136,7 +161,7 @@ RECOMMENDATION: proceed to /atomic-plan | abandon | refine hypothesis | dig deep
 4. **No artifacts beyond the report.** No spec, no design, no code. If the user asks for those, suggest `/atomic-plan` after the verdict lands.
 5. **No subagent dispatch in v1.** Single-thread gathering. Re-evaluate if multi-claim audits become a real pattern.
 6. **Stop at SCOPE.** Once the bar from step 2 is hit, write the report. Don't keep digging because *more evidence would be nice*.
-7. **Verify before asserting.** Same rule as `<investigate_before_answering>` in `CLAUDE.md`. Every factual statement in the report must trace to a tool call output captured in the GATHER step.
+7. **Verify before asserting.** Same rule as the global contract's `<investigate_before_answering>` block. Every factual statement in the report must trace to a tool call output captured in the GATHER step.
 
 ## What this command does not do
 

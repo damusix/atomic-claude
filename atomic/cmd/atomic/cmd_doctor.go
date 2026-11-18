@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 
 	"github.com/damusix/atomic-claude/atomic/internal/doctor"
+	"github.com/damusix/atomic-claude/atomic/internal/harness"
+	"github.com/damusix/atomic-claude/atomic/internal/harness/claude"
 	"github.com/damusix/atomic-claude/atomic/internal/repoctx"
 	"github.com/spf13/cobra"
 )
@@ -44,8 +46,10 @@ func runDoctor(args []string) {
 		os.Exit(2)
 	}
 
-	if doctor.ClaudeHomeMissing(home) {
-		msg := doctor.MissingHomeMessage()
+	opts.Harness = harness.Detect(harness.Environ()).Kind
+
+	if doctor.ShortCircuit(home) {
+		msg := doctor.MissingHomeMessage(opts.Harness)
 		if opts.JSON {
 			data, jerr := doctor.FormatJSONMissingHome(msg)
 			if jerr != nil {
@@ -61,8 +65,10 @@ func runDoctor(args []string) {
 
 	project := doctorProjectName()
 
-	// claudeMDPath drives realm detection in the code-index check.
-	opts.ClaudeMDPath = filepath.Join(home, ".claude", "CLAUDE.md")
+	// claudeMDPath drives realm detection in the code-index check; Home scopes
+	// the multi-harness lifecycle checks.
+	opts.ClaudeMDPath = filepath.Join(claude.DefaultConfigDir(home), "CLAUDE.md")
+	opts.Home = home
 
 	results, err := doctor.Run(opts)
 	if err != nil {

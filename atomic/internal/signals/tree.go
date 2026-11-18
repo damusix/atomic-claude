@@ -45,17 +45,18 @@ var skipDirs = map[string]bool{
 	"vendor":       true,
 }
 
-// skippedPrefixes excludes, in every enumeration mode: the harness-relative
-// scratchpad (working memory) and project (legacy signals output) dirs, and the
-// fixed docs/wiki/ path. Scanning docs/wiki/ would be self-referential — the
-// inferrer stamps a <scan-sha> into index.md, changing its blob SHA, changing
-// the scan tree, leaving `atomic signals stale` at exit 1 forever.
-func skippedPrefixes() []string {
-	return []string{
-		config.ScratchpadDir("") + "/",
-		config.ProjectDir("") + "/",
-		"docs/wiki/",
+// skippedPrefixes skips the state scratchpad and project dirs, and refresh output
+// (docs/wiki/, the rules/wiki cards and their OMP links) that keeps `signals stale` at 1.
+func skippedPrefixes(root string) []string {
+	prefixes := []string{"docs/wiki/", ".omp/rules/atomic-wiki-"}
+	scratchpad := config.ScratchpadDir(root)
+	cards := filepath.Join(filepath.Dir(scratchpad), "rules", "wiki")
+	for _, dir := range []string{scratchpad, config.ProjectDir(root), cards} {
+		if rel, inside := config.RepoRelative(root, dir); inside {
+			prefixes = append(prefixes, filepath.ToSlash(rel)+"/")
+		}
 	}
+	return prefixes
 }
 
 // enumerateFiles returns repo-relative paths for tracked and
@@ -82,7 +83,7 @@ func enumGit(root string) ([]string, error) {
 		return nil, err
 	}
 
-	prefixes := skippedPrefixes()
+	prefixes := skippedPrefixes(root)
 	seen := make(map[string]bool, len(tracked)+len(untracked))
 	all := make([]string, 0, len(tracked)+len(untracked))
 	for _, p := range append(tracked, untracked...) {
@@ -116,7 +117,7 @@ func gitLsFiles(root string, args []string) ([]string, error) {
 }
 
 func enumWalk(root string) ([]string, error) {
-	prefixes := skippedPrefixes()
+	prefixes := skippedPrefixes(root)
 	var files []string
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {

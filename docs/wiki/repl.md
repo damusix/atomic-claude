@@ -53,7 +53,7 @@ stateDiagram-v2
 
 The idle window resolves from repo config, then user config, then the built-in default:
 
-`.claude/atomic.toml [repl] idle_timeout` -> `~/.atomic/config.toml [repl] idle_timeout` -> `DefaultIdleTimeout` (1h)
+`<state-root>/atomic.toml [repl] idle_timeout` (`config.RepoConfigPath`, [`.atomic/atomic.toml`](../../.atomic/atomic.toml) by default) -> `~/.atomic/config.toml [repl] idle_timeout` -> `DefaultIdleTimeout` (1h)
 
 A present but invalid value is skipped in favor of the next tier rather than blocking a start, and `start` prints one stderr warning per bad value naming the file. Zero or negative is invalid, never "disable". Both harnesses check the window against a monotonic clock, so an NTP step cannot fake or mask it, and they check it every accept-loop pass rather than only on accept timeout: a client that connects and asks nothing must not hold a session open.
 
@@ -116,7 +116,7 @@ Fixed literal values, pinned by `TestExitCodes_PinnedValues`, defined in [`atomi
 | [`atomic/internal/repl/action.go`](../../atomic/internal/repl/action.go) | Verb dispatch, scope and idle-timeout resolution, flag parsing, error-to-exit-code mapping, `deadSessionError` and `dialError` |
 | [`atomic/internal/repl/harness_embed.go`](../../atomic/internal/repl/harness_embed.go) | `go:embed` of both harness scripts, canonical language ids, materialized filenames |
 | [`atomic/cmd/atomic/main.go`](../../atomic/cmd/atomic/main.go) | `buildReplCmd` and `runRepl` |
-| [`atomic/internal/cliusage/cliusage.go`](../../atomic/internal/cliusage/cliusage.go) | `{"repl", <verb>}` entries feeding `--help` and the A1 artifact-citation lint |
+| [`atomic/internal/cliusage/cliusage.go`](../../atomic/internal/cliusage/cliusage.go) | `{"repl", <verb>}` entries in the golden fixture `TestDeriveCommandsGolden` checks; production `--help` and the A1 artifact-citation lint read the live Cobra tree through `SetRoot` |
 
 ### Harness scripts and their tests
 
@@ -165,5 +165,5 @@ Fixed literal values, pinned by `TestExitCodes_PinnedValues`, defined in [`atomi
 - **config domain.** `[repl] idle_timeout` is a config-domain schema key at both scopes (`replSection` and `ValidateIdleTimeout` in [`atomic/internal/config/repo.go`](../../atomic/internal/config/repo.go)), shared by `RepoConfig.Repl` and the user-level `Config.Repl`. repl consumes it through `resolveIdleTimeout` and owns none of it. `RootDir` also depends on `config.Dir(home)` for the `~/.atomic/repl` state root.
 - **config domain (scope resolution).** `resolveScopeRoots` calls `repoctx.ResolveFrom` for the repo root and `config.FindScopeRoot(dir, "realm")` for the enclosing realm. Both are config-domain primitives, so a session's cross-repo visibility is entirely a function of how the scope-marker walk resolves.
 - **doctor domain.** Both validation call sites live in doctor, at different severity ceilings: repo-scoped (`checks_repo_config.go`, category 13) folds an invalid `idle_timeout` into a WARN, user-scoped (`checks_config.go`, category 9) fails `config.Validate` and reports FAIL. See [`docs/wiki/doctor.md`](doctor.md).
-- **bundle domain.** repl ships no command, agent, or skill of its own. The `## Persistent REPL sessions` section in [`context/CLAUDE.md`](../../context/CLAUDE.md) and the intent row in [`context/commands/atomic-help.md`](../../context/commands/atomic-help.md) are bundle inputs, so editing either needs `make bundle`.
+- **bundle domain.** repl ships no command, agent, or skill of its own. The `atomic repl` line under `## Atomic binary` in [`context/AGENTS.md`](../../context/AGENTS.md) and the intent row in [`context/commands/atomic-help.md`](../../context/commands/atomic-help.md) are bundle inputs, so editing either needs `make bundle`.
 - **Verb count is pinned.** `repl` is one of the top-level Cobra verbs [`atomic/cmd/atomic/main_test.go`](../../atomic/cmd/atomic/main_test.go)'s `TestRootCmdExact<N>Verbs` pins. Adding, removing, or renaming any verb anywhere in the binary updates that list.

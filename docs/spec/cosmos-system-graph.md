@@ -11,8 +11,7 @@ today's interaction surface and zero runtime build step.
 ## Non-goals
 
 - Rail mini-graph migration — stays on Cytoscape (`concentric` layout).
-- Any change to the `/graph/data` JSON contract or its consumers (rail,
-  provenance overlay).
+- Any change to the `/graph/data` JSON contract or its consumers (rail).
 - Symbol/code-graph rendering — this work builds engine headroom only.
 - 3D view, clustering, or community detection.
 - A typed-array or LOD graph-data payload — the existing cytoElements JSON is
@@ -68,7 +67,7 @@ today's interaction surface and zero runtime build step.
       types alpha-0-recolored, excluded from hover/click, layout does not
       reflow on toggle), zoom/pan recorded to and restored from the URL,
       theme-flip re-styling, degree-based node sizing, OKF node-type coloring,
-      distinct provenance/drift edge styling, position persistence across
+      position persistence across
       opens keyed by the realm fingerprint, htmx mount/teardown lifecycle
       (`mode-system` body class, history-restore survival), lifecycle guards
       (double-mount guard, instance destroy and GL-context release on
@@ -117,7 +116,7 @@ view only; full rationale and rejected alternatives in
     ├── templates/layout.html .................. M  (vendor <script> tags; inline system-graph script trimmed to tag + mount delegation; AtomicGraphUI made engine-neutral; rail call sites updated)
     ├── serve.go ................................ M  (stale "mount Cytoscape" doc-comment fix)
     ├── rail_test.go ............................ M  (TestShellLoadsGraphScriptsInOrder rewritten for the cosmos bundle)
-    └── graphoverlay_test.go .................... M  (TestShellSystemModeToggleWiring, TestShellContainsAtomicCyStyleFunction, TestShellContainsFingerprintStyleInSharedFunction premise/comment fixes)
+    └── graphoverlay_test.go .................... M  (TestShellSystemModeToggleWiring, TestShellContainsAtomicCyStyleFunction premise/comment fixes)
     docs/
     ├── spec/atomic-serve.md ................... M  (system-view description rewritten to cosmos.gl truth)
     └── reference/serve.md ..................... M  (system-graph description rewritten to cosmos.gl truth)
@@ -140,7 +139,7 @@ view only; full rationale and rejected alternatives in
       mount/teardown lifecycle — double-mount guard, instance construction, GL-context release on swap-out, mid-fetch teardown safety
       data adapter — cytoElements JSON to point/link index arrays, ID<->index maps
       motion-policy sim control — fresh-mount rest-then-pause, seed-and-pause cache replay, cache-format versioning, bounded drag reheat, URL view-state read/write
-      styling + interaction parity — legend filter (alpha-0 recolor, hover/click guard, no-reflow), provenance/drift edge styling, degree-based sizing, OKF type coloring, theme-flip re-style, hover/click event wiring into AtomicGraphUI
+      styling + interaction parity — legend filter (alpha-0 recolor, hover/click guard, no-reflow), degree-based sizing, OKF type coloring, theme-flip re-style, hover/click event wiring into AtomicGraphUI
       label overlay — DOM projection from screen-space coordinates, zoom-threshold fade, hover-always-shows exception
         culling function (exported, pure) — viewport + degree + zoom in, label set out, fixed numeric cap
       WebGL2 detection — availability check before instance construction, failure-mode messaging
@@ -152,7 +151,7 @@ view only; full rationale and rejected alternatives in
         showPreviewCard — takes plain node data (id, type, meta, screen coords) instead of a Cytoscape node
         openPageModal — engine-neutral node-id lookup
       mountRailGraph — call sites updated to the reshaped AtomicGraphUI contract
-      atomicCyStyle — fingerprint/fingerprint-drift edge selectors removed (relocated to system-graph.js)
+      atomicCyStyle — rail-only edge and node styles
 
     atomic/internal/serve/serve.go
       None — doc-comment-only fix, no created or reshaped code pieces
@@ -163,7 +162,6 @@ view only; full rationale and rejected alternatives in
     atomic/internal/serve/graphoverlay_test.go
       TestShellSystemModeToggleWiring — premise rewritten for the code-home move
       TestShellContainsAtomicCyStyleFunction — doc-comment fix only (rail-only coverage)
-      TestShellContainsFingerprintStyleInSharedFunction — assertions + doc-comment rewritten for the new styling home
 
     atomic/internal/serve/assets/app.css
       system-graph container/legend styles — reshaped for the cosmos mount
@@ -230,7 +228,7 @@ view only; full rationale and rejected alternatives in
 | 1 | **Vendor cosmos.gl + remove cola** — one-time `esbuild --bundle` of `@cosmos.gl/graph` into a committed single-file bundle under `assets/vendor/`, with a committed provenance record alongside it (package@version, resolved dependency pins, esbuild version, exact command, output checksum); delete `cola.min.js` + `cytoscape-cola.js`; update the vendor `<script>` tags in `layout.html` (remove the cytoscape→cola→cytoscape-cola load-order block, add the cosmos.gl bundle) while keeping `cytoscape.min.js` (still needed by the rail); rewrite `TestShellLoadsGraphScriptsInOrder` to assert the cosmos.gl bundle is present instead of the removed cola triplet, and correct its doc-comment's stale claim that the rail mini-graph uses cola (the rail uses `concentric`) | `atomic/internal/serve/assets/vendor/`, `atomic/internal/serve/templates/layout.html` (script tags), `atomic/internal/serve/rail_test.go` | builder | 5 | SC2, SC3; `go build` succeeds; rail mini-graph still mounts; no reference to `cola` remains in the vendor `<script>` tags or in `assets/vendor/` (the system-graph mount body's cola layout config is CP2's territory — it is deleted wholesale when the mount moves to `system-graph.js`, so the system view is expectedly non-functional between the CP1 and CP2 commits; the rail is unaffected); `TestShellLoadsGraphScriptsInOrder` passes asserting the cosmos.gl bundle; a local Node import-smoke of the vendored bundle succeeds (constructs/imports it outside the browser — not a CI gate) |
 | 2 | **Mount lifecycle on cosmos.gl** — create `atomic/internal/serve/assets/system-graph.js`: adapt the existing `/graph/data` cytoElements JSON into cosmos's point/link index arrays (ID↔index maps for later event handling); detect WebGL2 availability before constructing the cosmos.gl instance — on failure, clear the loading indicator and show a message naming the WebGL2 requirement; on success, start the continuous simulation, running to rest and pausing on a fresh mount; wire the initial zoom/fit to match today's fit-on-open behavior; guard against double-mount, destroy the instance and release its GL context on swap-out, and make mid-fetch teardown safe; trim `layout.html`'s inline script down to the vendor `<script>` tag plus the htmx-delegated mount call into `system-graph.js`; fix the stale "mount Cytoscape" comment at `serve.go:33-35`; rewrite `TestShellSystemModeToggleWiring`'s premise — its identifier/URL-string assertions against the "/" shell response no longer hold once the mount body moves into `system-graph.js`, so it must assert the new seam (the script tag and the delegated mount call) instead | `atomic/internal/serve/assets/system-graph.js` (new), `atomic/internal/serve/templates/layout.html`, `atomic/internal/serve/serve.go`, `atomic/internal/serve/graphoverlay_test.go` | builder | 4 | SC1 (fresh-mount rest-then-pause and idle zero-work clauses), SC4 (lifecycle-guards clause), SC9; `TestShellSystemModeToggleWiring` passes against its rewritten premise |
 | 3 | **Position cache + drag reheat + URL view state** — restore the IndexedDB position cache as seed-and-pause: seed the cached positions before the first simulation tick and pause immediately on an unchanged `X-Graph-Fingerprint`, for an exact, zero-motion replay; version the cache value format and discard any entry lacking the current marker under an identical fingerprint rather than feeding it to the seed; wire node drag to a live bounded-energy reheat with no pinning (`start(alpha)` on the running instance — springs move neighbors, repulsion resolves overlaps, damping quiets the far field) that cools back to a pause on release and writes a full position snapshot to the cache on release; the fresh-mount path writes one full snapshot when the simulation settles (cache-miss path only — a cache-hit open never writes); the cache-hit gate requires full coverage of the current node set, with partial entries falling through to the fresh path; recreate the URL zoom/pan read/write behavior inside `system-graph.js` (equivalent semantics to the removed shell helpers: restore view from URL params on mount, record zoom/pan to the URL debounced via replaceState), wired to the new instance's viewport events | `atomic/internal/serve/assets/system-graph.js` | builder | 1 | SC1 (seed-and-pause replay, cache-format discard, and drag-reheat/save-on-release clauses), SC6; manual verification of exact-replay-with-zero-motion on a second open and of drag adjusting overlapped/nearby nodes while the far field stays calm |
-| 4 | **Interaction + styling parity** — make `AtomicGraphUI`'s helpers engine-neutral (plain data: node id, type, meta, screen coordinates, rather than Cytoscape objects) and update the rail's call sites in the same change; re-wire hover → `AtomicGraphUI.showPreviewCard` (anchored to its node as the node moves) and click → `AtomicGraphUI.openPageModal`; port the legend type-filter chips so a filtered-out type is alpha-0-recolored (not removed from the simulation), excluded from hover/click by a guard, and never triggers a layout reflow; port theme-flip re-styling, degree-based node sizing, and OKF type coloring (`atomicCyTypeColors()`) onto the cosmos path; move the distinct `fingerprint`/`fingerprint drift` provenance-edge styling into `system-graph.js` (its current home is the shared `atomicCyStyle()` in `layout.html`); fix `TestShellContainsAtomicCyStyleFunction`'s doc-comment, which claims system-graph coverage — after this checkpoint `atomicCyStyle()` is rail-only; rewrite `TestShellContainsFingerprintStyleInSharedFunction`'s assertions to check the provenance-edge styling's new home in `system-graph.js` instead of the shell HTML, and fix its doc-comment's stale claim that "the style must live in the shell, not in the removed /graph page" | `atomic/internal/serve/templates/layout.html` (`AtomicGraphUI` helpers, rail call sites), `atomic/internal/serve/assets/system-graph.js`, `atomic/internal/serve/assets/app.css`, `atomic/internal/serve/graphoverlay_test.go` | builder | 4 | SC4 (remaining parity clauses); SC1 (the ~60fps / no sustained drops below ~55fps smoothness clause, completed here since drag, hover, and click are all live) — checked manually via a browser devtools FPS overlay during continuous pan/zoom/drag; `TestShellContainsFingerprintStyleInSharedFunction` passes against its rewritten premise; rail hover/click behavior verified manually after the `AtomicGraphUI` signature change |
+| 4 | **Interaction + styling parity** — make `AtomicGraphUI`'s helpers engine-neutral (plain data: node id, type, meta, screen coordinates, rather than Cytoscape objects) and update the rail's call sites in the same change; re-wire hover → `AtomicGraphUI.showPreviewCard` (anchored to its node as the node moves) and click → `AtomicGraphUI.openPageModal`; port the legend type-filter chips so a filtered-out type is alpha-0-recolored (not removed from the simulation), excluded from hover/click by a guard, and never triggers a layout reflow; port theme-flip re-styling, degree-based node sizing, and OKF type coloring (`atomicCyTypeColors()`) onto the cosmos path; fix `TestShellContainsAtomicCyStyleFunction`'s doc-comment, which claims system-graph coverage — after this checkpoint `atomicCyStyle()` is rail-only | `atomic/internal/serve/templates/layout.html` (`AtomicGraphUI` helpers, rail call sites), `atomic/internal/serve/assets/system-graph.js`, `atomic/internal/serve/assets/app.css`, `atomic/internal/serve/graphoverlay_test.go` | builder | 4 | SC4 (remaining parity clauses); SC1 (the ~60fps / no sustained drops below ~55fps smoothness clause, completed here since drag, hover, and click are all live) — checked manually via a browser devtools FPS overlay during continuous pan/zoom/drag; rail hover/click behavior verified manually after the `AtomicGraphUI` signature change |
 | 5 | **DOM label overlay** — render node labels as positioned DOM elements projected from cosmos.gl screen-space coordinates, updated on every simulation/viewport tick; export a pure culling function from `system-graph.js` (viewport + per-node degree + zoom in, the label set to render out) with a fixed numeric cap (150 by default) on rendered label elements; fade labels out below a zoom threshold and back in above it, except the hovered node's label, which always renders regardless of zoom | `atomic/internal/serve/assets/system-graph.js`, `atomic/internal/serve/assets/app.css` | builder | 2 | SC5; a unit test of the exported culling function (pure, runnable outside a browser) plus manual verification of fade-in/out and the hover-always-shows exception at current realm scale |
 | 6 | **Amend serve docs + full verify** — rewrite the Cytoscape/cola description of the system view in `docs/spec/atomic-serve.md` (Approach paragraph, FE-SC3, FE3 checkpoint row) to cosmos.gl truth, with a dated change-log entry on that file per the spec-currency amendment rules; update `docs/reference/serve.md`'s system-graph description; run `go test ./...`, `make render`, `make -C atomic bundle`, and signals refresh | `docs/spec/atomic-serve.md`, `docs/reference/serve.md` | surgeon | 2 | SC7, SC8 |
 
@@ -245,6 +243,14 @@ view only; full rationale and rejected alternatives in
 | CI has no browser or GPU, so client runtime motion and interaction behavior cannot be exercised by automated tests | High | Accepted as structural; verified manually at implementation time. Mitigated in scope by keeping Go-test premises accurate (they check structure/strings, not motion), extracting the culling policy as a unit-testable pure function, and a local bundle import-smoke — none of which substitutes for browser verification |
 
 ## Change log
+
+### 2026-10-18 — Removed: provenance edge styling
+
+**What changed:** The parity inventory, outline, and CP4 no longer carry provenance or drift edge styling, and the test that asserted where that styling lived is gone from the change tree, outline, and CP4. The `/graph/data` consumer non-goal names the rail only.
+
+**Why:** `atomic serve` no longer injects provenance edges into the docs graph, so there is no edge class to style.
+
+**Removed:** the `fingerprint` / `fingerprint drift` edge styling and `TestShellContainsFingerprintStyleInSharedFunction`. See `docs/spec/realm-wiki-drop-refresh.md`.
 
 ### 2026-07-05 — Drag is a live reheat; pinning removed
 

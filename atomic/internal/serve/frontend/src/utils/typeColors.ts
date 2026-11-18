@@ -15,7 +15,6 @@ export type OkfType =
   | "repo"
   | "domain"
   | "concern"
-  | "knowledge"
   | "bucket"
   | "index"
   | "external";
@@ -82,7 +81,6 @@ const TYPE_HUE: Record<OkfType, string> = {
   repo: "slate",
   domain: "moss",
   concern: "plum",
-  knowledge: "magenta",
   bucket: "terra",
   index: "cyan",
   external: "gray",
@@ -216,7 +214,6 @@ export const TYPE_SHAPE: Record<OkfType, number> = {
   repo: POINT_SHAPE.hexagon,
   domain: POINT_SHAPE.square,
   concern: POINT_SHAPE.triangle,
-  knowledge: POINT_SHAPE.star,
   bucket: POINT_SHAPE.pentagon,
   index: POINT_SHAPE.diamond,
   external: POINT_SHAPE.cross,

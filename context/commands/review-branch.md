@@ -10,49 +10,27 @@ Thin wrapper. Runs `atomic-reviewer` once on `<base>..HEAD`, returns its standar
 ## Pre-flight
 
 
-```bash
-git rev-parse --is-inside-work-tree
+Only a feature branch with commits ahead of its base reaches the reviewer.
+
+
+```mermaid
+flowchart TD
+    G{"Inside a git repo?"} -->|no| X["Stop"]
+    G -->|yes| B["Resolve base"]
+    B --> O{"On base?"}
+    O -->|yes| X
+    O -->|no| C{"Commits ahead?"}
+    C -->|no| X
+    C -->|yes| D["Dispatch"]
 ```
 
 
-If not in a git repo, stop:
+- **Inside a git repo?**: `git rev-parse --is-inside-work-tree`. No: `not a git repo. /review-branch needs a versioned project.`
+- **Resolve base**:
+   {{ template "base-resolution" . }}
 
-
-```
-not a git repo. /review-branch needs a versioned project.
-```
-
-
-Determine base:
-
-
-```bash
-gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null \
-  || git config init.defaultBranch \
-  || echo main
-```
-
-
-Verify current branch is not the base:
-
-
-```bash
-git branch --show-current
-```
-
-
-If on base: `refused: already on <base>. /review-branch reviews a feature branch against its base.`
-
-
-Verify there are commits to review:
-
-
-```bash
-git rev-list --count <base>..HEAD
-```
-
-
-If `0`: `refused: no commits on this branch ahead of <base>. nothing to review.`
+- **On base?**: compare `git branch --show-current` with the base. Yes: `refused: already on <base>. /review-branch reviews a feature branch against its base.`
+- **Commits ahead?**: `git rev-list --count <base>..HEAD`. `0`: `refused: no commits on this branch ahead of <base>. nothing to review.`
 
 
 ## Dispatch
@@ -68,12 +46,7 @@ FEATURE=$(git branch --show-current)
 ```
 
 
-Invoke the `Agent` tool with:
-
-
-- `subagent_type: "atomic-reviewer"`
-- `description: "Review <feature> against <base>"`
-- `prompt`:
+Dispatch `atomic-reviewer`, fresh context. Prompt:
 
 
     ```
@@ -123,7 +96,7 @@ suggested next step (on PASS):
 - One reviewer dispatch per invocation. No loop, no fix-and-retry. The user picks what to do with the findings. **Why:** auto-retrying hides the true diff state and conflates review with implementation — the user must own the fix decision.
 - Never invoke the implementer or write code. Reviewer reports; user (or `/subagent-implementation`) fixes. **Why:** mixing reviewer and implementer roles in one command collapses the review signal — findings lose their independent authority.
 - Do not commit, push, or merge. This command is pure read-only inspection. **Why:** a review command that mutates state is a footgun; the user must explicitly choose the next ship verb after seeing the verdict.
-- If the reviewer returns `CHANGES_REQUESTED`, do not advise the user to "address them" — the findings speak for themselves. **Why:** adding a nag comment after the reviewer output is redundant noise and implies Claude is narrating rather than the reviewer speaking directly.
+- If the reviewer returns `CHANGES_REQUESTED`, do not advise the user to "address them" — the findings speak for themselves. **Why:** adding a nag comment after the reviewer output is redundant noise and implies the command is narrating rather than the reviewer speaking directly.
 - Spec-compliance pass is skipped intentionally. Use `/subagent-implementation` for the orchestrated implement→review loop with a spec. **Why:** without a spec there is no contract to measure against; emitting a compliance section would be fabricated and misleading.
 
 </constraints>

@@ -1,10 +1,7 @@
 // Package mdlink rewrites inline-code path tokens in markdown prose into
 // relative markdown links, when the token resolves under a given base directory.
 //
-// Disk resolution is the only filter, so prose like `git status` survives
-// untouched. Fenced blocks are never linkified and already-linked tokens are
-// skipped, which keeps re-runs byte-identical. Links go through filepath.Rel so
-// they work in Obsidian, markdown servers, and GitHub alike.
+// Paths must match their spelling on disk. Fenced blocks are left untouched.
 package mdlink
 
 import (
@@ -99,6 +96,7 @@ func isCloser(trimmed string, fs fenceState) bool {
 // on disk, such as gitignored paths. nil applies skipDirs filtering alone.
 func linkify(content, fileAbsPath, baseDir string, ignored map[string]bool) string {
 	fileDir := filepath.Dir(fileAbsPath)
+	entries := make(directoryEntries)
 
 	var sb strings.Builder
 	sb.Grow(len(content))
@@ -114,7 +112,7 @@ func linkify(content, fileAbsPath, baseDir string, ignored map[string]bool) stri
 				sb.WriteString(line)
 				continue
 			}
-			sb.WriteString(linkifyLine(line, fileDir, baseDir, ignored))
+			sb.WriteString(linkifyLine(line, fileDir, baseDir, ignored, entries))
 		} else {
 			if isCloser(trimmed, fence) {
 				fence = fenceState{}
@@ -146,7 +144,7 @@ func splitLines(content string) []string {
 	return lines
 }
 
-func linkifyLine(line, fileDir, baseDir string, ignored map[string]bool) string {
+func linkifyLine(line, fileDir, baseDir string, ignored map[string]bool, entries directoryEntries) string {
 	if !strings.ContainsRune(line, '`') {
 		return line
 	}
@@ -175,7 +173,7 @@ func linkifyLine(line, fileDir, baseDir string, ignored map[string]bool) string 
 					// Earlier releases wrote paths with spaces or parentheses
 					// bare, which does not parse as a link; rewrite those.
 					token := line[pos+1 : pos+1+closePos]
-					if rel, ok := resolveRel(token, fileDir, baseDir, ignored); ok {
+					if rel, ok := resolveRel(token, fileDir, baseDir, ignored, entries); ok {
 						if dest, ok := linkDestination(rel); ok && dest != rel && strings.HasPrefix(line[destStart:], rel+")") {
 							sb.WriteString(line[i:destStart])
 							sb.WriteString(dest)
@@ -208,7 +206,7 @@ func linkifyLine(line, fileDir, baseDir string, ignored map[string]bool) string 
 		end := pos + 1 + closePos + 1 // position after closing backtick
 		i = end
 
-		rel, ok := resolveRel(token, fileDir, baseDir, ignored)
+		rel, ok := resolveRel(token, fileDir, baseDir, ignored, entries)
 		var dest string
 		if ok {
 			dest, ok = linkDestination(rel)
@@ -232,12 +230,12 @@ func linkifyLine(line, fileDir, baseDir string, ignored map[string]bool) string 
 
 // resolveRel returns token's path relative to fileDir, or false when the token
 // must stay plain text.
-func resolveRel(token, fileDir, baseDir string, ignored map[string]bool) (string, bool) {
+func resolveRel(token, fileDir, baseDir string, ignored map[string]bool, entries directoryEntries) (string, bool) {
 	if isDegenerate(token) || isSkipped(token) || ignored[token] {
 		return "", false
 	}
 	resolved := filepath.Join(baseDir, token)
-	if _, err := os.Stat(resolved); err != nil {
+	if _, err := os.Stat(resolved); err != nil || !entries.hasExactSpelling(filepath.Clean(baseDir), resolved) {
 		return "", false
 	}
 	rel, err := filepath.Rel(fileDir, resolved)
@@ -245,6 +243,55 @@ func resolveRel(token, fileDir, baseDir string, ignored map[string]bool) (string
 		return "", false
 	}
 	return rel, true
+}
+
+type directoryEntries map[string]map[string]struct{}
+
+func (entries directoryEntries) hasExactSpelling(base, path string) bool {
+	for path != base {
+		// A token may use ".." to reach a sibling of the base. Check only
+		// the path components beyond their common ancestor.
+		if len(path) < len(base) && base[len(path)] == filepath.Separator && strings.HasPrefix(base, path) {
+			break
+		}
+		parent := filepath.Dir(path)
+		name := filepath.Base(path)
+		if parent == path || name == ".." {
+			break
+		}
+		if !entries.contains(parent, name) {
+			return false
+		}
+		path = parent
+	}
+	return true
+}
+
+func (entries directoryEntries) contains(parent, name string) bool {
+	children, cached := entries[parent]
+	if !cached {
+		children = readEntryNames(parent)
+		entries[parent] = children
+	}
+	_, ok := children[name]
+	return ok
+}
+
+func readEntryNames(parent string) map[string]struct{} {
+	dir, err := os.Open(parent)
+	if err != nil {
+		return nil
+	}
+	defer dir.Close()
+	names, err := dir.Readdirnames(-1)
+	if err != nil {
+		return nil
+	}
+	children := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		children[name] = struct{}{}
+	}
+	return children
 }
 
 // linkDestination writes rel as a CommonMark link destination. A bare one ends

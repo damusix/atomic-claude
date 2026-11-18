@@ -399,8 +399,6 @@ func TestNodeType_IndexAndDomain(t *testing.T) {
 		"---\ntype: Index\ndescription: Signals index\n---\n# Index\n")
 	writeFile(t, filepath.Join(root, "wiki-domain.md"),
 		"---\ntype: Domain\ndescription: A domain file\n---\n# Domain\n")
-	writeFile(t, filepath.Join(root, "k.md"),
-		"---\ntype: Knowledge\n---\n# K\n")
 	writeFile(t, filepath.Join(root, "c.md"),
 		"---\ntype: Concern\n---\n# C\n")
 	writeFile(t, filepath.Join(root, "r.md"),
@@ -417,7 +415,6 @@ func TestNodeType_IndexAndDomain(t *testing.T) {
 	}{
 		{"wiki-index.md", "index"},
 		{"wiki-domain.md", "domain"},
-		{"k.md", "knowledge"},
 		{"c.md", "concern"},
 		{"r.md", "repo"},
 		{"b.md", "bucket"},

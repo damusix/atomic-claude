@@ -5,6 +5,7 @@ package mdparse
 
 import (
 	"bytes"
+	"strings"
 
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
@@ -409,6 +410,46 @@ func InlineRefs(src []byte) ([]InlineRef, error) {
 	return refs, nil
 }
 
+// CodeLine is one non-blank line of a fenced or indented code block.
+type CodeLine struct {
+	Text string
+	Line int    // 1-indexed line number in source
+	Lang string // fence info-string language; empty for indented blocks
+}
+
+// CodeBlockLines returns every non-blank line of every fenced and indented
+// code block, including blocks nested in list items and blockquotes.
+func CodeBlockLines(src []byte) []CodeLine {
+	if len(src) == 0 {
+		return nil
+	}
+	var out []CodeLine
+	ast.Walk(parseAST(src), func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering {
+			return ast.WalkContinue, nil
+		}
+		var lang string
+		switch block := n.(type) {
+		case *ast.FencedCodeBlock:
+			lang = string(block.Language(src))
+		case *ast.CodeBlock:
+		default:
+			return ast.WalkContinue, nil
+		}
+		lines := n.Lines()
+		for i := 0; i < lines.Len(); i++ {
+			seg := lines.At(i)
+			text := strings.TrimRight(string(seg.Value(src)), "\r\n")
+			if strings.TrimSpace(text) == "" {
+				continue
+			}
+			out = append(out, CodeLine{Text: text, Line: lineOf(src, seg.Start), Lang: lang})
+		}
+		return ast.WalkSkipChildren, nil
+	})
+	return out
+}
+
 // TextSegment is a run of prose outside any code block. Line is its 1-indexed
 // start; Text may span multiple lines.
 type TextSegment struct {
@@ -490,33 +531,35 @@ func codeSpanText(cs *ast.CodeSpan, src []byte) string {
 	return buf.String()
 }
 
-// codeSpanLine falls back to the parent paragraph when the span carries no
-// segments of its own.
 func codeSpanLine(cs *ast.CodeSpan, src []byte) int {
 	for c := cs.FirstChild(); c != nil; c = c.NextSibling() {
 		if t, ok := c.(*ast.Text); ok {
 			return lineOf(src, t.Segment.Start)
 		}
 	}
-	if p := cs.Parent(); p != nil {
-		if p.Lines().Len() > 0 {
-			return lineOf(src, p.Lines().At(0).Start)
-		}
-	}
-	return 1
+	return enclosingBlockLine(cs, src)
 }
 
-// linkLine falls back to the parent paragraph, since a Link is inline.
 func linkLine(lnk *ast.Link, src []byte) int {
 	for c := lnk.FirstChild(); c != nil; c = c.NextSibling() {
 		if t, ok := c.(*ast.Text); ok {
 			return lineOf(src, t.Segment.Start)
 		}
 	}
-	if p := lnk.Parent(); p != nil {
+	return enclosingBlockLine(lnk, src)
+}
+
+// enclosingBlockLine is the first line of n's nearest block ancestor. Inline
+// nodes carry no line segments, and goldmark panics on Lines() for one.
+func enclosingBlockLine(n ast.Node, src []byte) int {
+	for p := n.Parent(); p != nil; p = p.Parent() {
+		if p.Type() != ast.TypeBlock {
+			continue
+		}
 		if p.Lines().Len() > 0 {
 			return lineOf(src, p.Lines().At(0).Start)
 		}
+		break
 	}
 	return 1
 }

@@ -90,7 +90,7 @@ func TestGraphDataReturnsValidJSON(t *testing.T) {
 		t.Fatalf("expected edges, got none; body: %s", body)
 	}
 
-	validClasses := map[string]bool{"md-link": true, "wikilink": true, "fingerprint": true}
+	validClasses := map[string]bool{"md-link": true, "wikilink": true}
 	for _, e := range elems.Edges {
 		if e.Data.ID == "" {
 			t.Errorf("edge with empty id: %+v", e)
@@ -102,7 +102,7 @@ func TestGraphDataReturnsValidJSON(t *testing.T) {
 			t.Errorf("edge %q has empty target", e.Data.ID)
 		}
 		if !validClasses[e.Classes] {
-			t.Errorf("edge %q has invalid classes %q; want one of md-link|wikilink|fingerprint", e.Data.ID, e.Classes)
+			t.Errorf("edge %q has invalid classes %q; want one of md-link|wikilink", e.Data.ID, e.Classes)
 		}
 	}
 }
@@ -253,7 +253,7 @@ func TestGraphDataNodePreviewFields(t *testing.T) {
 	writeFile(t, filepath.Join(root, "api-conventions.md"), `---
 title: API Conventions
 description: Rules for REST endpoint design.
-type: Knowledge
+type: Concern
 ---
 
 # API Conventions

@@ -44,6 +44,59 @@ func TestLinkify_ResolvesExistingFile(t *testing.T) {
 	}
 }
 
+func TestLinkify_RequiresExactSpelling(t *testing.T) {
+	dir := t.TempDir()
+	makeFile(t, dir, "README.md")
+	makeFile(t, dir, "deployment/manifest.yaml")
+
+	fileAbs := filepath.Join(dir, "docs", "wiki", "index.md")
+	content := "See `Deployment`, `Deployment/manifest.yaml`, `deployment/Manifest.yaml`, `README.md`, `deployment/`, and `deployment/manifest.yaml`.\n"
+	want := "See `Deployment`, `Deployment/manifest.yaml`, `deployment/Manifest.yaml`, " +
+		"[`README.md`](../../README.md), [`deployment/`](../../deployment), and " +
+		"[`deployment/manifest.yaml`](../../deployment/manifest.yaml).\n"
+	if got := mdlink.Linkify(content, fileAbs, dir); got != want {
+		t.Errorf("got:  %q\nwant: %q", got, want)
+	}
+}
+
+func TestLinkify_ResolvesSiblingPathWithExactSpelling(t *testing.T) {
+	dir := t.TempDir()
+	makeFile(t, dir, "repo/index.md")
+	makeFile(t, dir, "sibling/notes.md")
+
+	base := filepath.Join(dir, "repo")
+	content := "See `../sibling/notes.md` or `../Sibling/notes.md`.\n"
+	want := "See [`../sibling/notes.md`](../sibling/notes.md) or `../Sibling/notes.md`.\n"
+	if got := mdlink.Linkify(content, filepath.Join(base, "index.md"), base); got != want {
+		t.Errorf("got:  %q\nwant: %q", got, want)
+	}
+}
+
+func TestLinkify_LeavesUnverifiablePathPlain(t *testing.T) {
+	dir := t.TempDir()
+	makeFile(t, dir, "searchable/file.txt")
+	parent := filepath.Join(dir, "searchable")
+	if err := os.Chmod(parent, 0o100); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chmod(parent, 0o700); err != nil {
+			t.Error(err)
+		}
+	})
+	if _, err := os.ReadDir(parent); !os.IsPermission(err) {
+		t.Skipf("filesystem does not enforce directory read permissions: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(parent, "file.txt")); err != nil {
+		t.Fatal(err)
+	}
+
+	content := "See `searchable/file.txt`.\n"
+	if got := mdlink.Linkify(content, filepath.Join(dir, "index.md"), dir); got != content {
+		t.Errorf("got:  %q\nwant: %q", got, content)
+	}
+}
+
 func TestLinkify_SkipSet(t *testing.T) {
 	dir := t.TempDir()
 	for _, d := range []string{".git", "node_modules", "dist", "build", "target", "vendor", ".worktrees", "tmp"} {

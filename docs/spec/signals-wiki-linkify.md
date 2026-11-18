@@ -22,9 +22,9 @@ Make signals and wiki markdown navigable as a graph in Obsidian, a generic markd
 
 ### Linkify core (code)
 
-- [ ] A reusable linkify function takes file content + the file's absolute path + a base directory, and rewrites each **inline-code path token** (`` `path` ``) whose `join(base, token)` exists on disk into `` [`path`](relpath) ``, where `relpath = filepath.Rel(dir(file), join(base, token))`.
+- [ ] A reusable linkify function takes file content + the file's absolute path + a base directory, and rewrites each **inline-code path token** (`` `path` ``) that resolves with exact spelling into `` [`path`](relpath) ``, where `relpath = filepath.Rel(dir(file), join(base, token))`.
 - [ ] **Destination form:** a `relpath` containing a space, a tab, or a parenthesis is written in angle brackets, `` [`path`](<relpath>) ``. A bare CommonMark destination ends at the first space and must balance its parentheses, so GitHub and goldmark render the bare form as literal text. A `relpath` that needs angle brackets and also contains `<` or `>` is left as plain code, since angle brackets cannot hold either unescaped.
-- [ ] Disk resolution is the filter: a token that does not `stat` from the base (e.g. `` `atomic signals scan` ``, `` `git status` ``) is left untouched. No extension/heuristic guessing.
+- [ ] A token stays plain code unless it resolves from the base and every component of the resolved path beyond its common ancestor with the base matches an on-disk entry exactly. If permissions prevent listing a parent directory, linkify leaves the token plain. No extension or slash is required.
 - [ ] **Skip-set:** a token with any path segment in `{.git, node_modules, dist, build, target, vendor, .worktrees, tmp}` is never linked even when it resolves on disk — linking to build output or VCS internals is noise. Exact-segment match, so `.github` / `.githooks` / `.gitignore` still link.
 - [ ] **Degenerate tokens:** a token built entirely from `.` and `/` — including the empty token — is never linked. Disk resolution cannot reject these (`join(base, ".")` and `join(base, "/")` are the base itself, `".."` is its parent), but prose quoting a bare path character is never a citation, and the empty case comes from a `` `` `` span quoting text that itself contains backticks, where linking shreds the quoted string into three pieces.
 - [ ] **Gitignore layer (optional, best-effort):** `LinkifyFile` skips any token that `git check-ignore` flags under the base dir (e.g. `bin/`, `.env`, logs). Batched (one `git check-ignore --stdin` per file). Degrades to skip-set-only with no error when git is absent or the base dir is not a git work tree. The pure `Linkify` (skip-set only, no exec) remains for callers/tests that want no git dependency.
@@ -34,17 +34,17 @@ Make signals and wiki markdown navigable as a graph in Obsidian, a generic markd
 
 ### Signals
 
-- [ ] `atomic signals linkify` linkifies `.claude/project/signals.md` and every file under `.claude/project/signals/`, with base = repo root. Idempotent; safe to re-run.
-- [ ] The `atomic-wiki-inferrer` agent runs `atomic signals linkify` as the final action of **default mode** only, after all files are written/reviewed. The agent still writes plain repo-root-relative paths in backticks (facts); linkify renders them. (Wiki-output mode does NOT linkify — `/refresh-wiki` runs `atomic wiki linkify` post-stamp instead.)
+- [ ] `atomic signals linkify` linkifies `docs/wiki/index.md` and every other `docs/wiki/*.md` except `scan.md` and the `AGENTS.md`/`CLAUDE.md` steering pair, with base = repo root. Idempotent; safe to re-run.
+- [ ] The `atomic-wiki-inferrer` agent runs `atomic signals linkify` as the final action of **default mode** only, after all files are written/reviewed. The agent still writes plain repo-root-relative paths in backticks (facts); linkify renders them. (Wiki-output mode does NOT linkify — `/refresh-wiki` runs `atomic wiki linkify` after the inferrer returns instead.)
 - [ ] The router `## Domains` table Detail column and Repo-paths column, and every domain file's `## Artifacts` / `## CLI code` / `## Docs` / `## Coupling` path citation, are linkified when they resolve on disk.
 - [ ] Doctor's router check (`parseRouterDomains` in `checks_signals.go`) extracts the on-disk domain-file path from a linkified Detail cell and still validates existence + orphans. Existing doctor signals tests stay green.
 
 ### Wiki
 
-- [ ] `atomic wiki scan` writes a managed, linked member list into `index.md` (a `## Members` managed section, spliced idempotently like the `<wiki-scan>` block, content outside untouched): `indexed` → link to `../<repo>/.claude/project/signals.md`; `summarized` → link to `repos/<repo>.md`; `pending` → link to `../<repo>/`. The realm is browsable from `index.md` after a deterministic scan, no LLM pass required.
+- [ ] `atomic wiki scan` writes a managed, linked member list into `index.md` (a `## Members` managed section, spliced idempotently like the `<wiki-scan>` block, content outside untouched): `indexed` → link to `../<repo>/docs/wiki/index.md`, or to the legacy `../<repo>/<state-root>/project/signals.md` when only that router exists; `summarized` → link to `repos/<repo>.md`; `pending` → link to `../<repo>/`. The realm is browsable from `index.md` after a deterministic scan, no LLM pass required.
 - [ ] `atomic wiki linkify --root=<path>` linkifies wiki artifacts: each `repos/<repo>(/<domain>).md` with base = `<realm>/<repo>` (repo read from the summary's `repo:` frontmatter); each `concerns/*.md` and the `index.md` narrative with base = realm root. Idempotent.
-- [ ] `/refresh-wiki` runs `atomic wiki linkify` after summaries/concerns are (re)authored and stamped, before the commit offer.
-- [ ] Linkify never alters `reflects_*` frontmatter and runs after `atomic wiki stamp`, so it does not affect `atomic wiki stale` verdicts (staleness is HEAD/hash-based, not body-based).
+- [ ] `/refresh-wiki` runs `atomic wiki linkify` after summaries/concerns are written, before the wiki commit.
+- [ ] Linkify never alters frontmatter.
 
 ### Discovery, gates, pipeline
 
@@ -84,7 +84,6 @@ Approach A. Relative-prefix computation is a deterministic transform — code's 
 | Risk | Likelihood | Mitigation |
 |------|-----------|------------|
 | Token detection links a non-path that happens to resolve | low | Only inline-code spans are candidates; non-paths rarely sit in backticks and rarely resolve from base |
-| Linkify churns wiki staleness | low | Runs after `stamp`; staleness is HEAD/hash-based, not body-based |
 | Doctor parser breaks on linkified Detail | med | Checkpoint 1 updates `parseRouterDomains` + keeps existing tests green |
 | Re-run produces non-idempotent diffs | med | Skip-already-linked rule; checkpoint 1 asserts byte-identical re-run |
 
@@ -113,3 +112,36 @@ Approach A. Relative-prefix computation is a deterministic transform — code's 
 **Why:** Issue #262. A repo with a top-level `My Project/` directory got 280 links across 16 wiki pages that GitHub rendered as literal text, because a bare destination ends at the first space. The repair exception lets a re-run of `atomic signals linkify` or `atomic wiki linkify` fix pages written before this change.
 
 **Superseded:** Every resolved token was written as `` [`path`](relpath) `` with `relpath` bare.
+
+### 2026-10-18 — Removed: linkify ordering against wiki stamping
+
+**What changed:** The wiki criteria no longer order `atomic wiki linkify` after the removed stamping command or tie it to `atomic wiki stale` verdicts, and the matching risk row is gone. Linkify still runs after summaries and concerns are written and still leaves frontmatter alone.
+
+**Why:** Realm wikis no longer carry fingerprints, so there is no stamp step to order against and no content staleness to disturb.
+
+**Removed:** the post-stamp ordering rule and the `reflects_*` preservation rationale. See `docs/spec/realm-wiki-drop-refresh.md`.
+
+### 2026-11-11 — State root defaults to .atomic
+
+**What changed:** **Correction:** `atomic signals linkify` targets `docs/wiki/index.md` and the other `docs/wiki/*.md` domain files (`signals.LinkifyFilesWithBase`), and an `indexed` member links to `../<repo>/docs/wiki/index.md`, falling back to the legacy `.claude/project/signals.md` router only when that is the one present (`memberLinkTarget`).
+
+**Why:** `docs/spec/omp-plugin-compatibility.md` moves repository state to the `.atomic` default, with a resolution ladder and `atomic state migrate`; the repo-scope wiki already lives in `docs/wiki/`, and the body still named the `.claude/project/` signals files as current.
+
+**Superseded:** the body linkified `.claude/project/signals.md` and `.claude/project/signals/`, and linked `indexed` members to `../<repo>/.claude/project/signals.md`.
+
+### 2026-11-12 — Legacy router under the member's state root
+
+**What changed:** An `indexed` member's legacy fallback link points at `<state-root>/project/signals.md`, the member's resolved state root.
+
+**Why:** `atomic wiki scan` now reads the legacy router there (`docs/spec/wiki.md`).
+
+**Superseded:** the fallback was always `.claude/project/signals.md`.
+
+### 2026-11-17 — Exact spelling for path citations
+
+
+**What changed:** Linkify checks directory entry names before generating a link. Existing links are not revalidated.
+
+**Why:** On case-insensitive volumes, `Deployment` resolved to `deployment/`, producing a link that could fail on GitHub.
+
+**Superseded:** A successful filesystem lookup was sufficient to create a link.

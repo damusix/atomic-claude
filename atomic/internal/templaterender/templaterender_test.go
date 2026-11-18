@@ -60,6 +60,25 @@ func TestExpand_SubstitutesPartialBody(t *testing.T) {
 	}
 }
 
+// A partial parameterized by its caller, as resolved-provider is by a
+// preference key, renders the string the directive passes.
+func TestExpand_PassesStringArgument(t *testing.T) {
+	pool, err := templaterender.LoadPartials(writePartials(t, map[string]string{
+		"line.md": "{{ define \"line\" }}`{{ . }}: <value>`{{ end }}",
+	}))
+	if err != nil {
+		t.Fatalf("LoadPartials: %v", err)
+	}
+
+	got, err := templaterender.Expand(pool, "cmd.md", []byte(`{{ template "line" "issue-tracker" }}`))
+	if err != nil {
+		t.Fatalf("Expand: %v", err)
+	}
+	if want := "`issue-tracker: <value>`"; string(got) != want {
+		t.Errorf("Expand = %q, want %q", got, want)
+	}
+}
+
 // A missing partial must fail loudly; emitting the artifact with a hole would
 // ship a broken command.
 func TestExpand_UnknownPartialErrors(t *testing.T) {

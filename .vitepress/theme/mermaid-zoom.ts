@@ -169,7 +169,7 @@ function openLightbox(svg: SVGSVGElement) {
 export function setupMermaidZoom() {
     document.addEventListener('click', (event) => {
         if (!(event.target instanceof Element)) return
-        const container = event.target.closest('.mermaid')
+        const container = event.target.closest('.ac-mermaid')
         if (!container || container.closest('.ac-mermaid-lightbox')) return
         const svg = container.querySelector('svg')
         if (!svg) return

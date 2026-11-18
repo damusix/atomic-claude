@@ -2,13 +2,33 @@
 description: Write a design doc (concepts, business rules, approaches) and a checkpoint-table spec (contract) for non-trivial work; inline spec only for trivial. Gauges triviality; loops spec authoring with subagents. Human-facing artifact, Mermaid diagrams allowed.
 ---
 
-Plan before coding. Output is a spec — a checkpoint-table contract, not prose. Lives in `docs/` because it's human-facing — `.claude/.scratchpad/` is for LLM working memory, not user-invoked plans.
+Plan before coding. Output is a spec — a checkpoint-table contract, not prose. Lives in `docs/` because it's human-facing — `<state-root>/.scratchpad/` is for LLM working memory, not user-invoked plans (`<state-root>` is the `state_root` field of `atomic where --json`, `.atomic` by default).
 
 `/atomic-plan` is one command with one internal phase boundary. Lightweight tasks get an inline spec. Non-trivial tasks get a full design + spec-authoring loop with subagents. The LLM gauges triviality; the user confirms when uncertain.
 
 <workflow>
 
 ## Phases
+
+Triviality picks the path: a trivial task gets an inline spec, a non-trivial one the full design and spec loop, and a borderline one whichever the user picks.
+
+```mermaid
+flowchart TD
+    K{"Triviality?"} -->|trivial| CI["Clarify,<br/>inline spec"]
+    K -->|borderline| U{"User picks?"}
+    U -->|inline| CI
+    U -->|abort| X["Stop"]
+    U -->|full| F["Clarify, ground,<br/>diverge"]
+    K -->|non-trivial| F
+    F --> D["Write design"]
+    D --> L["Spec loop"]
+    CI --> H["Handoff"]
+    L --> H
+```
+
+- **Triviality?**: the tier table under Classify triviality.
+- **User picks?**: the borderline confirmation block.
+- **Write design**: an optional `/pressure-test` fits between design and spec loop.
 
 ### Classify triviality
 
@@ -46,15 +66,23 @@ One consolidated block covering: goal, success criteria, non-goals, constraints 
 
 ### Ground (non-trivial only)
 
-Before drafting, dispatch `atomic-investigator` (haiku, read-only) when checkpoints will touch unfamiliar code. Brief it with the surface area to map; expect a `file:line — what` table back. This grounds checkpoint paths in reality instead of guessing.
+An unverified hunch gets a hint before grounding, and the investigator runs only for unfamiliar code that is not already in context; trivial work skips Ground because its files are few enough to read directly.
 
-**Code-intel awareness.** The investigator now carries the `agent-code-intel` partial (CP1). When a code-intel index is present in the project, the investigator's structural map is grounded in the real call/import graph rather than filename guesses — brief it to lead with `atomic code explore "<surface-area query>"` (one shot returns the relevant symbols, files, and relationships), then drill with the targeted verbs (`search`/`callers`/`callees`/`impact`); the result returned here is the same compact `file:line` digest. The planner receives that digest and works from it. The planner does NOT run `atomic code` queries itself — all graph exploration stays in the disposable investigator thread. **Why:** `atomic code` queries are bounded within the investigator's throwaway context; flooding the main planner context with graph output defeats the token budget the delegation is meant to protect.
+```mermaid
+flowchart TD
+    G{"Rests on an<br/>unverified hunch?"} -->|yes| H["Hint<br/>/gather-evidence"]
+    G -->|no| S{"Unfamiliar code<br/>not in context?"}
+    H -->|proceed| S
+    S -->|yes| I["Dispatch investigator"]
+    S -->|no| D["Diverge"]
+    I --> D
+```
 
-Skip Ground for trivial — the file count is small enough to read directly.
+- **Rests on an unverified hunch?**: "library X supports Y", "our codebase already has pattern Z", "approach A is faster than B".
+- **Hint /gather-evidence**: one line — *"this plan depends on `<hunch>` — want to run `/gather-evidence` first to confirm before we spec it?"* Do not auto-invoke. The user decides whether to gather evidence first or proceed at risk.
+- **Dispatch investigator**: `atomic-investigator` (read-only). Brief it with the surface area to map; expect a `file:line — what` table back. This grounds checkpoint paths in reality instead of guessing.
 
-Skip Ground when the surface area is already in your context from the current session.
-
-**Upstream gate — `/gather-evidence`.** If the task rests on an unverified factual hunch ("library X supports Y", "our codebase already has pattern Z", "approach A is faster than B"), surface a one-line hint before starting Ground: *"this plan depends on `<hunch>` — want to run `/gather-evidence` first to confirm before we spec it?"* Do not auto-invoke. The user decides whether to gather evidence first or proceed at risk.
+**Code-intel awareness.** The investigator carries the `agent-code-intel` partial. When a code-intel index is present in the project, the investigator's structural map is grounded in the real call/import graph rather than filename guesses — brief it to lead with `atomic code explore "<surface-area query>"` (one shot returns the relevant symbols, files, and relationships), then drill with the targeted verbs (`search`/`callers`/`callees`/`impact`); the result returned here is the same compact `file:line` digest. The planner receives that digest and works from it. The planner does NOT run `atomic code` queries itself — all graph exploration stays in the disposable investigator thread. **Why:** `atomic code` queries are bounded within the investigator's throwaway context; flooding the main planner context with graph output defeats the token budget the delegation is meant to protect.
 
 ### Diverge (non-trivial only)
 
@@ -74,7 +102,7 @@ Brainstorm 3-5 approaches. Capture in a table:
 
 Then a `## Recommendation` with the chosen approach and rationale referencing evidence (file:line, signals snapshot, prior decisions). Hedged recommendations are a signal — surface `/pressure-test` at handoff.
 
-**Optional `atomic-strategist` dispatch** (high effort, read-only): when the tradeoff is genuinely hard, multiple approaches survive scrutiny, or blast radius spans ≥2 subsystems. Strategist returns a recommendation with explicit confidence + hidden assumptions named. Don't dispatch for clear-cut calls — a max-effort pass is expensive.
+**Optional `atomic-strategist` dispatch** (read-only): when the tradeoff is genuinely hard, multiple approaches survive scrutiny, or blast radius spans ≥2 subsystems. Strategist returns a recommendation with explicit confidence + hidden assumptions named. Don't dispatch for clear-cut calls — a deep reasoning pass is expensive.
 
 ### Write design (non-trivial only)
 
@@ -104,29 +132,27 @@ Always produce `docs/spec/<topic>.md`. For trivial, write it inline. For non-tri
 
 **Spec structure:** seed the file from the embedded template — `atomic template spec > docs/spec/<topic>.md` — then fill every `<angle-bracket>` placeholder and delete the guidance comments as you fill, except the one under `## Change log`, which stays until the first post-approval amendment. The template is the structural contract: Goal, Non-goals, Success criteria, Approach (one-line design pointer, or full Approaches + Recommendation for a trivial inline spec with no design), Change tree, Outline, Flows, Checkpoints, Risks, Change log. Its guidance comments carry the per-section fill rules with examples — same sections, same order, no improvised headers.
 
-The `## Change log` section ships **empty** on creation. Drafting and refinement turns before approval are not amendments — the spec is being born. The first real entry happens later, when an *approved* spec is changed. See "Specs: the body is current truth, the change log is history" in `CLAUDE.md`.
+The `## Change log` section ships **empty** on creation. Drafting and refinement turns before approval are not amendments — the spec is being born. The first real entry happens later, when an *approved* spec is changed. See "Specs: the body is current truth, the change log is history" in the spec-currency rule (`rules/specs/spec-currency.md`).
 
 ### Spec loop (non-trivial only)
 
-Mirrors `/subagent-implementation`'s implement→review pattern, but for spec authoring instead of code.
+Mirrors `/subagent-implementation`'s implement→review pattern, but for spec authoring instead of code. The loop leaves only on a reviewer PASS or the iteration cap.
 
+```mermaid
+stateDiagram-v2
+    [*] --> Draft
+    Draft --> Review
+    Review --> Revise: gaps
+    Revise --> Review
+    Review --> [*]: PASS
+    Review --> Cap: 5 iterations
+    Cap --> [*]
 ```
-Iter 1: atomic-implementer (mode: feature) seeds the spec from `atomic template spec`,
-        reads design (if exists) + Approaches → drafts spec by filling the template.
-Iter 2: atomic-reviewer (spec-mode) reads design + spec → reports gaps:
-        - Design intent not covered in spec?
-        - Success criteria untestable / missing / vague?
-        - Checkpoints not cohesive slices?
-        - Spec over-prescribes implementation details?
-        - Contradictions between design and spec?
-        - Body forward-only — no decision history, prior-version refs, or rejected-fork enumeration?
-        - `## Approach` a one-line pointer to the design, not a copied Approaches/Recommendation table?
-        - Change tree present and fenced, with A/M/D markers covering every checkpoint's files?
-        - Outline present and fenced — per-file named pieces with one-line responsibilities, hollow (or explicit `None — <reason>`)?
-        - Flows present as actor → step sequences (or explicit `None — <reason>`)?
-Iter 3+: builder applies feedback; reviewer re-checks.
-Terminate on VERDICT: PASS or hard-cap (5 iters; configurable via memory).
-```
+
+- **Draft**: `atomic-implementer (mode: feature)` seeds the spec from `atomic template spec`, reads the design (if it exists) + Approaches, and drafts the spec by filling the template.
+- **Review**: `atomic-reviewer` in spec-mode reads design + spec and reports gaps against the spec-mode verdict criteria below.
+- **Revise**: the builder applies the feedback.
+- **Cap**: hard cap of 5 iterations, configurable via memory.
 
 Run `atomic scratchpad new <topic> --purpose plan` — it creates or extends the slug's bundle and seeds `BRIEF.md` + `STATE.md` + `FOLLOWUPS.md`. Reuses the same scratchpad shape as `/subagent-implementation` so contributors don't need a second mental model. Paths come from `atomic scratchpad` / `atomic where --json`; if what you find on disk does not match, run `atomic migrate --show-log` for the change history.
 
@@ -184,7 +210,7 @@ Both lines are copy-paste runnable.
 
 ## Amending an existing spec
 
-If `docs/spec/<topic>.md` already exists *and was previously approved* (committed, or the user has moved past the initial planning round), do not silently overwrite — but do **keep the body current**. Apply the rule from `CLAUDE.md` ("Specs: the body is current truth, the change log is history"): **rewrite every affected body section to the new decision** AND add a dated `## Change log` entry recording what changed and why (with a `Superseded:` line for the prior contract). If the file lacks a `## Change log` section, add one before amending.
+If `docs/spec/<topic>.md` already exists *and was previously approved* (committed, or the user has moved past the initial planning round), do not silently overwrite — but do **keep the body current**. Apply the spec-currency rule (`rules/specs/spec-currency.md`, "Specs: the body is current truth, the change log is history"): **rewrite every affected body section to the new decision** AND add a dated `## Change log` entry recording what changed and why (with a `Superseded:` line for the prior contract). If the file lacks a `## Change log` section, add one before amending.
 
 **This matters because the spec is read verbatim by fresh-context subagents in `/subagent-implementation`.** Superseded content left in the body — an old checkpoint, a dropped success criterion, a cut feature still described as in-scope — gets handed to a subagent that builds it. When a decision supersedes part of the plan, the whole affected part of the spec changes; the change log records *that* it changed, it does not excuse leaving the stale text in place. Rejected approaches move to the design doc, never a lingering spec section. The test before handing a spec to the loop: could a subagent reading only the body build something the latest decision already cut? If yes, the body isn't done.
 
@@ -256,7 +282,7 @@ In practice that means table-first. Use tables, Mermaid diagrams, and short bull
 - No speculative scope ("we might also want to..."). Out-of-scope items go in Non-goals.
 - No implementation code in this command. Plan only. Design-doc pseudocode is communication, not code — allowed.
 - One round of clarifying questions max. After that, write with stated assumptions and let the user correct.
-- Document skeletons come from the binary: `atomic template design-doc|spec|brief|state|followups`. If `atomic` is absent or the verb errors, stop: `document template unavailable (atomic template <name> failed) — install/update the atomic binary. cannot proceed.` Never improvise the structure from memory.
+- Document skeletons come from the binary: `atomic template design-doc|spec|brief|state|followups`. Never improvise the structure from memory.
 - Skip planning entirely for *trivial* work — write the spec inline (or offer to implement directly if the user prefers).
 - Promoted files are curated: no TODOs, no "tbd". Unresolved items go in `## Open questions` and get flagged in the handoff summary.
 

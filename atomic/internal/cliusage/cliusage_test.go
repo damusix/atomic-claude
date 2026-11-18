@@ -45,7 +45,7 @@ func TestLookupByPath(t *testing.T) {
 
 func TestTopLevelVerbs(t *testing.T) {
 	verbs := cliusage.TopLevelVerbs()
-	required := []string{"code", "signals", "validate", "wiki", "followups", "claude", "config", "docs", "doctor", "update", "profile", "hooks", "reminder", "docker", "prompt"}
+	required := []string{"code", "signals", "validate", "wiki", "followups", "claude", "config", "docs", "doctor", "update", "profile", "hooks", "workflow", "docker", "prompt"}
 	for _, v := range required {
 		if !verbs[v] {
 			t.Errorf("TopLevelVerbs missing %q", v)

@@ -6,11 +6,13 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
 func TestAdd_HappyPath(t *testing.T) {
 	tmp := t.TempDir()
-	dir := filepath.Join(tmp, ".claude", "project", "followups")
+	dir := config.FollowupsDir(tmp)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -58,7 +60,7 @@ func TestAdd_HappyPath(t *testing.T) {
 
 func TestAdd_WithBody(t *testing.T) {
 	tmp := t.TempDir()
-	dir := filepath.Join(tmp, ".claude", "project", "followups")
+	dir := config.FollowupsDir(tmp)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -91,7 +93,7 @@ func TestAdd_WithBody(t *testing.T) {
 
 func TestAdd_WithFile(t *testing.T) {
 	tmp := t.TempDir()
-	dir := filepath.Join(tmp, ".claude", "project", "followups")
+	dir := config.FollowupsDir(tmp)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -124,7 +126,7 @@ func TestAdd_WithFile(t *testing.T) {
 
 func TestAdd_KindPlan_SeverityOptional(t *testing.T) {
 	tmp := t.TempDir()
-	dir := filepath.Join(tmp, ".claude", "project", "followups")
+	dir := config.FollowupsDir(tmp)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -162,7 +164,7 @@ func TestAdd_KindPlan_SeverityOptional(t *testing.T) {
 
 func TestAdd_KindPlan_WithFile(t *testing.T) {
 	tmp := t.TempDir()
-	dir := filepath.Join(tmp, ".claude", "project", "followups")
+	dir := config.FollowupsDir(tmp)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -195,7 +197,7 @@ func TestAdd_KindPlan_WithFile(t *testing.T) {
 
 func TestAdd_KindFinding_SeverityRequired(t *testing.T) {
 	tmp := t.TempDir()
-	dir := filepath.Join(tmp, ".claude", "project", "followups")
+	dir := config.FollowupsDir(tmp)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -215,7 +217,7 @@ func TestAdd_KindFinding_SeverityRequired(t *testing.T) {
 
 func TestAdd_InvalidKind(t *testing.T) {
 	tmp := t.TempDir()
-	dir := filepath.Join(tmp, ".claude", "project", "followups")
+	dir := config.FollowupsDir(tmp)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -239,7 +241,7 @@ func TestAdd_InvalidKind(t *testing.T) {
 
 func TestAdd_DefaultKindIsFinding(t *testing.T) {
 	tmp := t.TempDir()
-	dir := filepath.Join(tmp, ".claude", "project", "followups")
+	dir := config.FollowupsDir(tmp)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -297,7 +299,7 @@ func TestAdd_MissingSeverityErrorSingleWrapped(t *testing.T) {
 
 func TestAdd_ValidationErrors(t *testing.T) {
 	tmp := t.TempDir()
-	dir := filepath.Join(tmp, ".claude", "project", "followups")
+	dir := config.FollowupsDir(tmp)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}

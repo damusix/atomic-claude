@@ -1,5 +1,5 @@
 // Package repoctx resolves the working root for the current invocation.
-// It prefers the nearest scope="repo" marker in .claude/atomic.toml, then
+// It prefers the nearest scope="repo" marker in <state-root>/atomic.toml, then
 // calls "git rev-parse --show-toplevel", and falls back to the starting
 // directory when neither resolves.
 package repoctx
@@ -24,11 +24,40 @@ func Resolve(override string) (string, error) {
 	return root, err
 }
 
+// ResolveUnchecked is Resolve without the repository-state check, for
+// `atomic state adopt`, which exists to resolve a refused state root.
+func ResolveUnchecked(override string) (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("repoctx: cannot resolve cwd: %w", err)
+	}
+	root, _, err := resolveRoot(cwd, override)
+	return root, err
+}
+
 // ResolveFrom returns the absolute working root and the mechanism that decided
 // it, trying in order: override, scope="repo" marker, git rev-parse, then dir
 // itself. Git is a history substrate, not a precondition, so falling through to
-// dir is a normal outcome rather than an error.
+// dir is a normal outcome rather than an error. A root whose state directory
+// cannot be resolved is refused, so no verb writes where readers will not look.
 func ResolveFrom(dir, override string) (string, config.ScopeSource, error) {
+	root, source, err := resolveRoot(dir, override)
+	if err != nil {
+		return "", source, err
+	}
+	if _, err := config.RepositoryStateDir(root); err != nil {
+		return "", source, err
+	}
+	return root, source, nil
+}
+
+// ResolveRootFrom is ResolveFrom without the repository-state check, for
+// callers that still need the root when its state directory is refused.
+func ResolveRootFrom(dir, override string) (string, config.ScopeSource, error) {
+	return resolveRoot(dir, override)
+}
+
+func resolveRoot(dir, override string) (string, config.ScopeSource, error) {
 	if override != "" {
 		abs, err := filepath.Abs(override)
 		if err != nil {

@@ -1,17 +1,10 @@
-// Fingerprint-invalidated cache for the full docs-graph response.
-//
-// Assembling it means a provenance walk that reads and hashes every wiki page,
-// plus a whole-realm element build — too slow to repeat on every open. This
-// cache owns only that assembly; the fingerprint and the link graph both come
-// from the shared snapshot store, so it never walks the filesystem itself.
-// Singleflight keyed on the fingerprint collapses a burst of requests, or the
-// warm goroutine racing the first request, into one assembly.
+// Fingerprint-invalidated cache for the docs-graph response, a whole-realm
+// element build and marshal; singleflight collapses concurrent builds into one.
 package serve
 
 import (
 	"bytes"
 	"encoding/json"
-	"path/filepath"
 	"sync"
 
 	"golang.org/x/sync/singleflight"
@@ -19,9 +12,7 @@ import (
 
 // graphDataCache is safe for concurrent use.
 type graphDataCache struct {
-	root    string
-	wikiDir string
-	store   *snapshotStore // source of both the link graph and the fingerprint
+	store *snapshotStore // source of both the link graph and the fingerprint
 
 	sf singleflight.Group
 
@@ -30,21 +21,14 @@ type graphDataCache struct {
 	cachedJSON []byte // nil until the first build
 }
 
-func newGraphDataCache(root string, store *snapshotStore) *graphDataCache {
-	return &graphDataCache{
-		root:    root,
-		wikiDir: filepath.Join(root, "wiki"),
-		store:   store,
-	}
+func newGraphDataCache(store *snapshotStore) *graphDataCache {
+	return &graphDataCache{store: store}
 }
 
 // assemble mirrors GraphDataHandler's no-node-param path. Escaping stays off
 // so labels keep raw <, >, and &.
 func (c *graphDataCache) assemble(g *Graph) ([]byte, error) {
-	provDAG := BuildProvenanceDAG(c.root, c.wikiDir)
 	elems := buildCytoElements(g)
-	// Unscoped: the whole DAG belongs in a full view, nodes included.
-	injectProvenanceEdges(&elems, provDAG, false)
 
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)

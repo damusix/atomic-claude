@@ -9,6 +9,7 @@ import (
 
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/doctor"
+	"github.com/damusix/atomic-claude/atomic/internal/installstate"
 	"github.com/damusix/atomic-claude/atomic/internal/selfupdate"
 )
 
@@ -72,6 +73,16 @@ func TestCheckConfig_unknownKey(t *testing.T) {
 	}
 }
 
+func TestCheckConfig_retiredHarnessTableIsPass(t *testing.T) {
+	root := t.TempDir()
+	writeTOML(t, root, "[harness]\ndir = \".pi\"\n")
+
+	r := doctor.RunCheckConfigWith(root)
+	if r.Severity != doctor.PASS {
+		t.Errorf("severity = %q, want PASS; detail: %s", r.Severity, r.Detail)
+	}
+}
+
 func TestCheckConfig_invalidValue(t *testing.T) {
 	root := t.TempDir()
 	writeTOML(t, root, "[output.signals]\nmax_depth = 0\n")
@@ -82,6 +93,27 @@ func TestCheckConfig_invalidValue(t *testing.T) {
 	}
 	if !strings.Contains(r.Detail, "max_depth") {
 		t.Errorf("detail %q: want mention of 'max_depth'", r.Detail)
+	}
+}
+
+func TestCheckConfig_stateDirPath(t *testing.T) {
+	for _, tc := range []struct {
+		value string
+		want  doctor.Severity
+	}{
+		{"state/atomic", doctor.PASS},
+		{"../escape", doctor.FAIL},
+		{"/abs/path", doctor.FAIL},
+	} {
+		t.Run(tc.value, func(t *testing.T) {
+			root := t.TempDir()
+			writeTOML(t, root, "[state]\ndir = \""+tc.value+"\"\n")
+
+			r := doctor.RunCheckConfigWith(root)
+			if r.Severity != tc.want {
+				t.Errorf("severity = %q, want %q; detail: %s", r.Severity, tc.want, r.Detail)
+			}
+		})
 	}
 }
 
@@ -223,9 +255,170 @@ model = "opus"
 		t.Fatalf("unexpected structural warnings: %v", warns)
 	}
 
+	clearClaudeEnv(t)
+	enrollKinds(t, root, "claude")
 	r := doctor.RunCheckConfigWith(root)
 	if r.Severity != doctor.PASS {
 		t.Errorf("severity = %q, want PASS for valid [claude.agents]; detail: %s", r.Severity, r.Detail)
+	}
+}
+
+func clearClaudeEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("CLAUDE_CODE_SUBAGENT_MODEL", "")
+	t.Setenv("CLAUDE_CODE_EFFORT_LEVEL", "")
+}
+
+func enrollKinds(t *testing.T, home string, kinds ...string) {
+	t.Helper()
+	ledger := &installstate.Ledger{}
+	for _, kind := range kinds {
+		ledger.UpsertTarget(installstate.TargetRecord{Harness: kind, Instance: filepath.Join(home, "."+kind), NativeRoot: filepath.Join(home, "."+kind)})
+	}
+	if err := ledger.Save(config.LedgerPath(home)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A stored override on a harness nothing delivers to would fail silently, so
+// doctor names it.
+func TestCheckConfig_agents_unenrolledHarnessWarns(t *testing.T) {
+	root := t.TempDir()
+	clearClaudeEnv(t)
+	writeTOML(t, root, "[claude.agents.atomic-implementer]\nmodel = \"opus\"\n\n[omp.agents.atomic-implementer]\nmodel = \"@slow\"\n")
+	enrollKinds(t, root, "claude")
+
+	r := doctor.RunCheckConfigWith(root)
+	if r.Severity != doctor.WARN {
+		t.Fatalf("severity = %q, want WARN; detail: %s", r.Severity, r.Detail)
+	}
+	if !strings.Contains(r.Detail, "omp.agents") || !strings.Contains(r.Detail, "not enrolled") {
+		t.Errorf("detail %q: want the unenrolled omp overrides named", r.Detail)
+	}
+	if strings.Contains(r.Detail, "claude.agents") {
+		t.Errorf("detail %q: the enrolled claude overrides were flagged", r.Detail)
+	}
+}
+
+// An enrolled OMP or Codex target receives the agent files, but no runtime
+// probe has shown the harness honoring them, so a stored override is named.
+func TestCheckConfig_agents_unsupportedDeliveryWarns(t *testing.T) {
+	for _, kind := range []string{"omp", "codex"} {
+		t.Run(kind, func(t *testing.T) {
+			root := t.TempDir()
+			clearClaudeEnv(t)
+			writeTOML(t, root, "["+kind+".agents.atomic-implementer]\nmodel = \"m\"\n")
+			enrollKinds(t, root, kind)
+
+			r := doctor.RunCheckConfigWith(root)
+			want := kind + ".agents overrides are stored but " + kind + " agent delivery is unsupported"
+			if r.Severity != doctor.WARN || !strings.Contains(r.Detail, want) {
+				t.Errorf("severity %q detail %q: want a WARN saying %q", r.Severity, r.Detail, want)
+			}
+			if strings.Contains(r.Detail, "not enrolled") {
+				t.Errorf("detail %q: the enrolled %s target was reported unenrolled", r.Detail, kind)
+			}
+		})
+	}
+}
+
+// An unadopted legacy Claude install still applies [claude.agents] through
+// the legacy installer, so it is not reported as undelivered.
+func TestCheckConfig_agents_legacyClaudeInstallIsNotUnenrolled(t *testing.T) {
+	root := t.TempDir()
+	clearClaudeEnv(t)
+	writeTOML(t, root, "[install]\nversion = \"7.0.0\"\n\n[claude.agents.atomic-implementer]\nmodel = \"opus\"\n")
+
+	r := doctor.RunCheckConfigWith(root)
+	if r.Severity != doctor.PASS {
+		t.Errorf("severity = %q, want PASS; detail: %s", r.Severity, r.Detail)
+	}
+}
+
+// Claude Code's own variables outrank or fill in the agent file, so a set one
+// beside a stored Claude override is named.
+func TestCheckConfig_agents_claudeEnvironmentMaskWarns(t *testing.T) {
+	for name, effect := range map[string]string{
+		"CLAUDE_CODE_SUBAGENT_MODEL": "sets the model wherever claude.agents leaves it empty",
+		"CLAUDE_CODE_EFFORT_LEVEL":   "outranks the stored claude.agents effort",
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			clearClaudeEnv(t)
+			t.Setenv(name, "high")
+			writeTOML(t, root, "[claude.agents.atomic-implementer]\neffort = \"low\"\n")
+			enrollKinds(t, root, "claude")
+
+			r := doctor.RunCheckConfigWith(root)
+			if r.Severity != doctor.WARN || !strings.Contains(r.Detail, name+" is set and "+effect) {
+				t.Errorf("severity %q detail %q: want a WARN saying %s %s", r.Severity, r.Detail, name, effect)
+			}
+		})
+	}
+}
+
+// `atomic config unset` refuses agent keys, so an agent warning points at
+// `atomic config agents` and only an unknown key carries the unset hint.
+func TestCheckConfig_agents_warningsPointAtConfigAgents(t *testing.T) {
+	root := t.TempDir()
+	clearClaudeEnv(t)
+	writeTOML(t, root, "[claude.agents.made-up-agent]\nmodel = \"opus\"\n")
+	enrollKinds(t, root, "claude")
+
+	r := doctor.RunCheckConfigWith(root)
+	if strings.Contains(r.Detail, "atomic config unset") || !strings.Contains(r.Detail, "atomic config agents") {
+		t.Errorf("detail %q: want the agent warning pointed at `atomic config agents` only", r.Detail)
+	}
+
+	writeTOML(t, root, "[stray]\nx = 1\n")
+	if r := doctor.RunCheckConfigWith(root); !strings.Contains(r.Detail, "atomic config unset") {
+		t.Errorf("detail %q: an unknown key lost its unset hint", r.Detail)
+	}
+}
+
+// Each harness has its own form, so the hint opens the form of the harness the
+// warning is about.
+func TestCheckConfig_agents_hintNamesTheWarningsHarness(t *testing.T) {
+	root := t.TempDir()
+	clearClaudeEnv(t)
+	writeTOML(t, root, "[claude.agents.made-up-agent]\nmodel = \"opus\"\n\n[omp.agents.atomic-reviewer]\neffort = \"turbo\"\n")
+	enrollKinds(t, root, "claude", "omp")
+
+	r := doctor.RunCheckConfigWith(root)
+	for _, want := range []string{
+		"config: claude.agents.made-up-agent: unknown agent (not in installed set); override stored but agent must exist at apply time — run `atomic config agents --harness claude` to edit them",
+		"config: omp.agents.atomic-reviewer.effort: unrecognized effort \"turbo\"; passed through as-is — run `atomic config agents --harness omp` to edit them",
+	} {
+		if !strings.Contains(r.Detail, want) {
+			t.Errorf("detail %q\nwant %q", r.Detail, want)
+		}
+	}
+}
+
+// `atomic config unset` refuses agent keys, so its hint must not read as the
+// fix for an inert override.
+func TestCheckConfig_agents_inertDetailPrecedesTheUnsetHint(t *testing.T) {
+	root := t.TempDir()
+	clearClaudeEnv(t)
+	writeTOML(t, root, "[omp.agents.atomic-implementer]\nmodel = \"@slow\"\n\n[stray]\nx = 1\n")
+
+	r := doctor.RunCheckConfigWith(root)
+	inert := strings.Index(r.Detail, "omp.agents overrides are stored")
+	hint := strings.Index(r.Detail, "atomic config unset")
+	if inert < 0 || hint < 0 || inert > hint {
+		t.Errorf("detail %q: want the inert override before the unset hint", r.Detail)
+	}
+}
+
+func TestCheckConfig_agents_claudeEnvironmentWithoutOverrideIsPass(t *testing.T) {
+	root := t.TempDir()
+	clearClaudeEnv(t)
+	t.Setenv("CLAUDE_CODE_SUBAGENT_MODEL", "opus")
+	writeTOML(t, root, "[update]\ncheck = false\n")
+
+	r := doctor.RunCheckConfigWith(root)
+	if r.Severity != doctor.PASS {
+		t.Errorf("severity = %q, want PASS; detail: %s", r.Severity, r.Detail)
 	}
 }
 

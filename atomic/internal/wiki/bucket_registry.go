@@ -2,13 +2,16 @@ package wiki
 
 // Registry primitives for `atomic wiki bucket`, covering two surfaces: the
 // machine-managed <wiki-buckets> block in wiki/index.md (idempotent splice,
-// mirroring <wiki-scan>) and the ## Capture surfaces section in realm
-// CLAUDE.md, whose heading is written once and gains a bullet per bucket.
+// mirroring <wiki-scan>) and the ## Capture surfaces section in the realm
+// steering file, whose heading is written once and gains a bullet per bucket.
 
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+
+	"github.com/damusix/atomic-claude/atomic/internal/bundlespec"
 )
 
 const bucketsMarkerOpen = "<wiki-buckets"
@@ -171,16 +174,31 @@ func findCaptureSurfacesHeading(content string) int {
 	return idx + 1 // skip the anchoring newline
 }
 
-// writeCaptureSurfacesSection appends one bullet per bucket to realm
-// CLAUDE.md, creating the file or the section when absent and never
-// duplicating the heading. Prior content survives byte-for-byte.
-func writeCaptureSurfacesSection(claudeMDPath, name, absPath string) error {
-	data, err := os.ReadFile(claudeMDPath)
+// captureSurfacesFile picks the file already holding the section, else a
+// CLAUDE.md that does not import AGENTS.md, else the file mode makes Claude load.
+func captureSurfacesFile(root string, mode bundlespec.SteeringMode) string {
+	steering := bundlespec.ScopeSteering
+	agents := filepath.Join(root, steering.Source)
+	for _, path := range []string{agents, filepath.Join(root, steering.ClaudeTarget), filepath.Join(root, strings.ToLower(steering.ClaudeTarget))} {
+		if data, err := os.ReadFile(path); err == nil && findCaptureSurfacesHeading(string(data)) != -1 {
+			return path
+		}
+	}
+	if loader := steering.LoaderWithoutImport(root); loader != "" {
+		return loader
+	}
+	return filepath.Join(root, steering.GuidanceFile(mode))
+}
+
+// writeCaptureSurfacesSection adds the bucket's bullet to the section in path,
+// creating file or section when absent; other bytes survive unchanged.
+func writeCaptureSurfacesSection(path, name, absPath string) error {
+	data, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("capture surfaces: read %s: %w", claudeMDPath, err)
+		return fmt.Errorf("capture surfaces: read %s: %w", path, err)
 	}
 
-	bullet := fmt.Sprintf("- `%s` <!-- describe what this bucket is for -->", absPath)
+	bullet := fmt.Sprintf("- `%s` <!-- describe what this bucket is for -->", filepath.Join(absPath, "index.md"))
 
 	var newContent string
 	if os.IsNotExist(err) || len(data) == 0 {
@@ -208,19 +226,22 @@ func writeCaptureSurfacesSection(claudeMDPath, name, absPath string) error {
 			}
 			before := strings.TrimRight(content[:insertPos], "\n")
 			afterInsert := content[insertPos:]
-			if strings.Contains(before, absPath) {
+			// A bullet written before buckets were indexed per folder names the
+			// bare folder; it still counts as this bucket's entry.
+			section := content[idx:insertPos]
+			if strings.Contains(section, "`"+absPath+"`") || strings.Contains(section, "`"+filepath.Join(absPath, "index.md")+"`") {
 				return nil
 			}
 			newContent = before + "\n" + bullet + "\n" + afterInsert
 		}
 	}
 
-	return writeFileAtomic(claudeMDPath, []byte(newContent))
+	return writeFileAtomic(path, []byte(newContent))
 }
 
 // createBucketIndexStub writes <bucketDir>/index.md, or nothing when one
 // already exists. The stub includes an empty `<bucket-docs>` region so the
-// first RebuildBucketIndex fills a well-formed region in place instead of
+// first RebuildBucketTree fills a well-formed region in place instead of
 // appending one at EOF.
 func createBucketIndexStub(bucketDir, name string) error {
 	indexPath := fmt.Sprintf("%s/index.md", bucketDir)
@@ -238,6 +259,7 @@ func createBucketIndexStub(bucketDir, name string) error {
 	sb.WriteString("<!-- Describe what this bucket is for -->\n\n")
 	sb.WriteString("## Conventions\n\n")
 	sb.WriteString("<!-- Add conventions for files in this bucket -->\n\n")
+	sb.WriteString("<!-- Stages: list each numbered stage folder this bucket's items use, starting with 01_raw/, and what that stage's output looks like -->\n\n")
 	sb.WriteString(renderManagedRegion(managedRegion{tag: "bucket-docs"}))
 	sb.WriteString("\n")
 

@@ -84,6 +84,37 @@ func writeFixtureSession(t *testing.T, home, slug, id, text string, mtime time.T
 	}
 }
 
+// On an OMP-only or Codex-only home there is no Claude projects directory;
+// the verb must name the harness rather than fail on that missing directory.
+func TestRetroExtractAction_UnsupportedHarness(t *testing.T) {
+	for _, tc := range []struct {
+		kind string
+		env  map[string]string
+	}{
+		{"omp", map[string]string{"AGENT": "1", "CI": "true"}},
+		{"codex", map[string]string{"CODEX_THREAD_ID": "thread-1"}},
+	} {
+		t.Run(tc.kind, func(t *testing.T) {
+			for k, v := range tc.env {
+				t.Setenv(k, v)
+			}
+			var code int
+			_, stderr := captureOutput(t, func() {
+				code = retroAction([]string{"extract", "--since", "2026-01-01"}, t.TempDir(), time.Now())
+			})
+			if code != 1 {
+				t.Errorf("exit %d, want 1", code)
+			}
+			if !strings.Contains(stderr, "unsupported") || !strings.Contains(stderr, tc.kind) {
+				t.Errorf("stderr %q must report unsupported naming %s", stderr, tc.kind)
+			}
+			if strings.Contains(stderr, "projects") {
+				t.Errorf("stderr %q still fails on the Claude projects directory", stderr)
+			}
+		})
+	}
+}
+
 func TestRetroAction_NoArgsUsageError(t *testing.T) {
 	home := t.TempDir()
 	code := retroAction([]string{}, home, time.Now())

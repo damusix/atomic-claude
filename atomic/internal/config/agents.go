@@ -21,45 +21,87 @@ func bundledAgents() []string {
 	return names
 }
 
-// effortOptionLabels maps an effort option value to its label in the Select.
-var effortOptionLabels = map[string]string{
-	"":       "(bundled default)",
-	"low":    "low",
-	"medium": "medium",
-	"high":   "high",
-	"xhigh":  "xhigh",
-	"max":    "max",
+// AgentForm is one harness's `atomic config agents` form.
+type AgentForm struct {
+	Harness          string
+	ModelPlaceholder string
+	// Efforts are the effort choices, the empty no-override choice first.
+	Efforts     []string
+	RestartNote string
 }
 
-// applyAgentOverrides merges selections into cfg.Claude.Agents. A selection with
-// both fields empty removes the agent's entry. Effort is validated against the
-// strict enum; model is lenient and never a hard failure. Pure: no I/O, no TTY.
-func applyAgentOverrides(cfg *Config, selections map[string]AgentOverride) error {
+// AgentFormFor returns the form of a kind in AgentHarnesses.
+func AgentFormFor(kind string) (AgentForm, error) {
+	form := AgentForm{Harness: kind}
+	switch kind {
+	case "claude":
+		form.ModelPlaceholder = "opus | claude-opus-4-8"
+		form.Efforts = effortOptionValues
+		form.RestartNote = "Restart Claude Code sessions to pick up the change."
+	case "omp":
+		form.ModelPlaceholder = "@slow | anthropic/claude-opus-4-8"
+		form.RestartNote = "Restart omp sessions to pick up the change."
+	case "codex":
+		form.ModelPlaceholder = "gpt-5.2-codex"
+		form.RestartNote = "Restart Codex sessions to pick up the change."
+	default:
+		return AgentForm{}, fmt.Errorf("config: %q stores no agent overrides; want one of %s", kind, strings.Join(AgentHarnesses, ", "))
+	}
+	if form.Efforts == nil {
+		form.Efforts = append([]string{""}, advisoryEfforts[kind]...)
+	}
+	return form, nil
+}
+
+// EditAgents opens form pre-filled from its harness's `[<kind>.agents.<name>]`
+// tables and saves the answers to config.toml.
+func EditAgents(home string, form AgentForm) error {
+	cfg, _, err := Load(TOMLPath(home))
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+	selections, err := AgentTierSelector(form, cfg.AgentOverrides(form.Harness))
+	if err != nil {
+		return err
+	}
+	if err := applyAgentOverrides(cfg, form.Harness, selections); err != nil {
+		return err
+	}
+	if err := WritePersist(TOMLPath(home), cfg); err != nil {
+		return fmt.Errorf("write config: %w", err)
+	}
+	return nil
+}
+
+// applyAgentOverrides merges selections into kind's table; both fields empty removes
+// the entry. Only Claude's effort set is strict; the others warn via AgentWarnings.
+func applyAgentOverrides(cfg *Config, kind string, selections map[string]AgentOverride) error {
+	section := cfg.agentSection(kind)
+	if section == nil {
+		return fmt.Errorf("config: %q stores no agent overrides", kind)
+	}
 	for agentName, ov := range selections {
 		if ov.Model == "" && ov.Effort == "" {
-			// Leave unchanged: remove any existing override.
-			if cfg.Claude.Agents != nil {
-				delete(cfg.Claude.Agents, agentName)
-			}
+			delete(section.Agents, agentName)
 			continue
 		}
-		if ov.Effort != "" && !validEfforts[ov.Effort] {
-			return fmt.Errorf("config: claude.agents.%s.effort: invalid effort %q; must be one of: low, medium, high, xhigh, max", agentName, ov.Effort)
+		if kind == "claude" {
+			if err := ValidateClaudeAgentOverrides(map[string]AgentOverride{agentName: ov}); err != nil {
+				return err
+			}
 		}
-		if cfg.Claude.Agents == nil {
-			cfg.Claude.Agents = make(map[string]AgentOverride)
+		if section.Agents == nil {
+			section.Agents = make(map[string]AgentOverride)
 		}
-		cfg.Claude.Agents[agentName] = ov
+		section.Agents[agentName] = ov
 	}
-	// Nil out the empty map so TOML omits [claude.agents] entirely.
-	if len(cfg.Claude.Agents) == 0 {
-		cfg.Claude.Agents = nil
+	if len(section.Agents) == 0 {
+		section.Agents = nil
 	}
 	return nil
 }
 
 // ErrNonInteractiveAgents is returned when the terminal is not interactive.
-// Distinct from prompt.ErrNonInteractive so cli.go need not import that package.
 var ErrNonInteractiveAgents = errors.New("atomic config agents: non-interactive terminal")
 
 // ErrAgentsAborted is returned when the user aborts the huh form (Ctrl+C).
@@ -72,52 +114,52 @@ func validateModelInput(s string) error {
 	if s == "" || validModelFormat(s) {
 		return nil
 	}
-	return fmt.Errorf("no spaces; use a tier (opus) or a model id (claude-opus-4-8)")
+	return fmt.Errorf("no spaces or control characters")
 }
 
 // defaultAgentTierSelector presents a model Input plus an effort Select per agent
 // and returns the chosen AgentOverride. Both fields empty means no override.
 // Returns ErrNonInteractiveAgents when stdin or stdout is not a TTY.
-func defaultAgentTierSelector(cfg *Config) (map[string]AgentOverride, error) {
+func defaultAgentTierSelector(form AgentForm, current map[string]AgentOverride) (map[string]AgentOverride, error) {
 	if !isAgentsTTY() {
 		return nil, ErrNonInteractiveAgents
 	}
 
 	agents := bundledAgents()
-	// One model + one effort pointer per agent, pre-populated from cfg.
 	models := make(map[string]*string, len(agents))
 	efforts := make(map[string]*string, len(agents))
 	for _, agent := range agents {
-		m := cfg.Claude.Agents[agent].Model
-		e := cfg.Claude.Agents[agent].Effort
+		m := current[agent].Model
+		e := current[agent].Effort
 		models[agent] = &m
 		efforts[agent] = &e
 	}
 
 	var effortOpts []huh.Option[string]
-	for _, v := range effortOptionValues {
-		effortOpts = append(effortOpts, huh.NewOption(effortOptionLabels[v], v))
+	for _, v := range form.Efforts {
+		label := v
+		if v == "" {
+			label = "(no override)"
+		}
+		effortOpts = append(effortOpts, huh.NewOption(label, v))
 	}
 
 	var fields []huh.Field
 	for _, agent := range agents {
-		agent := agent // capture
-
 		fields = append(fields, huh.NewInput().
-			Title(fmt.Sprintf("Model for %s (blank = bundled default)", agent)).
-			Placeholder("opus | claude-opus-4-8").
+			Title(fmt.Sprintf("%s model for %s (blank = no override)", form.Harness, agent)).
+			Placeholder(form.ModelPlaceholder).
 			Value(models[agent]).
 			Validate(validateModelInput),
 		)
 		fields = append(fields, huh.NewSelect[string]().
-			Title(fmt.Sprintf("Effort for %s", agent)).
+			Title(fmt.Sprintf("%s effort for %s", form.Harness, agent)).
 			Options(effortOpts...).
 			Value(efforts[agent]),
 		)
 	}
 
-	form := huh.NewForm(huh.NewGroup(fields...))
-	if err := form.Run(); err != nil {
+	if err := huh.NewForm(huh.NewGroup(fields...)).Run(); err != nil {
 		if errors.Is(err, huh.ErrUserAborted) {
 			return nil, ErrAgentsAborted
 		}

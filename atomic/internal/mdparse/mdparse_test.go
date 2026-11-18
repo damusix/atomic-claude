@@ -355,6 +355,62 @@ func TestInlineRefs_Empty(t *testing.T) {
 	}
 }
 
+// A link with no Text child inside emphasis has an inline parent; goldmark
+// panics when Lines() is called on an inline node.
+func TestInlineRefs_LinkInsideEmphasisDoesNotPanic(t *testing.T) {
+	src := []byte("Intro.\n\nSee **[`serve.md`](serve.md)** for more.\n")
+	refs, err := mdparse.InlineRefs(src)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var found bool
+	for _, r := range refs {
+		if r.Kind == "link" && r.Text == "serve.md" {
+			found = true
+			if r.Line != 3 {
+				t.Errorf("link line: got %d, want 3", r.Line)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("expected link serve.md, got %+v", refs)
+	}
+}
+
+func TestCodeBlockLines_FencedAndIndented(t *testing.T) {
+	src := []byte("# Doc\n\n```bash\nfirst\n\nsecond\n```\n\nText.\n\n    indented one\n    indented two\n")
+	got := mdparse.CodeBlockLines(src)
+	want := []mdparse.CodeLine{
+		{Text: "first", Line: 4, Lang: "bash"},
+		{Text: "second", Line: 6, Lang: "bash"},
+		{Text: "indented one", Line: 11},
+		{Text: "indented two", Line: 12},
+	}
+	assertCodeLines(t, got, want)
+}
+
+func TestCodeBlockLines_FenceUnderListItem(t *testing.T) {
+	src := []byte("1. Run:\n\n    ```bash\n    atomic code search --json\n    ```\n\n- Or:\n\n  ```\n  atomic code sync\n  ```\n")
+	got := mdparse.CodeBlockLines(src)
+	want := []mdparse.CodeLine{
+		{Text: "atomic code search --json", Line: 4, Lang: "bash"},
+		{Text: "atomic code sync", Line: 10},
+	}
+	assertCodeLines(t, got, want)
+}
+
+func assertCodeLines(t *testing.T, got, want []mdparse.CodeLine) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("got %d lines %+v, want %d %+v", len(got), got, len(want), want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("line %d: got %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}
+
 const tableDoc6Col = `# Doc
 
 ## Checkpoints

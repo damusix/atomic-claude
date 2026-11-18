@@ -165,7 +165,7 @@ func (s *snapshotStore) fingerprint() (map[string]fileManifestEntry, string) {
 			return nil
 		}
 		if d.IsDir() {
-			if path != s.root && (shouldSkipDir(d.Name()) || ignores.skipDir(path)) {
+			if path != s.root && ignores.skipWalkDir(path) {
 				return filepath.SkipDir
 			}
 			return nil

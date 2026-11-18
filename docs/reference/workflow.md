@@ -11,7 +11,7 @@ flowchart TD
     S["setup: /setup-wiki + /refresh-wiki"] --> P["plan: /atomic-plan"]
     P --> I["implement: /subagent-implementation"]
     I --> SH["ship: /commit"]
-    SH --> T["track: /remind-me, /follow-up"]
+    SH --> T["track: /follow-up"]
     T --> R["learn: /retrospective-learning"]
     R -.->|lessons become config| P
     I -->|something breaks| D["diagnose: /subagent-diagnose"]
@@ -35,6 +35,8 @@ Before your first session in a new project, two commands teach Claude what it is
 ```
 
 `/setup-wiki` audits the repo for missing conventions and proposes only what is absent; `/refresh-wiki` generates the [repo wiki](/reference/repo-wiki), the standing map Claude reads before your code. Run them once per repo; ship commands keep the wiki fresh after that.
+
+Ship verbs, `/report-issue`, and follow-ups use the source-control provider, issue tracker, and worktree directory that `atomic workflow resolve` prints. The `origin` remote usually decides them; `atomic workflow set` overrides one ([workflow preferences](/reference/concepts#workflow-preferences)).
 
 Two optional layers deepen the map. `atomic code index` builds a symbol graph the agents query for callers and blast radius ([code-intel](/reference/code-intel)), and a [realm wiki](/reference/realm-wiki) maps how a folder of repos relates, one level up. The [getting-started guide](/guides/getting-started) walks this setup step by step.
 
@@ -99,47 +101,30 @@ All four run the same loop and finalize. What differs is the policy table at the
 /subagent-implementation
 ```
 
-Claude reads the approved spec and runs an autonomous implement-then-review loop, Anthropic's evaluator-optimizer pattern applied per checkpoint. A builder agent writes code (failing test first), a reviewer agent checks it against an objective gate (the tests), and each passing checkpoint gets committed automatically.
+The orchestrator dispatches a fresh implementer and an independent reviewer for each checkpoint. The reviewer can block the checkpoint for missing intended behavior, missing required verification, or a serious defect.
 
-One iteration, plus the once-per-task audit at the end. The implementer and the reviewer never talk to each other, and only the orchestrator writes the scratchpad — the agents read the brief and report back, which is why each can run fresh-context:
+The orchestrator records non-blocking findings before deciding whether to retry or commit.
 
 ```mermaid
-sequenceDiagram
-    accTitle: One iteration of the implement-review loop, and the final audit
-    accDescr: The orchestrator writes the scratchpad files. It dispatches the implementer and the reviewer, each of which reads the brief and the spec and reports back. The orchestrator updates STATE, harvests non-blocking findings into FOLLOWUPS, commits on PASS or re-dispatches on CHANGES_REQUESTED, offers escalation to the user when stuck, and dispatches the auditor once when every checkpoint is green.
-    participant U as you
-    participant O as orchestrator
-    participant S as scratchpad (BRIEF · STATE · FOLLOWUPS)
-    participant I as implementer (fresh context)
-    participant R as reviewer (fresh context)
-    participant A as auditor (fresh context)
-    O->>S: write BRIEF — scope, spec path (once, at start)
-    O->>I: dispatch — this iteration's scope, prior findings
-    S-->>I: BRIEF + spec (read-only)
-    I-->>O: report — did, files touched, test signals
-    O->>R: dispatch — diff working tree vs BASE against the spec
-    S-->>R: BRIEF + spec (read-only)
-    R-->>O: findings + VERDICT
-    O->>S: update STATE, harvest non-blocking findings into FOLLOWUPS
-    alt PASS
-        O->>O: commit the iteration, atomic code sync
-    else CHANGES_REQUESTED
-        O->>I: next round, blocking findings as focus
-    end
-    opt same signal 2 rounds
-        O->>U: offer /pressure-test · strategist · continue
-    end
-    opt every checkpoint green
-        O->>A: audit the whole delivery — spec, commit range, STATE
-        A-->>O: PASS, or CHANGES_REQUESTED for one more round
-    end
+flowchart TD
+    accTitle: Checkpoint gates and final cleanup
+    accDescr: Each review records non-blockers before it can retry the checkpoint. The cleanup pass runs after all checkpoints pass.
+    I["Build checkpoint"] --> R["Review checkpoint"]
+    R --> L["Record non-blockers"]
+    L --> B{"Blocker?"}
+    B -->|Yes| I
+    B -->|No| C["Commit checkpoint"]
+    C -->|More checkpoints| I
+    C -->|Last checkpoint| P["Fix in-scope findings"]
+    P --> D["Update docs and verify"]
+    D --> A["Audit the delivery"]
 ```
 
-The scratchpad in that diagram is a slug-keyed work bundle — `atomic scratchpad new <slug> --purpose implement` creates or extends it, and a later phase on the same task joins it rather than opening a new one. Artifacts resolve its path, and where session reports and reminders for this project live, via `atomic where --json` rather than constructing them. → [conventions](/reference/conventions)
+The scratchpad in that diagram is a slug-keyed work bundle — `atomic scratchpad new <slug> --purpose implement` creates or extends it, and a later phase on the same task joins it rather than opening a new one. Artifacts resolve its path, and where session reports for this project live, via `atomic where --json` rather than constructing them. → [conventions](/reference/conventions)
 
 The audit runs exactly once per task, after the docs update and before the signals refresh. A `CHANGES_REQUESTED` verdict buys one more implementer-reviewer round against its findings, never a second audit, so finalize cannot loop. It gates what per-checkpoint review cannot see: success criteria no single checkpoint owned, iterations that each passed and do not compose, and commit types that misstate user-visible impact.
 
-Non-blocking findings (risks, nits, questions) accumulate in a ledger that you review at the end, so nothing gets silently dropped. When the loop gets stuck, either the same failure surviving two rounds of fixes or the reviewer flagging error-swallowing patches that dodge the bug instead of fixing it, it stops grinding and surfaces a root-cause path: a pressure-test prompt or a read-only strategist analysis you can run, rather than piling on more suppression.
+You only need to intervene during the loop when a blocker requires a decision outside the approved plan. If the same blocker survives two attempts, the orchestrator asks the strategist to investigate first. Non-blocking questions and nits stay in `FOLLOWUPS.md`; the orchestrator resolves the in-scope ones before the audit. It can offer worthwhile unrelated work once at the end.
 
 If the project is indexed, the loop uses the code-intel graph throughout. It indexes the project at the start of the task, the investigator leads with `atomic code explore` to scope each surface, the reviewer checks blast radius with `atomic code impact`, and the orchestrator runs `atomic code sync` after each committed checkpoint so the graph reflects the latest code. When no index is present the agents fall back to plain search, so the loop runs either way.
 
@@ -179,7 +164,7 @@ The only decision is the merge method at the end. Pass a merge verb (`/autopilot
 
 ### Editing directly, outside any verb
 
-Editing code by hand with no command around it at all skips the loop entirely — there is no builder, no reviewer inside a loop, no checkpoint. Two exits still gate it: `atomic-verify` blocks a "ready" claim, and the ship verbs' review gate blocks the commit. Both dispatch `atomic-reviewer` on the diff, with an explicit `model:` override to the session's model, and report a `review: <verdict> (atomic-reviewer on <model>)` line before the claim or the commit lands.
+Editing code by hand with no command around it at all skips the loop entirely — there is no builder, no reviewer inside a loop, no checkpoint. Two exits still gate it: `atomic-verify` blocks a "ready" claim, and the ship verbs' review gate blocks the commit. Both dispatch `atomic-reviewer` on the diff and report a `review: <verdict> (atomic-reviewer on <model>)` line before the claim or the commit lands.
 
 
 ### What the loop costs
@@ -210,19 +195,19 @@ One verb covers all ship paths:
 /commit squash merge      — commit + squash + merge to base
 ```
 
-With no pending changes and commits already ahead of base, `/commit` skips straight to the ship step, so `/commit merge` on a clean branch just merges. The merge and squash-merge paths run tests on the merged result and prompt to clean up the worktree if you used one; squash alone rewrites the branch without re-running tests.
+With no pending changes and commits already ahead of base, `/commit` skips straight to the ship step, so `/commit merge` on a clean branch just merges. `/commit pr` on a branch that is already pushed still reaches the PR step, and `/commit squash merge` on a single-commit branch skips the squash and merges. The merge and squash-merge paths run tests on the merged result and prompt to clean up the worktree if you used one; squash alone rewrites the branch without re-running tests.
 
 
 ## 5. Track what's deferred
 
 ```
-/remind-me 2h check the deploy
+/follow-up fetchUser retries ignore 429
 /follow-up review
 ```
 
-Not everything gets resolved in the same session. Reminders are time-based nudges that surface at the specified moment, or at the start of your next session if you are away. Follow-ups are non-blocking findings from implementation (risks, nits, open questions) that you parked for later. `/follow-up review` walks you through stale entries and lets you close, extend, or promote each one.
+Not everything gets resolved in the same session. Follow-ups are non-blocking findings from implementation (risks, nits, open questions) that you parked for later. `/follow-up <text>` records one in your resolved issue tracker, or in the local ledger when the tracker is `filesystem` or cannot take it; the loop's `defer` and the docs prompt's "Later" record the same way. `atomic workflow set issue-tracker filesystem --level repo` keeps a repo's follow-ups local ([workflow preferences](/reference/concepts#workflow-preferences)). `/follow-up review` walks you through stale ledger entries and lets you close, extend, or promote each one.
 
-Both mechanisms exist because shipping is not the end. The things you deferred during implementation should not silently rot.
+Follow-ups exist because shipping is not the end. The things you deferred during implementation should not silently rot.
 
 
 ## 6. Retrospective

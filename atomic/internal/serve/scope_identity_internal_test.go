@@ -5,6 +5,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
 func initRepo(t *testing.T, dir, branch string) {
@@ -84,12 +86,12 @@ func TestResolveScopeIdentity_ScopeMarkerOutranksGitRoot(t *testing.T) {
 	root := t.TempDir()
 	repo := filepath.Join(root, "outer-repo")
 	inner := filepath.Join(repo, "packages", "inner")
-	if err := os.MkdirAll(filepath.Join(inner, ".claude"), 0o755); err != nil {
+	marker := config.RepoConfigPath(inner)
+	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	initRepo(t, repo, "main")
 
-	marker := filepath.Join(inner, ".claude", "atomic.toml")
 	if err := os.WriteFile(marker, []byte("scope = \"repo\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

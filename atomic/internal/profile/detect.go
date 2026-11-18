@@ -325,6 +325,22 @@ func DefaultRegistry() []RegistryEntry {
 			Category: CategoryCLI, Strategy: StrategyBinary,
 		},
 		{
+			Name: "glab", Binaries: []string{"glab"}, VersionArgs: []string{"--version"},
+			Category: CategoryCLI, Strategy: StrategyBinary,
+		},
+		{
+			Name: "tea", Binaries: []string{"tea"}, VersionArgs: []string{"--version"},
+			Category: CategoryCLI, Strategy: StrategyBinary,
+		},
+		{
+			Name: "fj", Binaries: []string{"fj"}, VersionArgs: []string{"--version"},
+			Category: CategoryCLI, Strategy: StrategyBinary,
+		},
+		{
+			Name: "acli", Binaries: []string{"acli"}, VersionArgs: []string{"--version"},
+			Category: CategoryCLI, Strategy: StrategyBinary,
+		},
+		{
 			Name: "git", Binaries: []string{"git"}, VersionArgs: []string{"--version"},
 			Category: CategoryCLI, Strategy: StrategyBinary,
 		},

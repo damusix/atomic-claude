@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 )
 
@@ -22,6 +23,17 @@ var segmentPattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 func ValidateSegment(source, value string) error {
 	if value == "" || value == "." || value == ".." || !segmentPattern.MatchString(value) {
 		return fmt.Errorf("config: invalid %s %q: not a safe path segment", source, value)
+	}
+	return nil
+}
+
+// ValidateStateDirPath rejects value unless every "/"-separated segment passes
+// ValidateSegment, so absolute, empty, and parent-escaping paths fail.
+func ValidateStateDirPath(value string) error {
+	for _, segment := range strings.Split(value, "/") {
+		if err := ValidateSegment("state.dir", segment); err != nil {
+			return fmt.Errorf("config: invalid state.dir %q: want a relative path of safe segments", value)
+		}
 	}
 	return nil
 }

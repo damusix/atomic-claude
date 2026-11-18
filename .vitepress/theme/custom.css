@@ -698,8 +698,25 @@ html.dark {
 }
 
 /* Mermaid lightbox: click a rendered diagram to open it fullscreen. */
-.vp-doc .mermaid {
+.vp-doc .ac-mermaid {
     cursor: zoom-in;
+}
+
+/* Node colors and borders live in the Mermaid config in config.mts. overflow lets
+   node shadows paint past the viewBox edge instead of being clipped. */
+.vp-doc .ac-mermaid svg {
+    background-color: var(--vp-c-bg);
+    background-image: radial-gradient(#3A2E26 1px, transparent 1px);
+    background-size: 18px 18px;
+    border-radius: 10px;
+    padding: 12px;
+    overflow: visible;
+}
+
+/* Mermaid sizes label boxes at its own line-height, measured outside .vp-doc;
+   the doc paragraph line-height would otherwise overflow every multi-line label. */
+.vp-doc .ac-mermaid foreignObject p {
+    line-height: inherit;
 }
 
 .ac-mermaid-lightbox {
@@ -727,6 +744,7 @@ html.dark {
 
 .ac-mermaid-lightbox-stage svg {
     display: block;
+    overflow: visible;
 }
 
 .ac-mermaid-lightbox-close {

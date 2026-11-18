@@ -12,15 +12,17 @@ The knowledge exists only in the developer's head. A fresh Claude session redisc
 ## Goal / Non-goals
 
 
-**Goal.** A `wiki` is a portable, git-initialized knowledge base for one **realm** of cross-repo concerns. Two deterministic CLI verbs (`atomic wiki scan`, `atomic wiki stale`) scaffold it, scan its root for repos, record which have signals, register the wiki globally, and report staleness. `/refresh-wiki` drives the LLM pass: it summarizes no-signals repos (reusing the signals explorer, with output **redirected** into the wiki so the source repo is never touched), synthesizes cross-cutting concerns, and refreshes **incrementally**. A cheap session-start nudge plus a ship-time drift marker keep the wiki from rotting unnoticed.
+**Goal.** A `wiki` is a portable, git-initialized knowledge base for one **realm** of cross-repo concerns. Deterministic CLI verbs scaffold it, find its member repos, record which have signals, register the wiki globally, index its capture buckets, and report membership drift. `/refresh-wiki` runs the model pass on request. It summarizes no-signals repos with the signals explorer, whose output is **redirected** into the wiki so the source repo is never touched. It also re-authors the summaries and concerns the user picks. Nothing schedules, nudges, or tracks the freshness of that pass.
 
 **Non-goals.**
 
 - Not a replacement for signals. Signals stay repo-local and authoritative; the wiki points at them, never copies them.
 - Not a dependency graph generator. Cross-cutting concerns are LLM-curated prose with cited evidence, not a parsed import graph.
-- Not a CLI "membership" system. Cross-realm links are LLM-curated via the `<wikis>` registry.
+- Not a CLI "membership" system for out-of-tree repos. Cross-realm links are LLM-curated via the `<wikis>` registry.
 - Not a new agent. The no-signals explorer is the existing `atomic-wiki-inferrer` in a wiki-output mode.
-- Out of scope: monorepo sub-packages (a repo is a `.git` boundary); `--full` self-containment (summarizing `indexed` repos too); auto-committing the wiki.
+- No freshness tracking: no session-start nudge, no ship-time marker, no fingerprints in artifact frontmatter.
+- No model pass over bucket content. A bucket's only derived output is its folder indexes.
+- Out of scope: monorepo sub-packages (a repo is a `.git` boundary) and `--full` self-containment (summarizing `indexed` repos too).
 
 
 ## Concept
@@ -30,124 +32,142 @@ The knowledge exists only in the developer's head. A fresh Claude session redisc
 |------|---------|
 | **wiki** | A knowledge base for one realm. Lives at `<root>/wiki/`. Its own git repo. |
 | **root** | A folder that *contains* repositories. The wiki's scan scope. The root is never itself a member. |
-| **repo** | A member: a directory with a `.git` entry, found by recursing the root. Recursion stops at the repo boundary. |
-| **realm** | The scope a wiki covers (client / OSS / personal). One wiki per realm; 3-5 per machine is typical. |
+| **repo** | A member: a directory with a `.git` entry, found by walking the root or the roots declared in `[realm] repos`. The walk stops at the repo boundary. |
+| **realm** | The scope a wiki covers (client / OSS / personal). One wiki per realm; 3-5 per machine is typical. Marked by `scope = "realm"` in `<root>/.claude/atomic.toml`. |
+| **bucket** | A user-named capture folder at the realm root, beside `wiki/`, for material that is not a repo: research, notes, tickets. |
 
-Mental model: **signals = one repo's internals; a wiki = how a realm's repos relate.** The CLI/command parallel is exact:
+Mental model: **signals = one repo's internals; a wiki = how a realm's repos relate.** Code finds and records; the model reads and writes prose.
 
-| Deterministic CLI | called by | LLM command |
-|---|---|---|
-| `atomic signals scan` | → | `/refresh-wiki` |
-| `atomic wiki scan` / `atomic wiki stale` | → | `/refresh-wiki` |
+
+### How a repo is found
+
+
+Discovery is the same walk for `atomic wiki scan` and `atomic wiki stale`. By default it walks every child of the root. A realm whose root also holds buckets, notes, or unrelated checkouts declares where its repos live with `[realm] repos` in `<root>/.claude/atomic.toml`: a list of root-relative paths and doublestar globs. When that list is non-empty, the walk starts only from the directories it matches.
+
+Declared roots narrow where the walk starts; the member rule inside each walk is unchanged:
+
+```mermaid
+flowchart TD
+    S["atomic wiki scan / stale"] --> R{"[realm] repos<br/>non-empty?"}
+    R -->|no| ROOT["walk children of root"]
+    R -->|yes| DECL["walk each matched dir"]
+    ROOT --> K{"skip set or wiki/?"}
+    DECL --> K
+    K -->|yes| X["skip subtree"]
+    K -->|no| G{"dir has .git?"}
+    G -->|yes| M["record member,<br/>stop descending"]
+    G -->|no| D["descend"]
+    D --> K
+```
+
+A bad entry (no match, absolute path, leaves the root, a symbolic link) is a stderr warning, never a failure, and the walk continues with the remaining entries. A member that falls outside the declared roots after the list changes shows up in `atomic wiki stale` as removed. The entry rules and warning texts live in `docs/reference/atomic-toml.md`.
 
 
 ### Repo knowledge states
 
 
-"No signals" is not a defect — it is a fork between repo-owned and wiki-owned knowledge. Some repos (OSS especially) should never carry committed signals; the wiki summarizes them instead, never touching the repo.
+"No signals" is not a defect. It is a fork between repo-owned and wiki-owned knowledge. Some repos (OSS especially) should never carry committed signals; the wiki summarizes them instead, never touching the repo.
+
+A recorded summary holds a repo at `summarized` until its summary file is deleted; after that, signals win over any summary still on disk:
 
 ```mermaid
 stateDiagram-v2
-    [*] --> indexed: scan finds repo WITH .claude/project/signals.md
-    [*] --> pending: scan finds repo WITHOUT signals
-    pending --> summarized: inferrer (wiki mode) runs scan+infer redirected, writes wiki summary
-    pending --> indexed: user accepts /refresh-wiki in the repo
+    [*] --> indexed: has docs/wiki/index.md
+    [*] --> pending: no signals
+    [*] --> summarized: summary, no signals
+    pending --> summarized: inferrer writes summary
+    pending --> indexed: /refresh-wiki in repo
+    summarized --> indexed: summary gone, signals
+    summarized --> pending: summary gone
 ```
 
 | State | Knowledge source |
 |-------|------------------|
-| `indexed` | repo has `.claude/project/signals.md` → read live, cite the path — never copied |
-| `summarized` | no in-repo signals → `wiki/repos/<repo>(/<domain>).md`, written by the inferrer in wiki mode |
-| `pending` | no signals, not yet summarized (fresh scan) → the refresh pass resolves it |
+| `indexed` | repo has `docs/wiki/index.md` (or the legacy `.claude/project/signals.md`): read live, cite the path, never copied |
+| `summarized` | no in-repo signals: `wiki/repos/<repo>.md`, or `wiki/repos/<repo>/` for a domain-split summary, written by the inferrer in wiki mode |
+| `pending` | no signals and no summary on disk: `/refresh-wiki` offers to resolve it |
+
+
+### Buckets
+
+
+A bucket holds working material the wiki can point at: raw dumps, research notes, tickets. Code writes its structure and the model writes its meaning. `atomic wiki bucket add` creates the folder and registers it in two places: a `<wiki-buckets>` block in `wiki/index.md` for code, and a `## Capture surfaces` section in the realm root's `CLAUDE.md` for sessions in member repos. The bucket's purpose and conventions live in its own `index.md`, written by the model or the user.
+
+Every folder in a bucket carries an `index.md` with a code-generated `<bucket-docs>` listing of its direct children, so an agent descends one index at a time and loads only the layer it needs. An item scaffolded by `atomic wiki bucket doc` is a slug folder with numbered stage folders, starting at `01_raw/`, so raw material and the research built from it share one bucket. `atomic wiki scan` rebuilds every bucket index on each run. Detail: `docs/design/wiki-buckets.md`; current contract: `docs/spec/wiki-buckets.md` and `docs/spec/bucket-icm-structure.md`.
+
+```
+<root>/research/
+├── index.md            # purpose, ## Conventions, <bucket-docs> listing
+└── seo-audit/
+    ├── index.md        # lists 01_raw/
+    └── 01_raw/
+        └── index.md
+```
 
 
 ## Code / model split
 
 
+Code owns every step that writes a block, an index, or a link; the model writes only summaries, concerns, bucket meaning, and the commit message. A run with nothing pending, created, or offerable goes straight to the commit:
+
 ```mermaid
 flowchart TD
-    U["/refresh-wiki [root]"] --> SCAN["atomic wiki scan --root — deterministic"]
-    SCAN --> S2["recurse root → member repos (.git boundary, root excluded)"]
-    SCAN --> S3["classify indexed/pending → membership+status in &lt;wiki-scan&gt; block"]
-    SCAN --> S4["register index path in &lt;wikis&gt; of ~/.claude/CLAUDE.md"]
-    SCAN --> STALE["atomic wiki stale --root — read-only freshness verdict"]
-    STALE --> RPT["report: membership/status drift + per-artifact content drift (exit 0/1/2)"]
-    RPT --> LLM["/refresh-wiki incremental pass — judgment"]
-    LLM --> D1{"repo pending, or its artifact stale?"}
-    D1 -->|fresh| SKIP["preserve existing artifact"]
-    D1 -->|signals present| R1["read live, cite path"]
-    D1 -->|no signals| O1["offer /refresh-wiki; else dispatch inferrer (wiki mode)"]
-    O1 --> SCANOUT["atomic signals scan --out &lt;tmp&gt; (substrate OUTSIDE the repo)"]
-    SCANOUT --> SUM["inferrer infers → writes wiki/repos/&lt;repo&gt;; CODE stamps reflects_rev"]
-    R1 --> SYN["re-synthesize only concerns whose inputs drifted; CODE stamps reflects"]
-    SUM --> SYN
-    SKIP --> SYN
-    SYN --> COMMIT["commit automatically (git history = change log)"]
+    RW["/refresh-wiki [root]"] --> SCAN["atomic wiki scan<br/>(code)"]
+    SCAN --> OFFER["bucket offer, once<br/>(model + user)"]
+    OFFER --> P{"pending repos?"}
+    P -->|"user picks"| REPO["/refresh-wiki in repo<br/>(user)"]
+    P -->|rest| INF["atomic-wiki-inferrer<br/>wiki mode (model)"]
+    P -->|none| SEL["re-author picked<br/>summaries, concerns"]
+    REPO --> SEL
+    INF --> SEL
+    SEL --> CLOSE["atomic wiki scan +<br/>linkify (code)"]
+    CLOSE --> COMMIT["commit wiki repo<br/>(command)"]
+    OFFER -->|"nothing to do"| COMMIT
 ```
 
-The model never does deterministic work: not the scan, not staleness, **and not the fingerprints**. The inferrer authors prose; a code step computes `git rev-parse HEAD` and writes `reflects_rev`.
+The inferrer in wiki mode reads its substrate from `atomic signals scan --out <tmp>` and writes only under `wiki/repos/`, so the member repo is never touched. The closing scan records the repos the run just summarized before `linkify` rewrites path citations into links.
+
+| Verb | Owner | Job |
+|------|-------|-----|
+| `atomic wiki scan` | code | Scaffold `wiki/`, discover members, classify, splice the `index.md` blocks, rebuild bucket indexes, mark realm scope, register in `<wikis>` |
+| `atomic wiki stale` | code | Read-only membership drift: added, removed, or changed-status members against the recorded scan |
+| `atomic wiki linkify` | code | Turn path citations in summaries, concerns, and the index narrative into relative links |
+| `atomic wiki init --scope realm` | code | Write the realm `wiki/CLAUDE.md` scaffold and the scope marker |
+| `atomic wiki bucket add / list / doc / index / skill` | code | Register, list, scaffold items in, re-index, and scaffold a management skill for buckets |
+| `atomic signals scan --out` | code | Write a repo's scan substrate outside the repo |
+| `/refresh-wiki` | model | Summaries, re-authored concerns, bucket purpose lines |
+
+Contract for each verb: `docs/spec/wiki.md` and `docs/spec/wiki-buckets.md`.
 
 
 ## Wiki layout
 
 
 ```
-<root>/wiki/
-├── index.md      # managed <wiki-scan> block (CLI-owned) + narrative zone (LLM-owned)
-├── README.md     # CLI-written
-├── .gitignore    # ignores the transient .dirty marker
-├── repos/        # wiki-level summaries — ONLY for no-signals repos
-│   ├── billing.md            # frontmatter: reflects_rev (code-stamped)
-│   └── gateway/<domain>.md    # large repo: domain-split
-└── concerns/     # LLM-curated cross-cutting docs
-    └── shared-auth.md        # frontmatter: reflects: [acme-api@<sig-hash>, billing@<sha>]
+<root>/
+├── CLAUDE.md               # ## Capture surfaces (one bullet per bucket)
+├── .claude/atomic.toml     # scope = "realm", optional [realm] repos
+├── research/               # a bucket, beside wiki/
+└── wiki/
+    ├── index.md            # code-owned blocks + model-owned narrative
+    ├── README.md           # CLI-written
+    ├── CLAUDE.md           # realm steering scaffold
+    ├── repos/              # summaries, ONLY for no-signals repos
+    │   ├── billing.md
+    │   └── gateway/<domain>.md   # large repo: domain-split
+    └── concerns/           # cross-cutting docs
+        └── shared-auth.md
 ```
 
-No in-file change log — the wiki repo's git history is the change log.
+`index.md` is one file in two zones. Code splices its managed regions in place: the `<wiki-scan>` membership block, the linked `## Members` list (`<wiki-member-list>`), the `<wiki-buckets>` registry, and the `## Buckets` list (`<wiki-bucket-list>`). The model owns everything outside them. No in-file change log: the wiki repo's git history is the change log.
 
 
-## Staleness
+## Refresh
 
 
-Detection is **deterministic**; only re-judging a flagged concern needs the model. Fingerprints live in two stores, split on the code/model line — because the deterministic scan rewrites its block to *now* every run, so the block can't preserve "what an artifact was built from."
+`/refresh-wiki` is the single idempotent entry point (init == refresh). A run writes what is missing (summaries for pending repos) and re-authors only the existing summaries and concerns the user selects from a numbered list. New concerns are written by hand. The run ends by committing the wiki repo automatically, since an additive commit to the wiki's own history loses nothing.
 
-| Store | Owner | Holds | Answers |
-|-------|-------|-------|---------|
-| `<wiki-scan>` block in `index.md` | CLI (`atomic wiki scan`) | membership + status | "did the set of repos / their signals presence drift?" |
-| artifact frontmatter (`reflects_*`) | **code**, at author time | the fingerprint each summary/concern was built from | "is this artifact stale?" |
-
-`reflects_*` is written by a deterministic step (`git rev-parse HEAD` for code summaries; `signals.md` content hash for `indexed`-repo references) — **never by the model**, so `atomic wiki stale` is trustworthy. `atomic wiki stale` is read-only, exits `0` fresh / `1` stale / `2` error. A missing/unparseable `reflects_*` counts as stale (fail-safe).
-
-
-## Forcing function
-
-
-A wiki is out-of-band from any single repo's lifecycle, so it can't self-heal the way signals do (ship verbs re-run the inferrer in-repo). Instead: two **cheap** detectors feed one nudge; the single heavy step (`/refresh-wiki`) clears both. The hook detects *neglect*, the ship boundary detects *drift* — neither spawns git or re-runs deterministic signals.
-
-```mermaid
-flowchart TD
-    subgraph cheap["cheap detection — no LLM, no git-per-repo"]
-        SV["ship verb in a member repo<br/>(signals already refreshing)"] -->|"cwd under a &lt;wikis&gt; root? (string compare)"| DM["touch wiki/.dirty"]
-        SH["session-start hook"] -->|"per wiki: read generated date + .dirty"| N{"age > threshold<br/>OR marker set?"}
-    end
-    DM -.->|next session| N
-    N -->|yes| NUDGE["nudge: 'wiki X stale → /refresh-wiki'"]
-    NUDGE -->|user runs it, cheap to clear| RW["/refresh-wiki — only heavy step"]
-    RW --> HEAL["scan + stale + incremental LLM"]
-    HEAL --> CLR["bump generated date + clear .dirty"]
-    CLR --> QUIET["next session: quiet"]
-```
-
-- **Neglect (hook).** Session start reads, per registered wiki, the scan block's `generated` date and the `.dirty` marker — stats only, zero git. Nudges if age exceeds a tunable threshold (default in memory, axiom 2) **or** the marker is set. Mirrors how the session-start hook already injects reminders / refreshes the profile.
-- **Drift (ship boundary).** A ship verb in a member repo already touched source. One path-prefix check (cwd under a registered `<wikis>` root — string compare, no git) → `touch wiki/.dirty`. Converts "it's been a while" into "real changes pending." This is the layer that actually fights rot.
-- **Heal.** `/refresh-wiki` is the only place git-per-repo and the LLM run. On *full* completion (scan + stale + LLM all succeed) it bumps `generated` and clears `.dirty`; a partial/aborted run leaves the marker set, so the nudge self-clears only when the work actually finished. Acting on the nudge is cheap when nothing drifted (a near no-op), which is what keeps it from becoming banner blindness.
-- **Honest baseline.** The wiki is nudge-driven, not guaranteed-fresh. Stated in the docs.
-
-
-## Refresh + change log
-
-
-`/refresh-wiki` is the single idempotent entry point (init == refresh), parallel to `/refresh-wiki`. Re-runs update only what drifted. The wiki is its own git repo, so its git history is the change log — the command ends by offering to commit (message via `atomic-git-discipline`). Committing is offered, not automatic.
+Freshness is the user's call. `atomic wiki stale` answers whether the set of members changed; the user decides whether a summary or concern still matches its repos by reading it.
 
 
 ## Approaches
@@ -156,27 +176,38 @@ flowchart TD
 | # | Decision | Chosen | Rejected + why |
 |---|----------|--------|----------------|
 | 1 | Registry location | `<wikis>` block in `~/.claude/CLAUDE.md` | `config.toml` (LLM can't see it in-session); a new `@-ref`'d file (context bloat). |
-| 2 | No-signals explorer | reuse `atomic-wiki-inferrer` in wiki mode, fed by `atomic signals scan --out` (substrate redirected outside the repo), output written into the wiki, @-ref wiring skipped | New agent — rejected: extra artifact that drifts from the explorer it duplicates. Write-into-repo-then-move-and-clean — rejected: leaks on crash, risks deleting pre-existing `.claude/`, must revert a CLAUDE.md edit. Redirecting the output removes the whole class of risk. |
-| 3 | index.md structure | two-zone single file (`<wiki-scan>` block + narrative) | split sidecar — rejected: user wants the block inside `index.md`. |
-| 4 | Concern synthesis | `/refresh-wiki` orchestrator; per-repo summaries by the inferrer | in-agent synthesis — rejected: needs all repos together. |
-| 5 | Cross-realm refs | LLM-curated, evidence-cited, linked via the registry | CLI membership mechanism — rejected: the registry is the only mechanism needed. |
-| 6 | Knowledge routing | pointer to in-repo signals; summarize only when absent | copy signals into the wiki — rejected: breaks single-source-of-truth. |
-| 7 | Registry write | CLI splices `<wikis>` directly into CLAUDE.md | proposed/ + merger — rejected: content outside `<atomic>` is auto-preserved. |
-| 8 | Fingerprint store | artifact frontmatter, **written by code** | in the scan block — rejected (block rewrites to now). Written by the model — rejected: recording `git rev-parse HEAD` is a deterministic transform; model clerical error would silently corrupt staleness. |
-| 9 | Staleness detection | deterministic comparator; model only re-judges flagged concerns | model-driven freshness review — rejected: drift is mechanically detectable. |
-| 10 | Forcing function | cheap neglect timer (hook) + cheap drift marker (ship boundary) → one self-clearing nudge | git-per-repo sweep in the hook — rejected: too heavy for session start. Pure manual — rejected: rots unnoticed. cwd-scoped hook — rejected: blind to the untouched wikis that actually rot. |
+| 2 | No-signals explorer | reuse `atomic-wiki-inferrer` in wiki mode, fed by `atomic signals scan --out` (substrate redirected outside the repo), output written into the wiki, @-ref wiring skipped | New agent: an extra artifact that drifts from the explorer it duplicates. Write into the repo, then move and clean: leaks on crash, risks deleting pre-existing `.claude/`, must revert a CLAUDE.md edit. Redirecting the output removes the whole class of risk. |
+| 3 | index.md structure | two-zone single file (code-owned regions + narrative) | split sidecar: the user wants the block inside `index.md`. |
+| 4 | Concern synthesis | `/refresh-wiki` orchestrator; per-repo summaries by the inferrer | in-agent synthesis: needs all repos together. |
+| 5 | Cross-realm refs | LLM-curated, evidence-cited, linked via the registry | CLI membership mechanism: the registry is the only mechanism needed. |
+| 6 | Knowledge routing | pointer to in-repo signals; summarize only when absent | copy signals into the wiki: breaks single-source-of-truth. |
+| 7 | Registry write | CLI splices `<wikis>` directly into CLAUDE.md | proposed/ + merger: content outside `<atomic>` is auto-preserved. |
+| 8 | Freshness | none tracked; the user picks what to re-author | Code-stamped fingerprints, a session-start neglect nudge, and a ship-time `.dirty` marker were built and removed: the nudge repeated every session without producing refreshes, and the fingerprints fed per-artifact drift reports for refreshes nobody ran. |
+| 9 | Repo discovery scope | walk the whole root by default; `[realm] repos` declares the roots when set | whole-root walk only: a repo inside a bucket or notes folder became a member, and a realm split into folders per company could not be described. |
+| 10 | Bucket output | per-folder `index.md` listings written by code; items as slug folders with numbered stages | model synthesis into a `knowledge/` layer with content manifests: built and removed, because per-folder indexes give progressive disclosure at no model cost and never drift. Separate `raw` and `research` buckets: an item's raw material is its first stage, so it lives in that item's `01_raw/`. A one-level index per bucket: an agent entering a deep bucket had no map of each folder. |
 
 
 ## Recommendation
 
 
-New `atomic/internal/wiki/` package mirroring `internal/signals/` (Options + injectable clock, idempotent body-compare write, shared repo-discovery walk for `scan`/`stale`; worktree-aware `os.Lstat` `.git` detection; block writes via the profile `## Environment` splice pattern). Add `--out <dir>` to `atomic signals scan` (substrate outside the scanned repo; default unchanged). Two internal CLI helpers keep deterministic work out of the model: `atomic wiki stamp` (writes `reflects_*` from `git rev-parse HEAD` / signals-hash; cited repos passed as `--cites`) and `atomic wiki mark-dirty` (path-prefix check → touch `.dirty`). `wiki.CheckStaleness` (injected runner+clock seam, no git) backs the session-start nudge; the shared `signals-gate` partial invokes `mark-dirty` on every ship. `/refresh-wiki` + the inferrer's wiki mode are rendered artifacts; both auto-bundle.
+`atomic/internal/wiki/` mirrors `internal/signals/`: Options plus an injectable clock, idempotent body-compare writes, one repo-discovery walk shared by `scan` and `stale` (worktree-aware `os.Lstat` `.git` detection, `[realm] repos` read from the realm's `atomic.toml`), and managed-region splices in the style of the profile `## Environment` block. Bucket indexing is code in the same package. `atomic signals scan` carries `--out <dir>`. `/refresh-wiki` and the inferrer's wiki mode are rendered artifacts; both auto-bundle.
 
 
 ## Open questions
 
 
-- **Large-repo domain-split threshold.** Agent judgment, with a rough signal in the prompt — no hard numeric gate.
-- **Neglect threshold default.** Start in memory (axiom 2), graduate to config if it needs to be shell-settable.
-- **Concern `reflects` granularity.** One drifted input flags the whole concern (conservative); the model decides during re-review whether it actually changed.
-- **Repos with no commits / dirty trees.** No `HEAD` → always-needs-summary; dirty tree isn't in HEAD → wiki reflects committed state, `reflects_dirty` is a hint not a gate.
+- **Large-repo domain-split threshold.** Agent judgment, with a rough signal in the prompt, and no hard numeric gate.
+
+
+## Change log
+
+
+### 2026-10-19 — Current design after the refresh removal
+
+**What changed:** Rewrote the Goal, Concept, code/model split, layout, refresh, Approaches, Recommendation, and Open questions to the current design. Concept gains how a repo is found (`[realm] repos` declared roots) and buckets (per-folder indexes, slug items with numbered stages). Repo states now read `docs/wiki/index.md` as signals. The code/model diagram covers the current verbs.
+
+**Why:** The doc still described machinery removed in `docs/spec/realm-wiki-drop-refresh.md`, and predated `[realm] repos` and the per-folder bucket indexes (`docs/spec/bucket-icm-structure.md`).
+
+**Superseded:** `/refresh-wiki` offered the wiki commit instead of committing automatically, and auto-committing was a non-goal.
+
+**Removed:** the Staleness and Forcing function sections, `reflects_*` fingerprints and `atomic wiki stamp`, the `.dirty` marker and `atomic wiki mark-dirty`, `wiki.CheckStaleness` and the session-start nudge, the open questions on neglect threshold, concern `reflects` granularity, and repos with no commits.
