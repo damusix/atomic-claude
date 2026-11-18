@@ -80,8 +80,9 @@ jobs:
           npm install --no-audit --no-fund --prefix "$root/claude-cli" @anthropic-ai/claude-code
           claude="$root/claude-cli/node_modules/.bin/claude"
           "$claude" --version
-          timeout 45s "$claude" -p --output-format stream-json --verbose --include-hook-events 'Reply OK.' > "$root/claude-startup.jsonl" 2>&1 || :
+          timeout 45s "$claude" -p --output-format stream-json --verbose --include-hook-events 'Reply OK.' < /dev/null > "$root/claude-startup.jsonl" 2>&1 || :
           if grep -Eq '"subtype":"hook_response".*SessionStart' "$root/claude-startup.jsonl"; then
+            grep -E '"subtype":"hook_response".*SessionStart' "$root/claude-startup.jsonl"
             printf 'PASS: a fresh Claude Code process reported a SessionStart hook response\n'
           else
             cat "$root/claude-startup.jsonl"
