@@ -1,12 +1,6 @@
 name: CI
 
 on:
-  # Push-CI runs only on main (post-merge). PR branches are gated by the
-  # pull_request trigger below, so a branch with an open PR is tested once —
-  # not twice, as the previous push-on-every-branch trigger did (one run for the
-  # branch push, a duplicate for the PR). The release-please bot branch is
-  # naturally excluded (it isn't main); its merge-into-main result is still
-  # gated via pull_request, which always reflects current main.
   push:
     branches: [main, next]
   pull_request:
@@ -86,3 +80,46 @@ jobs:
       # job's `go generate` produces the copy that gets embedded.
       - name: Build
         run: bun run build.ts
+
+  merge-next-release:
+    needs: [test, frontend]
+    if: >-
+      github.event_name == 'pull_request'
+      && github.event.pull_request.base.ref == 'next'
+      && github.event.pull_request.head.ref == 'release-please--branches--next'
+      && github.event.pull_request.head.repo.id == github.event.repository.id
+      && github.event.pull_request.user.id == github.event.repository.owner.id
+      && !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Squash-merge the tested prerelease PR
+        shell: bash
+        env:
+          # A GITHUB_TOKEN merge would not trigger Release Please on the resulting push.
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          pr="repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER"
+          current=$(gh api "$pr")
+          if ! jq -e --arg repo "$GITHUB_REPOSITORY" --arg head "$PR_HEAD" --arg tested "$GITHUB_SHA" '
+            .state == "open" and .draft == false
+            and .base.ref == "next" and .base.repo.full_name == $repo
+            and .head.ref == "release-please--branches--next" and .head.repo.full_name == $repo
+            and .head.sha == $head and .merge_commit_sha == $tested
+            and any(.labels[]; .name == "autorelease: pending")
+          ' <<< "$current" > /dev/null; then
+            echo "The PR is no longer an open prerelease with the tested revision. Leaving it untouched."
+            exit 0
+          fi
+
+          base=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/next" --jq '.object.sha')
+          if [[ "$base" != "$PR_BASE" ]]; then
+            echo "next has advanced since this run. Leaving the PR for current CI."
+            exit 0
+          fi
+
+          merged=$(gh api --method PUT "$pr/merge" -f sha="$PR_HEAD" -f merge_method=squash --jq '.merged')
+          [[ "$merged" == true ]]
