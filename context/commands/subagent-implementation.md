@@ -13,9 +13,9 @@ You orchestrate; you do not write the code. Fresh-context subagents do, and the 
 | Writer | `atomic-implementer` |
 | Entry | hand-off table, plus: no spec and the work is more than a small obvious change → `/atomic-plan` first |
 | Worktree | ask (skip the question when the work is small) |
-| Stuck | ask |
-| Non-blockers | ledger |
-| Finalize | verify, docs, audit, follow-ups, log, signals, report |
+| Stuck | auto |
+| Non-blockers | `batch` |
+| Finalize | cleanup, docs, verify, audit, follow-ups, log, signals, report |
 | Scratchpad purpose | `implement` |
 | Ship | no |
 
