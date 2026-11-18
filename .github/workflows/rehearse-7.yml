@@ -1,0 +1,91 @@
+name: Docker upgrade rehearsal
+
+on:
+  pull_request:
+    branches: [next]
+
+permissions: {}
+
+jobs:
+  upgrade:
+    if: github.head_ref == 'audit/rehearse-7-in-docker'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Rehearse the published upgrade in Docker
+        shell: bash
+        run: |
+          docker run --rm -i --user node node:24-bookworm bash -se <<'REHEARSE'
+          set -euo pipefail
+          root=$(mktemp -d)
+          export HOME="$root/home" PATH="$root/bin:$PATH" CI=1
+          mkdir -p "$HOME" "$root/bin" "$root/assets" "$root/realm/wiki"
+          export GIT_AUTHOR_NAME=Rehearsal GIT_AUTHOR_EMAIL=rehearsal@example.invalid
+          export GIT_COMMITTER_NAME=$GIT_AUTHOR_NAME GIT_COMMITTER_EMAIL=$GIT_AUTHOR_EMAIL
+          cd "$root/assets"
+          release=https://github.com/damusix/atomic-claude/releases/download/v6.10.0
+          archive=atomic_6.10.0_linux_amd64.tar.gz
+          curl -fsSL --retry 3 -O "$release/$archive" -O "$release/checksums.txt"
+          grep -F " $archive" checksums.txt | sha256sum -c -
+          tar -xzf "$archive" -C "$root/bin" atomic
+          atomic --version | grep -F 6.10.0
+          repo="$root/realm/repo"
+          git init -q -b main "$repo"
+          cd "$repo"
+          atomic claude install --no-update-check > "$root/install.log" 2>&1 || { cat "$root/install.log"; exit 1; }
+          test ! -e "$HOME/.atomic/install/ledger.json"
+          mkdir -p .claude/project .claude/rules/wiki .claude/.scratchpad/task docs/wiki "$root/realm/.atomic"
+          printf '# Rehearsal index\n' > docs/wiki/index.md
+          printf '@docs/wiki/index.md\n' > CLAUDE.md
+          printf 'scope = "repo"\n' > .claude/atomic.toml
+          printf 'tracked repo data\n' > .claude/project/sentinel.md
+          printf 'ignored repo data\n' > .claude/.scratchpad/task/BRIEF.md
+          printf 'wiki card data\n' > .claude/rules/wiki/sentinel.md
+          printf '{}\n' > .claude/settings.json
+          printf '.claude/.scratchpad/\n' > .gitignore
+          printf 'scope = "realm"\n' > "$root/realm/.atomic/atomic.toml"
+          printf '# Rehearsal realm\n' > "$root/realm/wiki/index.md"
+          printf '\n# User steering sentinel\n' >> "$HOME/.claude/CLAUDE.md"
+          printf 'user command sentinel\n' > "$HOME/.claude/commands/rehearsal-user.md"
+          printf 'user profile sentinel\n' >> "$HOME/.atomic/profile.md"
+          git add . && git -c commit.gpgsign=false -c core.hooksPath=/dev/null commit -qm 'Seed legacy checkout'
+          atomic update --pre --no-update-check 2>&1 | tee "$root/update.log"
+          atomic --version | grep -E '7\.0\.0-next\.[0-9]+'
+          grep -F "adopting existing Claude install at $HOME/.claude" "$root/update.log"
+          if grep -E 'artifact refresh failed|repository state migration failed|migrations failed' "$root/update.log"; then exit 1; fi
+          test -s "$HOME/.atomic/install/ledger.json"
+          atomic harness status | tee "$root/status.log"
+          grep -E "claude:$HOME/\.claude[[:space:]]+converged" "$root/status.log"
+          grep -Fx '# User steering sentinel' "$HOME/.claude/CLAUDE.md"
+          grep -Fx 'user command sentinel' "$HOME/.claude/commands/rehearsal-user.md"
+          grep -Fx 'user profile sentinel' "$HOME/.atomic/profile.md"
+          cmp <(git show HEAD:.claude/atomic.toml) .atomic/atomic.toml
+          cmp <(git show HEAD:.claude/project/sentinel.md) .atomic/project/sentinel.md
+          cmp <(git show HEAD:.claude/rules/wiki/sentinel.md) .atomic/rules/wiki/sentinel.md
+          cmp <(git show HEAD:.claude/settings.json) .claude/settings.json
+          grep -Fx 'ignored repo data' .atomic/.scratchpad/task/BRIEF.md
+          test ! -e .claude/.scratchpad/task/BRIEF.md
+          test "$(readlink .claude/rules/atomic)" = '../../.atomic/rules'
+          git diff --cached --name-status | tee "$root/staged.log"
+          grep -E '^R100[[:space:]]+\.claude/project/sentinel\.md[[:space:]]+\.atomic/project/sentinel\.md$' "$root/staged.log"
+          if grep -F '.scratchpad/task/BRIEF.md' "$root/staged.log"; then exit 1; fi
+          atomic where --json | node -e 'const a=JSON.parse(require("fs").readFileSync(0)); if(a.state_root!==process.cwd()+"/.atomic") throw Error(JSON.stringify(a))'
+          atomic doctor --skip 8 | tee "$root/doctor.log"
+          grep -E '^\[4\].*PASS.*refs' "$root/doctor.log"
+          if ! atomic --version | grep -F 'next.8'; then
+            (cd "$root/realm" && atomic doctor --only 4) | tee "$root/realm.log"
+            grep -E '^\[4\].*SKIP.*refs' "$root/realm.log"
+          fi
+          printf 'PASS: published self-update, Claude adoption, preservation, staged migration, and repository Doctor\n'
+          npm install --no-audit --no-fund --prefix "$root/claude-cli" @anthropic-ai/claude-code
+          claude="$root/claude-cli/node_modules/.bin/claude"
+          "$claude" --version
+          timeout 45s "$claude" -p --output-format stream-json --verbose --include-hook-events 'Reply OK.' > "$root/claude-startup.jsonl" 2>&1 || :
+          if grep -Eq '"subtype":"hook_response".*SessionStart' "$root/claude-startup.jsonl"; then
+            printf 'PASS: a fresh Claude Code process reported a SessionStart hook response\n'
+          else
+            cat "$root/claude-startup.jsonl"
+            printf 'No Claude SessionStart hook response observed\n' >&2
+            exit 1
+          fi
+          REHEARSE
