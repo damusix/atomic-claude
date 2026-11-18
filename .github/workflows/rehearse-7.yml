@@ -49,8 +49,14 @@ jobs:
           printf 'user command sentinel\n' > "$HOME/.claude/commands/rehearsal-user.md"
           printf 'user profile sentinel\n' >> "$HOME/.atomic/profile.md"
           git add . && git -c commit.gpgsign=false -c core.hooksPath=/dev/null commit -qm 'Seed legacy checkout'
-          atomic update --pre --no-update-check 2>&1 | tee "$root/update.log"
-          atomic --version | grep -E '7\.0\.0-next\.[0-9]+'
+          stable_tag=$(curl -fsSL --retry 3 https://api.github.com/repos/damusix/atomic-claude/releases/latest | node -e 'console.log(JSON.parse(require("fs").readFileSync(0)).tag_name)')
+          if [[ "$stable_tag" == v7.0.0 ]]; then
+            atomic update --channel stable --no-update-check 2>&1 | tee "$root/update.log"
+            atomic --version | grep -E '^atomic 7\.0\.0 '
+          else
+            atomic update --pre --no-update-check 2>&1 | tee "$root/update.log"
+            atomic --version | grep -E '^atomic 7\.0\.0-next\.[0-9]+ '
+          fi
           grep -F "adopting existing Claude install at $HOME/.claude" "$root/update.log"
           if grep -E 'artifact refresh failed|repository state migration failed|migrations failed' "$root/update.log"; then exit 1; fi
           test -s "$HOME/.atomic/install/ledger.json"
@@ -81,12 +87,13 @@ jobs:
           claude="$root/claude-cli/node_modules/.bin/claude"
           "$claude" --version
           timeout 45s "$claude" -p --output-format stream-json --verbose --include-hook-events 'Reply OK.' < /dev/null > "$root/claude-startup.jsonl" 2>&1 || :
-          if grep -Eq '"subtype":"hook_response".*SessionStart' "$root/claude-startup.jsonl"; then
-            grep -E '"subtype":"hook_response".*SessionStart' "$root/claude-startup.jsonl"
-            printf 'PASS: a fresh Claude Code process reported a SessionStart hook response\n'
-          else
-            cat "$root/claude-startup.jsonl"
-            printf 'No Claude SessionStart hook response observed\n' >&2
-            exit 1
-          fi
+          node - "$root/claude-startup.jsonl" <<'HOOK'
+          const log = require('fs').readFileSync(process.argv[2], 'utf8');
+          const hook = log.split('\n').filter(line => line.startsWith('{')).map(line => JSON.parse(line))
+            .find(event => event.subtype === 'hook_response' && event.hook_event === 'SessionStart');
+          if (!hook || hook.exit_code !== 0 || !hook.stdout?.includes('repo-scope wiki')) {
+            throw Error(`No successful Claude SessionStart context in: ${log}`);
+          }
+          console.log('PASS: fresh Claude Code received repo context from SessionStart');
+          HOOK
           REHEARSE
