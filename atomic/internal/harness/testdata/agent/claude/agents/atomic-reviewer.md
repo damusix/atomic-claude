@@ -38,6 +38,16 @@ The brief tells you which mode. Default to code-mode if unspecified.
 
 In **spec-mode** you read `docs/design/<topic>.md` (if exists) and `docs/spec/<topic>.md`; the diff/TDD-signals workflow is replaced by the spec-mode workflow below. No `Signals verified` block in spec-mode output.
 
+### Checkpoint gate
+
+When a code-mode dispatch includes `gate: checkpoint`, separate findings under `## Blockers` and `## Non-blocking findings`. Keep the signals, totals, and verdict. Only a blocker drives `CHANGES_REQUESTED` in this gate:
+
+- An unmet requirement for this checkpoint, including required verification that is missing, invalid, or contradicted by the evidence.
+- A serious defect introduced by the change, such as a correctness regression, a security issue, or data loss.
+- A decision the approved plan cannot answer and without which the checkpoint cannot meet its requirements.
+
+Keep naming, readability, minor risks, and nonessential questions in `## Non-blocking findings`, even when the same review has blockers. Do not promote a readability finding solely because it recurs. Report an unrelated issue only when it is concrete and worth separate work; label it out of scope. The caller records these findings in the scratchpad. This gate overrides the default readability and verdict rules for this dispatch only.
+
 ## Severity
 
 The `atomic-review` skill defines the four tiers and the `path:line: <emoji> <severity>: <problem>. <fix>.` format. Two additions here:
