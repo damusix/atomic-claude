@@ -26,6 +26,36 @@ func writeRefsFile(t *testing.T, path, content string) {
 	}
 }
 
+func TestDoctorRefs_OnlyChecksExistingRepoWiki(t *testing.T) {
+	root := t.TempDir()
+	writeRefsFile(t, filepath.Join(root, ".atomic", "atomic.toml"), "scope = \"realm\"\n")
+	writeRefsFile(t, filepath.Join(root, "wiki", "index.md"), "# Realm wiki\n")
+
+	check := func(dir string, want doctor.Severity) {
+		t.Helper()
+		results, err := doctor.Run(doctor.Opts{RepoRoot: dir, Only: []int{4}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(results) != 1 || results[0].Severity != want {
+			t.Fatalf("refs in %s = %+v; want %s", dir, results, want)
+		}
+	}
+
+	check(root, doctor.SKIP)
+	badIndex := filepath.Join(root, "docs", "wiki", "index.md")
+	if err := os.MkdirAll(badIndex, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	check(root, doctor.SKIP)
+
+	repo := filepath.Join(root, "repo")
+	writeRefsFile(t, filepath.Join(repo, "docs", "wiki", "index.md"), "# Repo wiki\n")
+	check(repo, doctor.FAIL)
+	writeRefsFile(t, filepath.Join(repo, "CLAUDE.md"), refBlock())
+	check(repo, doctor.PASS)
+}
+
 func TestCheckRefs_RefInClaudeLocalMd_Pass(t *testing.T) {
 	root := t.TempDir()
 	writeRefsFile(t, filepath.Join(root, "claude.local.md"), refBlock())

@@ -95,6 +95,27 @@ func TestStdinPrompterParsing(t *testing.T) {
 	}
 }
 
+func TestRepair_RefsInspectionErrorDoesNotPrompt(t *testing.T) {
+	root := t.TempDir()
+	wiki := filepath.Join(root, "docs", "wiki")
+	if err := os.MkdirAll(wiki, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("index.md", filepath.Join(wiki, "index.md")); err != nil {
+		t.Fatal(err)
+	}
+	opts := doctor.Opts{RepoRoot: root, Only: []int{4}, Fix: true}
+	results, err := doctor.Run(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &fakePrompter{decisions: []doctor.Decision{doctor.DecisionYes}}
+	summary := nopRepairer().Repair(results, opts, p, io.Discard)
+	if p.nextIdx != 0 || summary.NonFixable != 1 {
+		t.Fatalf("inspection error prompted %d times; repair summary: %+v", p.nextIdx, summary)
+	}
+}
+
 // -- non-fixable repairs: signals, followups, memory, binary --
 
 func TestRepair_Signals_NonFixable(t *testing.T) {

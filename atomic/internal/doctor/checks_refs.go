@@ -30,9 +30,6 @@ var repoRefFiles = []string{
 
 const signalsRef = "@docs/wiki/index.md"
 
-// checkRefs implements category 4: @-refs wired. An unwired ref FAILs. Only
-// docs/wiki/index.md is checked — scan.md is too large for context and the
-// inferrer reads it on demand.
 func checkRefs(opts Opts) Result {
 	searchRoot := opts.RepoRoot
 	if searchRoot == "" {
@@ -41,6 +38,13 @@ func checkRefs(opts Opts) Result {
 			return Result{Severity: FAIL, Detail: fmt.Sprintf("could not determine cwd: %v", err)}
 		}
 		searchRoot = gitToplevelFn(cwd)
+	}
+	info, err := os.Stat(filepath.Join(searchRoot, routerFile))
+	if os.IsNotExist(err) || (err == nil && !info.Mode().IsRegular()) {
+		return Result{Severity: SKIP, Detail: "no repository wiki to reference"}
+	}
+	if err != nil {
+		return Result{Severity: FAIL, Detail: fmt.Sprintf("cannot inspect repository wiki: %v", err), ManualOnly: true}
 	}
 	return RunCheckRefsWith(searchRoot)
 }

@@ -65,8 +65,8 @@ Indexed. Numbers are stable; **never renumber**. New checks append.
 |---|------------------|--------|---------------|
 | 1 | `install`        | `~/.claude/{agents,commands,skills,output-styles,rules}/` exist; per-file SHA256 matches embedded bundle manifest. | WARN drift / FAIL missing |
 | 2 | `hooks`          | `~/.claude/settings.json` contains the session-start hook payload that `atomic hooks session-start` would emit. | WARN |
-| 3 | `signals`        | `docs/wiki/scan.md` exists; `atomic signals stale --threshold <days>` exits 0. Threshold defaults to 7; overridable via `--stale-days`. | WARN |
-| 4 | `refs`           | `@docs/wiki/index.md` ref present in one of `claude.local.md` / `CLAUDE.local.md` / `AGENTS.md` / `CLAUDE.md` / `claude.md` (the wiki pipeline's wiring order). An `AGENTS.md` hit counts only when no `CLAUDE.md` / `claude.md` sits beside it or the one beside it imports `@AGENTS.md`: a whitespace-delimited token exactly `@AGENTS.md` or `@./AGENTS.md`, outside fenced code, indented code blocks, and inline code spans. Claude Code expands an import in prose, so a prose mention counts; a code example, a code span, `@AGENTS.md.bak`, or a token with trailing punctuation such as `@AGENTS.md.` does not. Only `index.md` is @-ref'd; `scan.md` is read on demand by the inferrer. | FAIL |
+| 3 | `signals`        | `docs/wiki/scan.md` exists, is fresh according to `atomic signals stale`, and is no older than the threshold. The age threshold defaults to 7 days and can be overridden with `--stale-days`. | WARN |
+| 4 | `refs`           | If `docs/wiki/index.md` is missing or is not a regular file, SKIP. An inspection error fails without offering repair. Otherwise checks for `@docs/wiki/index.md` in `claude.local.md` / `CLAUDE.local.md` / `AGENTS.md` / `CLAUDE.md` / `claude.md` (the wiki pipeline's wiring order). An `AGENTS.md` hit counts only when no `CLAUDE.md` / `claude.md` sits beside it or the one beside it imports `@AGENTS.md`: a whitespace-delimited token exactly `@AGENTS.md` or `@./AGENTS.md`, outside fenced code, indented code blocks, and inline code spans. Claude Code expands an import in prose, so a prose mention counts; a code example, a code span, `@AGENTS.md.bak`, or a token with trailing punctuation such as `@AGENTS.md.` does not. Only `index.md` is @-ref'd; `scan.md` is read on demand by the inferrer. | FAIL |
 | 5 | `manifest`       | Repo-dev only (heuristic: `atomic/internal/bundlemirror/` exists). Committed `manifest.go` SHA matches what `go generate ./...` would produce — without writing. Omitted entirely outside the repo (no row, no `SKIP`) unless explicitly requested via `--only 5`. | FAIL |
 | 6 | `followups`      | Walks `<state-root>/project/followups/` (`config.FollowupsDir`; `.atomic` by default). Absent folder → SKIP. An entry with unparseable frontmatter, an entry past its `review_by`, or an `INDEX.md` that differs from a fresh render → WARN. | WARN |
 | 7 | `memory`         | `~/.claude/projects/<project>/memory/MEMORY.md` link targets all resolve (file exists in same dir). | WARN |
@@ -280,6 +280,16 @@ Two guards bound the cost and the honesty of that second pass: it is skipped ent
 
 
 ## Change log
+
+### 2026-11-18 — Check refs only for an existing repo wiki
+
+
+**What changed:** The `refs` check reports SKIP if `docs/wiki/index.md` is absent.
+
+**Why:** A realm wiki does not need a repository wiki reference. Doctor previously reported a failure and offered to add a reference to a nonexistent file.
+
+**Superseded:** The check required a repository wiki reference even when the repository wiki did not exist.
+
 
 ### 2026-11-14 — Capability warnings are not resource repairs
 
