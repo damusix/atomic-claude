@@ -1,10 +1,12 @@
 package doctor
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/damusix/atomic-claude/atomic/internal/bundlespec"
 )
@@ -40,7 +42,7 @@ func checkRefs(opts Opts) Result {
 		searchRoot = gitToplevelFn(cwd)
 	}
 	info, err := os.Stat(filepath.Join(searchRoot, routerFile))
-	if os.IsNotExist(err) || (err == nil && !info.Mode().IsRegular()) {
+	if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) || (err == nil && !info.Mode().IsRegular()) {
 		return Result{Severity: SKIP, Detail: "no repository wiki to reference"}
 	}
 	if err != nil {

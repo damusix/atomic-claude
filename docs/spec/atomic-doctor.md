@@ -284,11 +284,13 @@ Two guards bound the cost and the honesty of that second pass: it is skipped ent
 ### 2026-11-18 — Check refs only for an existing repo wiki
 
 
-**What changed:** The `refs` check reports SKIP if `docs/wiki/index.md` is absent.
+**What changed:** The `refs` check skips missing and non-file indexes. If Doctor cannot inspect the index, it reports a failure without offering repair.
 
 **Why:** A realm wiki does not need a repository wiki reference. Doctor previously reported a failure and offered to add a reference to a nonexistent file.
 
 **Superseded:** The check required a repository wiki reference even when the repository wiki did not exist.
+
+**Correction:** Category 3 applies `--stale-days` to the scan's age; `atomic signals stale` checks content freshness and has no `--threshold` flag.
 
 
 ### 2026-11-14 — Capability warnings are not resource repairs

@@ -48,6 +48,9 @@ func TestDoctorRefs_OnlyChecksExistingRepoWiki(t *testing.T) {
 		t.Fatal(err)
 	}
 	check(root, doctor.SKIP)
+	blocked := t.TempDir()
+	writeRefsFile(t, filepath.Join(blocked, "docs"), "not a directory\n")
+	check(blocked, doctor.SKIP)
 
 	repo := filepath.Join(root, "repo")
 	writeRefsFile(t, filepath.Join(repo, "docs", "wiki", "index.md"), "# Repo wiki\n")

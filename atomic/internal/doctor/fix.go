@@ -202,7 +202,7 @@ func repairPlan(r Result) (plan string, fixable bool) {
 		return "cannot auto-fix — run /refresh-wiki from Claude Code to refresh signals.", false
 	case "refs":
 		if r.ManualOnly {
-			return "cannot auto-fix — " + r.Detail, false
+			return r.Detail, false
 		}
 		return "append @-ref block to a candidate file (axiom 4 selection)", true
 	case "manifest":
