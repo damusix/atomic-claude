@@ -15,16 +15,20 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
-// WikiAction is the `atomic wiki` entry point for cmd/atomic/main.go. steering
-// resolves the files the <wikis> block is projected into; only scan calls it.
-func WikiAction(args []string, home string, steering func() ([]string, error), cwd string, out io.Writer) int {
-	return wikiAction(args, home, steering, cwd, out)
+// ActionOptions provides realm-sharing resolution for wiki commands.
+type ActionOptions struct {
+	ResolveImplicitRoot      func(string) (string, error)
+	ResolveRealmScaffoldRoot func(root string, explicit bool) (string, error)
+	Buckets                  func(string) (BucketView, error)
+	AddBucket                func(realmRoot, name string, prepare func(string) error, legacy func() error) error
 }
 
-// wikiAction is the testable seam behind WikiAction: args are everything after
-// "wiki", home, steering, and cwd are injected rather than looked up, and the
-// exit code is 0 success / 1 usage or soft error / 2 hard error.
-func wikiAction(args []string, home string, steering func() ([]string, error), cwd string, out io.Writer) int {
+// WikiAction dispatches `atomic wiki`. Only scan uses steering.
+func WikiAction(args []string, home string, steering func() ([]string, error), cwd string, out io.Writer, options ...ActionOptions) int {
+	var o ActionOptions
+	if len(options) > 0 {
+		o = options[0]
+	}
 	if len(args) == 0 {
 		fmt.Fprintf(os.Stderr, "Usage: atomic wiki <scan|stale|linkify|bucket|init> [flags]\n")
 		return 1
@@ -33,19 +37,78 @@ func wikiAction(args []string, home string, steering func() ([]string, error), c
 	verb := args[0]
 	switch verb {
 	case "scan":
-		return wikiScanAction(args[1:], home, steering, cwd, out)
+		return o.scanAction(args[1:], home, steering, cwd, out)
 	case "stale":
 		return wikiStaleAction(args[1:], cwd, out)
 	case "linkify":
 		return wikiLinkifyAction(args[1:], cwd)
 	case "bucket":
-		return wikiBucketAction(args[1:], cwd, out)
+		return o.bucketAction(args[1:], cwd, out)
 	case "init":
-		return wikiInitAction(args[1:], cwd, out)
+		return o.wikiInitAction(args[1:], cwd, out)
 	default:
 		fmt.Fprintf(os.Stderr, "atomic wiki: unknown verb %q\n", verb)
 		return 1
 	}
+}
+
+func wikiAction(args []string, home string, steering func() ([]string, error), cwd string, out io.Writer) int {
+	return WikiAction(args, home, steering, cwd, out)
+}
+
+func (o ActionOptions) implicitRoot(cwd string) (string, error) {
+	if o.ResolveImplicitRoot == nil {
+		return cwd, nil
+	}
+	return o.ResolveImplicitRoot(cwd)
+}
+
+func (o ActionOptions) resolveScaffoldRoot(root, cwd string, realm bool) (string, error) {
+	explicit := root != ""
+	if !explicit {
+		root = cwd
+		if realm && o.ResolveRealmScaffoldRoot == nil {
+			var err error
+			root, err = o.implicitRoot(cwd)
+			if err != nil {
+				return "", err
+			}
+		}
+	}
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve root: %w", err)
+	}
+	if realm && o.ResolveRealmScaffoldRoot != nil {
+		return o.ResolveRealmScaffoldRoot(absRoot, explicit)
+	}
+	return absRoot, nil
+}
+
+func (o ActionOptions) bucketView(root string) (BucketView, error) {
+	if o.Buckets == nil {
+		return BucketView{}, nil
+	}
+	return o.Buckets(root)
+}
+
+func (o ActionOptions) bucketEntries(root string) (BucketView, []BucketEntry, error) {
+	view, err := o.bucketView(root)
+	if err != nil {
+		return view, nil, err
+	}
+	if view.Bound {
+		return view, view.entries(), nil
+	}
+	indexPath := filepath.Join(root, "wiki", "index.md")
+	if isBucketSymlink(indexPath) {
+		return view, nil, nil
+	}
+	entries, err := readBucketEntries(indexPath)
+	if err != nil {
+		return view, nil, fmt.Errorf("read bucket registry: %w", err)
+	}
+	return view, resolveBucketEntries(root, entries), nil
 }
 
 // wikiStaleAction implements `atomic wiki stale [--root=<path>]`: read-only,
@@ -105,7 +168,7 @@ func wikiLinkifyAction(args []string, cwd string) int {
 
 // wikiInitAction implements `atomic wiki init --scope repo|realm [--root=<path>]`.
 // A marker already declaring a different scope exits 1 with nothing touched.
-func wikiInitAction(args []string, cwd string, out io.Writer) int {
+func (o ActionOptions) wikiInitAction(args []string, cwd string, out io.Writer) int {
 	fs := flag.NewFlagSet("wiki-init", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	var scope, root string
@@ -120,13 +183,21 @@ func wikiInitAction(args []string, cwd string, out io.Writer) int {
 		return 1
 	}
 
-	if root == "" {
-		root = cwd
-	}
-	absRoot, err := filepath.Abs(root)
+	absRoot, err := o.resolveScaffoldRoot(root, cwd, scope == "realm")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "atomic wiki init: resolve root: %v\n", err)
+		fmt.Fprintf(os.Stderr, "atomic wiki init: %v\n", err)
 		return 1
+	}
+
+	var wikiDir string
+	var sharedWiki bool
+	if scope == "realm" {
+		wikiDir = filepath.Join(absRoot, "wiki")
+		sharedWiki, err = checkRealmWiki(wikiDir, o.Buckets)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "atomic wiki init: %v\n", err)
+			return 1
+		}
 	}
 
 	markerOutcome, err := config.EnsureScopeMarker(absRoot, scope)
@@ -144,7 +215,9 @@ func wikiInitAction(args []string, cwd string, out io.Writer) int {
 	case "repo":
 		created, err = InitRepoScope(absRoot)
 	case "realm":
-		created, err = InitRealmScope(absRoot)
+		if !sharedWiki {
+			created, err = InitRealmScope(absRoot)
+		}
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "atomic wiki init: %v\n", err)
@@ -153,6 +226,9 @@ func wikiInitAction(args []string, cwd string, out io.Writer) int {
 
 	if markerOutcome == config.ScopeMarkerCreated || markerOutcome == config.ScopeMarkerAdded {
 		fmt.Fprintf(out, "created %s\n", config.RepoConfigPath(absRoot))
+	}
+	if sharedWiki {
+		fmt.Fprintf(out, "using existing shared wiki %s\n", wikiDir)
 	}
 	for _, path := range created {
 		fmt.Fprintf(out, "created %s\n", path)
@@ -174,7 +250,7 @@ func wikiInitAction(args []string, cwd string, out io.Writer) int {
 	return 0
 }
 
-func wikiBucketAction(args []string, cwd string, out io.Writer) int {
+func (o ActionOptions) bucketAction(args []string, cwd string, out io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprintf(os.Stderr, "Usage: atomic wiki bucket <add|list|doc|skill|index> [--root=<path>] [args]\n")
 		return 1
@@ -183,30 +259,22 @@ func wikiBucketAction(args []string, cwd string, out io.Writer) int {
 	verb := args[0]
 	switch verb {
 	case "add":
-		return wikiBucketAddAction(args[1:], cwd, out)
+		return o.bucketAddAction(args[1:], cwd, out)
 	case "list":
-		return wikiBucketListAction(args[1:], cwd, out)
+		return o.bucketListAction(args[1:], cwd, out)
 	case "doc":
-		return wikiBucketDocAction(args[1:], cwd, out)
+		return o.bucketDocAction(args[1:], cwd, out)
 	case "skill":
-		return wikiBucketSkillAction(args[1:], cwd, out)
+		return o.bucketSkillAction(args[1:], cwd, out)
 	case "index":
-		return wikiBucketIndexAction(args[1:], cwd, out)
+		return o.bucketIndexAction(args[1:], cwd, out)
 	default:
 		fmt.Fprintf(os.Stderr, "atomic wiki bucket: unknown verb %q\n", verb)
 		return 1
 	}
 }
 
-// resolveRegisteredBucket returns name's bucket dir from the <wiki-buckets>
-// registry at indexPath. An unregistered name errors with the sorted list of
-// registered names, so the caller's message is actionable.
-func resolveRegisteredBucket(indexPath, name string) (string, error) {
-	entries, err := readBucketEntries(indexPath)
-	if err != nil {
-		return "", fmt.Errorf("read bucket registry: %w", err)
-	}
-
+func resolveRegisteredBucket(entries []BucketEntry, name string) (string, error) {
 	for _, e := range entries {
 		if e.Name == name {
 			return e.Path, nil
@@ -236,7 +304,7 @@ var errUsageRequested = errors.New("usage requested")
 // A help token short-circuits with errUsageRequested. Any other dash-prefixed
 // token is rejected: a bucket name can never begin with "-", so a flag typo
 // must not silently become the name.
-func resolveWikiRoot(args []string, cwd string) (absRoot string, positional []string, err error) {
+func resolveWikiRoot(args []string, cwd string, implicit ...func(string) (string, error)) (absRoot string, positional []string, err error) {
 	var root string
 	i := 0
 	for i < len(args) {
@@ -269,6 +337,12 @@ func resolveWikiRoot(args []string, cwd string) (absRoot string, positional []st
 	}
 	if root == "" {
 		root = cwd
+		if len(implicit) > 0 {
+			root, err = implicit[0](cwd)
+			if err != nil {
+				return "", nil, err
+			}
+		}
 	}
 	abs, err := filepath.Abs(root)
 	if err != nil {
@@ -277,10 +351,10 @@ func resolveWikiRoot(args []string, cwd string) (absRoot string, positional []st
 	return abs, positional, nil
 }
 
-func wikiBucketAddAction(args []string, cwd string, out io.Writer) int {
+func (o ActionOptions) bucketAddAction(args []string, cwd string, out io.Writer) int {
 	const usage = "Usage: atomic wiki bucket add [--root=<path>] <name>\n"
 
-	absRoot, positional, err := resolveWikiRoot(args, cwd)
+	absRoot, positional, err := resolveWikiRoot(args, cwd, o.implicitRoot)
 	if errors.Is(err, errUsageRequested) {
 		fmt.Fprintf(out, usage)
 		return 0
@@ -299,6 +373,25 @@ func wikiBucketAddAction(args []string, cwd string, out io.Writer) int {
 	}
 	name := positional[0]
 
+	legacy := func() error { return addLegacyBucket(absRoot, name) }
+	if o.AddBucket == nil {
+		err = legacy()
+	} else {
+		err = o.AddBucket(absRoot, name, func(bucketDir string) error {
+			if err := prepareBucketDirectory(bucketDir, name); err != nil {
+				return err
+			}
+			return rebuildAddedBucket(bucketDir)
+		}, legacy)
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic wiki bucket add: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func addLegacyBucket(absRoot, name string) error {
 	wikiDir := filepath.Join(absRoot, "wiki")
 	indexPath := filepath.Join(wikiDir, "index.md")
 	bucketDir := filepath.Join(absRoot, name)
@@ -306,49 +399,57 @@ func wikiBucketAddAction(args []string, cwd string, out io.Writer) int {
 	// Registration validates the name and rejects a double-register, so it
 	// gates every mutation below.
 	if err := RegisterBucket(wikiDir, name); err != nil {
-		fmt.Fprintf(os.Stderr, "atomic wiki bucket add: %v\n", err)
-		return 1
+		return err
 	}
 
-	if err := os.MkdirAll(bucketDir, 0o755); err != nil {
-		fmt.Fprintf(os.Stderr, "atomic wiki bucket add: create bucket dir: %v\n", err)
-		return 1
-	}
-
-	if err := createBucketIndexStub(bucketDir, name); err != nil {
-		fmt.Fprintf(os.Stderr, "atomic wiki bucket add: create index stub: %v\n", err)
-		return 1
+	if err := prepareBucketDirectory(bucketDir, name); err != nil {
+		return err
 	}
 
 	if err := spliceBucketEntry(indexPath, name, bucketDir); err != nil {
-		fmt.Fprintf(os.Stderr, "atomic wiki bucket add: splice block: %v\n", err)
-		return 1
+		return fmt.Errorf("splice block: %w", err)
 	}
 
 	mode, err := config.ResolveSteeringMode(config.ProjectHome(), absRoot)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "atomic wiki bucket add: %v\n", err)
-		return 1
+		return err
 	}
 	steering := captureSurfacesFile(absRoot, mode)
 	if filepath.Base(steering) == bundlespec.ScopeSteering.Source && mode == bundlespec.SteeringLoader {
 		if loader := bundlespec.ScopeSteering.LoaderWithoutImport(absRoot); loader != "" {
 			fmt.Fprintf(os.Stderr, "atomic wiki bucket add: %s needs an `@AGENTS.md` line for Claude to load the capture section\n", loader)
 		} else if _, _, err := initSteeringPair(absRoot, "", mode); err != nil {
-			fmt.Fprintf(os.Stderr, "atomic wiki bucket add: write CLAUDE.md loader: %v\n", err)
-			return 1
+			return fmt.Errorf("write CLAUDE.md loader: %w", err)
 		}
 	}
 	if err := writeCaptureSurfacesSection(steering, name, bucketDir); err != nil {
-		fmt.Fprintf(os.Stderr, "atomic wiki bucket add: write %s section: %v\n", filepath.Base(steering), err)
-		return 1
+		return fmt.Errorf("write %s section: %w", filepath.Base(steering), err)
 	}
 
-	if _, errs := RebuildBucketTree(bucketDir); reportTreeErrors("atomic wiki bucket add", errs) {
-		return 1
-	}
+	return rebuildAddedBucket(bucketDir)
+}
 
-	return 0
+func prepareBucketDirectory(bucketDir, name string) error {
+	if err := os.MkdirAll(bucketDir, 0o755); err != nil {
+		return fmt.Errorf("create bucket dir: %w", err)
+	}
+	if err := createBucketIndexStub(bucketDir, name); err != nil {
+		return fmt.Errorf("create index stub: %w", err)
+	}
+	return nil
+}
+
+func rebuildAddedBucket(bucketDir string) error {
+	_, errs := RebuildBucketTree(bucketDir)
+	var hard []error
+	for _, err := range errs {
+		if errors.Is(err, errUnpairedRegion) {
+			fmt.Fprintf(os.Stderr, "atomic wiki bucket add: %v\n", err)
+		} else {
+			hard = append(hard, err)
+		}
+	}
+	return errors.Join(hard...)
 }
 
 // reportTreeErrors prints each error on its own line and reports whether any
@@ -363,12 +464,10 @@ func reportTreeErrors(verb string, errs []error) (hard bool) {
 	return hard
 }
 
-// wikiBucketListAction prints one "<name>\t<path>" line per registered bucket
-// and exits 0 even when there are none.
-func wikiBucketListAction(args []string, cwd string, out io.Writer) int {
+func (o ActionOptions) bucketListAction(args []string, cwd string, out io.Writer) int {
 	const usage = "Usage: atomic wiki bucket list [--root=<path>]\n"
 
-	absRoot, positional, err := resolveWikiRoot(args, cwd)
+	absRoot, positional, err := resolveWikiRoot(args, cwd, o.implicitRoot)
 	if errors.Is(err, errUsageRequested) {
 		fmt.Fprintf(out, usage)
 		return 0
@@ -382,10 +481,7 @@ func wikiBucketListAction(args []string, cwd string, out io.Writer) int {
 		return 1
 	}
 
-	wikiDir := filepath.Join(absRoot, "wiki")
-	indexPath := filepath.Join(wikiDir, "index.md")
-
-	entries, err := readBucketEntries(indexPath)
+	_, entries, err := o.bucketEntries(absRoot)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "atomic wiki bucket list: %v\n", err)
 		return 1
@@ -396,10 +492,10 @@ func wikiBucketListAction(args []string, cwd string, out io.Writer) int {
 	return 0
 }
 
-func wikiBucketDocAction(args []string, cwd string, out io.Writer) int {
+func (o ActionOptions) bucketDocAction(args []string, cwd string, out io.Writer) int {
 	const usage = "Usage: atomic wiki bucket doc [--root=<path>] <bucket> <slug>\n"
 
-	absRoot, positional, err := resolveWikiRoot(args, cwd)
+	absRoot, positional, err := resolveWikiRoot(args, cwd, o.implicitRoot)
 	if errors.Is(err, errUsageRequested) {
 		fmt.Fprintf(out, usage)
 		return 0
@@ -418,8 +514,12 @@ func wikiBucketDocAction(args []string, cwd string, out io.Writer) int {
 	}
 	bucketName, slug := positional[0], positional[1]
 
-	indexPath := filepath.Join(absRoot, "wiki", "index.md")
-	bucketDir, err := resolveRegisteredBucket(indexPath, bucketName)
+	_, entries, err := o.bucketEntries(absRoot)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic wiki bucket doc: %v\n", err)
+		return 1
+	}
+	bucketDir, err := resolveRegisteredBucket(entries, bucketName)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "atomic wiki bucket doc: %v\n", err)
 		return 1
@@ -437,10 +537,10 @@ func wikiBucketDocAction(args []string, cwd string, out io.Writer) int {
 	return 0
 }
 
-func wikiBucketSkillAction(args []string, cwd string, out io.Writer) int {
+func (o ActionOptions) bucketSkillAction(args []string, cwd string, out io.Writer) int {
 	const usage = "Usage: atomic wiki bucket skill [--root=<path>] <bucket>\n"
 
-	absRoot, positional, err := resolveWikiRoot(args, cwd)
+	absRoot, positional, err := resolveWikiRoot(args, cwd, o.implicitRoot)
 	if errors.Is(err, errUsageRequested) {
 		fmt.Fprintf(out, usage)
 		return 0
@@ -459,8 +559,12 @@ func wikiBucketSkillAction(args []string, cwd string, out io.Writer) int {
 	}
 	bucketName := positional[0]
 
-	indexPath := filepath.Join(absRoot, "wiki", "index.md")
-	bucketDir, err := resolveRegisteredBucket(indexPath, bucketName)
+	view, entries, err := o.bucketEntries(absRoot)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic wiki bucket skill: %v\n", err)
+		return 1
+	}
+	bucketDir, err := resolveRegisteredBucket(entries, bucketName)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "atomic wiki bucket skill: %v\n", err)
 		return 1
@@ -471,6 +575,10 @@ func wikiBucketSkillAction(args []string, cwd string, out io.Writer) int {
 	target := filepath.Join(absRoot, ".claude", "skills", bucketName+"-management", "SKILL.md")
 	_, statErr := os.Lstat(target)
 	alreadyExists := statErr == nil
+	if indexPath := filepath.Join(bucketDir, "index.md"); view.Bound && !alreadyExists && isBucketSymlink(indexPath) {
+		fmt.Fprintf(os.Stderr, "atomic wiki bucket skill: refusing to read symlink %s\n", indexPath)
+		return 1
+	}
 
 	path, err := ScaffoldBucketSkill(absRoot, bucketName, bucketDir)
 	if err != nil {
@@ -492,14 +600,10 @@ func printBucketIndexCounts(out io.Writer, name string, counts TopicCounts) {
 	fmt.Fprintf(out, "%s: %d indexed, %d unindexed\n", name, counts.Indexed, counts.Unindexed)
 }
 
-// wikiBucketIndexAction rebuilds every registered bucket, or just the named
-// one. The single-bucket path refreshes only the realm <wiki-bucket-list>
-// splice, never re-walking sibling <bucket-docs> regions, so a broken sibling
-// is not re-reported. errUnpairedRegion warns and continues, as in Scan.
-func wikiBucketIndexAction(args []string, cwd string, out io.Writer) int {
+func (o ActionOptions) bucketIndexAction(args []string, cwd string, out io.Writer) int {
 	const usage = "Usage: atomic wiki bucket index [--root=<path>] [<bucket>]\n"
 
-	absRoot, positional, err := resolveWikiRoot(args, cwd)
+	absRoot, positional, err := resolveWikiRoot(args, cwd, o.implicitRoot)
 	if errors.Is(err, errUsageRequested) {
 		fmt.Fprintf(out, usage)
 		return 0
@@ -514,11 +618,15 @@ func wikiBucketIndexAction(args []string, cwd string, out io.Writer) int {
 	}
 
 	wikiDir := filepath.Join(absRoot, "wiki")
-	indexPath := filepath.Join(wikiDir, "index.md")
+	view, entries, err := o.bucketEntries(absRoot)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic wiki bucket index: %v\n", err)
+		return 1
+	}
 
 	if len(positional) == 1 {
 		name := positional[0]
-		bucketDir, rerr := resolveRegisteredBucket(indexPath, name)
+		bucketDir, rerr := resolveRegisteredBucket(entries, name)
 		if rerr != nil {
 			fmt.Fprintf(os.Stderr, "atomic wiki bucket index: %v\n", rerr)
 			return 1
@@ -530,25 +638,20 @@ func wikiBucketIndexAction(args []string, cwd string, out io.Writer) int {
 			return 1
 		}
 
-		entries, rerr := readBucketEntries(indexPath)
-		if rerr != nil {
-			fmt.Fprintf(os.Stderr, "atomic wiki bucket index: %v\n", rerr)
-			return 1
+		if !view.Bound {
+			if err := rebuildRealmBucketList(wikiDir, entries); err != nil {
+				fmt.Fprintf(os.Stderr, "atomic wiki bucket index: %v\n", err)
+			}
 		}
-		if rebErr := rebuildRealmBucketList(wikiDir, entries); rebErr != nil {
-			fmt.Fprintf(os.Stderr, "atomic wiki bucket index: %v\n", rebErr)
-		}
-
 		return 0
 	}
 
-	entries, rerr := readBucketEntries(indexPath)
-	if rerr != nil {
-		fmt.Fprintf(os.Stderr, "atomic wiki bucket index: %v\n", rerr)
-		return 1
+	results, rebErrs := rebuildBucketTrees(entries, "")
+	if !view.Bound {
+		if err := rebuildRealmBucketList(wikiDir, entries); err != nil {
+			rebErrs = append(rebErrs, err)
+		}
 	}
-
-	results, rebErrs := RebuildAllBucketIndexes(absRoot, wikiDir)
 	for _, e := range entries {
 		if res, ok := results[e.Name]; ok {
 			printBucketIndexCounts(out, e.Name, res)
@@ -559,10 +662,7 @@ func wikiBucketIndexAction(args []string, cwd string, out io.Writer) int {
 	return 0
 }
 
-// wikiScanAction runs Scan, declares the realm scope marker, registers the wiki
-// in ~/.atomic/wikis.md, projects it into steering, and prints the
-// deterministic stdout handoff.
-func wikiScanAction(args []string, home string, steering func() ([]string, error), cwd string, out io.Writer) int {
+func (o ActionOptions) scanAction(args []string, home string, steering func() ([]string, error), cwd string, out io.Writer) int {
 	fs := flag.NewFlagSet("wiki-scan", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	var root string
@@ -570,19 +670,21 @@ func wikiScanAction(args []string, home string, steering func() ([]string, error
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-
-	if root == "" {
-		root = cwd
+	absRoot, err := o.resolveScaffoldRoot(root, cwd, true)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic wiki scan: %v\n", err)
+		return 1
 	}
 
-	absRoot, err := filepath.Abs(root)
+	view, err := o.bucketView(absRoot)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "atomic wiki scan: resolve root: %v\n", err)
+		fmt.Fprintf(os.Stderr, "atomic wiki scan: %v\n", err)
 		return 1
 	}
 
 	opts := Options{
-		Clock: func() time.Time { return time.Now().UTC() },
+		Clock:   func() time.Time { return time.Now().UTC() },
+		buckets: view,
 	}
 
 	members, err := Scan(absRoot, opts)

@@ -628,7 +628,7 @@ var commands = []Command{
 		Path:        []string{"wiki", "bucket", "index"},
 		Args:        "[<bucket>]",
 		Flags:       []string{"--root"},
-		Description: "Rebuild the <bucket-docs> region in every directory of one bucket (or all when omitted) plus the realm bucket list",
+		Description: "Rebuild the <bucket-docs> region in one bucket (or all when omitted); unbound realms also refresh their bucket list",
 	},
 	{
 		Path:        []string{"prompt", "git-cleanup"},
@@ -719,6 +719,42 @@ var commands = []Command{
 		Args:        "",
 		Flags:       nil,
 		Description: "Scaffold the state-root layout: dirs + state-root .gitignore + root ignore rules (idempotent)",
+	},
+	{
+		Path:        []string{"realm", "share"},
+		Args:        "[<path>...]",
+		Flags:       []string{"--branch", "--dry-run", "--remote", "--review", "--yes"},
+		Description: "Publish selected realm paths",
+	},
+	{
+		Path:        []string{"realm", "sync"},
+		Args:        "",
+		Flags:       nil,
+		Description: "Exchange changes with the shared realm remote",
+	},
+	{
+		Path:        []string{"realm", "join"},
+		Args:        "<git-url>",
+		Flags:       nil,
+		Description: "Download and review a shared realm without linking",
+	},
+	{
+		Path:        []string{"realm", "link"},
+		Args:        "[<path>...]",
+		Flags:       []string{"--dry-run", "--review", "--yes"},
+		Description: "Review and link selected shared realm paths",
+	},
+	{
+		Path:        []string{"realm", "status"},
+		Args:        "",
+		Flags:       []string{"--json"},
+		Description: "Inspect local sharing state and cached remote status",
+	},
+	{
+		Path:        []string{"realm", "unlink"},
+		Args:        "",
+		Flags:       nil,
+		Description: "Remove owned realm links and restore originals",
 	},
 	{
 		Path:        []string{"repl", "start"},

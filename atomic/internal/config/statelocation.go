@@ -76,9 +76,11 @@ type StateSelection struct {
 // stateSelectionSchemaVersion is the record schema this binary writes and reads.
 const stateSelectionSchemaVersion = 1
 
+const stateSelectionFilename = "state-location.json"
+
 // StateLocationRecordPath returns ~/.atomic/<project-key>/state-location.json.
 func StateLocationRecordPath(repoRoot string) string {
-	return filepath.Join(ProjectStateDir(repoRoot), "state-location.json")
+	return filepath.Join(ProjectStateDir(repoRoot), stateSelectionFilename)
 }
 
 // resolveStateDirValue maps a recorded or overridden value to a directory.
@@ -288,7 +290,44 @@ func readConfiguredStateDir() string {
 // ReadStateSelection reads the persisted selection record for repoRoot. A missing
 // record is (zero, false, nil). A record written by a newer schema is refused.
 func ReadStateSelection(repoRoot string) (StateSelection, bool, error) {
-	path := StateLocationRecordPath(repoRoot)
+	return readStateSelection(StateLocationRecordPath(repoRoot))
+}
+
+// AbsoluteStateSelections lists absolute state roots recorded in local project
+// storage. Callers decide which roots belong to their scope.
+func AbsoluteStateSelections() []string {
+	home := projectHome()
+	if home == "" {
+		return nil
+	}
+	dir := Dir(home)
+	projects, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+
+	var roots []string
+	for _, project := range projects {
+		if !project.IsDir() {
+			continue
+		}
+		path := filepath.Join(dir, project.Name(), stateSelectionFilename)
+		info, err := os.Lstat(path)
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		sel, ok, err := readStateSelection(path)
+		if err != nil || !ok || !filepath.IsAbs(sel.StateDir) {
+			continue
+		}
+		if root, err := resolveStateDirValue("", sel.StateDir); err == nil {
+			roots = append(roots, root)
+		}
+	}
+	return roots
+}
+
+func readStateSelection(path string) (StateSelection, bool, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {

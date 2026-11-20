@@ -48,7 +48,8 @@ const membersMarkerEnd = "<!-- wiki-members:end -->"
 // Options configures a Scan run.
 type Options struct {
 	// Clock returns the current time; nil means time.Now().UTC().
-	Clock func() time.Time
+	Clock   func() time.Time
+	buckets BucketView
 }
 
 func (o Options) clock() time.Time {
@@ -71,21 +72,36 @@ type Member struct {
 	SummaryPath string
 }
 
-// Scan discovers repos under root, scaffolds wiki/, and writes wiki/index.md
-// with an idempotent <wiki-scan> block, returning the classified members so
-// callers need no second filesystem walk.
-//
-// Refuses a wiki/ it does not own; see checkCollision.
+// Scan classifies repos and rebuilds bucket indexes without rewriting a shared
+// realm index. For a local wiki, see checkCollision.
 func Scan(root string, opts Options) ([]Member, error) {
 	wikiDir := filepath.Join(root, "wiki")
-
-	if err := checkCollision(wikiDir); err != nil {
-		return nil, err
+	indexPath := filepath.Join(wikiDir, "index.md")
+	if !opts.buckets.SharedWiki {
+		if _, err := checkRealmWiki(wikiDir, nil); err != nil {
+			return nil, fmt.Errorf("wiki scan: %w", err)
+		}
+	}
+	if opts.buckets.Bound {
+		info, err := os.Lstat(indexPath)
+		if err != nil && (opts.buckets.SharedWiki || !os.IsNotExist(err)) {
+			return nil, fmt.Errorf("wiki scan: inspect index: %w", err)
+		}
+		if err == nil && !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("wiki scan: %s must be a regular file", indexPath)
+		}
 	}
 
-	prior, err := parsePriorEntries(filepath.Join(wikiDir, "index.md"))
-	if err != nil {
-		return nil, fmt.Errorf("wiki scan: parse prior entries: %w", err)
+	var prior map[string]priorEntry
+	if !opts.buckets.SharedWiki {
+		if err := checkCollision(wikiDir); err != nil {
+			return nil, err
+		}
+		var err error
+		prior, err = parsePriorEntries(indexPath)
+		if err != nil {
+			return nil, fmt.Errorf("wiki scan: parse prior entries: %w", err)
+		}
 	}
 
 	rawMembers, warns, err := discoverMembers(root, wikiDir)
@@ -98,21 +114,29 @@ func Scan(root string, opts Options) ([]Member, error) {
 
 	classified := classifyMembers(root, wikiDir, rawMembers, prior)
 
-	if err := scaffold(wikiDir, root); err != nil {
-		return nil, fmt.Errorf("wiki scan: scaffold: %w", err)
-	}
-
-	indexPath := filepath.Join(wikiDir, "index.md")
-	if err := writeWikiScanBlock(indexPath, root, classified, opts); err != nil {
-		return nil, fmt.Errorf("wiki scan: write block: %w", err)
-	}
-
-	if err := writeMembersSection(indexPath, classified); err != nil {
-		return nil, fmt.Errorf("wiki scan: write members section: %w", err)
+	if !opts.buckets.SharedWiki {
+		if err := scaffold(wikiDir, root); err != nil {
+			return nil, fmt.Errorf("wiki scan: scaffold: %w", err)
+		}
+		if err := writeWikiScanBlock(indexPath, root, classified, opts); err != nil {
+			return nil, fmt.Errorf("wiki scan: write block: %w", err)
+		}
+		if err := writeMembersSection(indexPath, classified); err != nil {
+			return nil, fmt.Errorf("wiki scan: write members section: %w", err)
+		}
 	}
 
 	// Non-fatal: a broken bucket region must not block membership.
-	_, rebErrs := RebuildAllBucketIndexes(root, wikiDir)
+	var rebErrs []error
+	if opts.buckets.Bound {
+		protectedDir := ""
+		if opts.buckets.SharedWiki {
+			protectedDir = wikiDir
+		}
+		_, rebErrs = rebuildBucketTrees(opts.buckets.entries(), protectedDir)
+	} else {
+		_, rebErrs = RebuildAllBucketIndexes(root, wikiDir)
+	}
 	reportTreeErrors("atomic wiki scan: bucket index rebuild", rebErrs)
 
 	return classified, nil
@@ -604,29 +628,65 @@ func legacySignals(repo string) string {
 // repos/<name>/ holding at least one .md for a domain-split summary.
 func discoverSummary(wikiDir, rel string) string {
 	name := filepath.Base(rel)
+	reposDir := filepath.Join(wikiDir, "repos")
+	if info, err := os.Lstat(reposDir); err != nil || !info.IsDir() {
+		return ""
+	}
 
-	fileForm := filepath.Join(wikiDir, "repos", name+".md")
-	if _, err := os.Lstat(fileForm); err == nil {
+	fileForm := filepath.Join(reposDir, name+".md")
+	if info, err := os.Lstat(fileForm); err == nil && info.Mode().IsRegular() {
 		return "repos/" + name + ".md"
 	}
 
-	dirForm := filepath.Join(wikiDir, "repos", name)
+	dirForm := filepath.Join(reposDir, name)
+	if info, err := os.Lstat(dirForm); err != nil || !info.IsDir() {
+		return ""
+	}
 	entries, err := os.ReadDir(dirForm)
 	if err != nil {
 		return ""
 	}
 	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".md") {
+		if e.Type().IsRegular() && strings.HasSuffix(e.Name(), ".md") {
 			return "repos/" + name + "/"
 		}
 	}
 	return ""
 }
 
+func checkRealmWiki(dir string, buckets func(string) (BucketView, error)) (shared bool, err error) {
+	info, err := os.Lstat(dir)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if info.IsDir() {
+		return false, nil
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		return false, fmt.Errorf("%s must be a directory", dir)
+	}
+	if buckets != nil {
+		view, err := buckets(filepath.Dir(dir))
+		if err != nil {
+			return false, err
+		}
+		if view.Bound && view.SharedWiki {
+			return true, nil
+		}
+	}
+	return false, fmt.Errorf("refusing to follow unowned symlink %s", dir)
+}
+
 // scaffold creates wiki/ with repos/, concerns/, README.md and a steering pair
 // when it has none, then git-inits it. Nothing existing is overwritten; index.md
 // content is writeWikiScanBlock's job.
 func scaffold(wikiDir, root string) error {
+	if _, err := checkRealmWiki(wikiDir, nil); err != nil {
+		return err
+	}
 	for _, sub := range []string{wikiDir, filepath.Join(wikiDir, "repos"), filepath.Join(wikiDir, "concerns")} {
 		if err := os.MkdirAll(sub, 0o755); err != nil {
 			return fmt.Errorf("mkdir %s: %w", sub, err)

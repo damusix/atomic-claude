@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"slices"
 	"time"
 
 	"github.com/damusix/atomic-claude/atomic/internal/cliusage"
@@ -12,22 +13,28 @@ import (
 )
 
 func main() {
-	// flag.FlagSet stops at the first non-flag argument, so a trailing
-	// --no-update-check would reach neither Cobra's root nor the sub-handler's
-	// own parser. Strip it from argv in any position instead.
 	var noUpdateCheck bool
 	noUpdateCheck, os.Args = scanNoUpdateCheck(os.Args)
 
+	if slices.Equal(os.Args[1:], []string{"hooks", "session-start", "--harness", "claude", "--realm-instructions"}) {
+		if err := runClaudeRealmSessionStart(pipedStdin(os.Stdin), os.Getenv("CLAUDE_PROJECT_DIR")); err != nil {
+			fmt.Fprintf(os.Stderr, "atomic hooks session-start: %v\n", err)
+		}
+		return
+	}
+
 	// Handled before Cobra to preserve the exact output format and exit 0.
 	for _, a := range os.Args[1:] {
+		if a == "--" {
+			break
+		}
 		if a == "--version" || a == "-v" {
 			fmt.Printf("atomic %s (%s)\n", version.Version, version.Commit)
 			os.Exit(0)
 		}
 	}
 
-	// Every leaf sets DisableFlagParsing, so Cobra never parses the persistent
-	// --repo flag; scanning raw argv here is what makes --repo do anything.
+	// Delegated leaves parse their own flags, so scan --repo before dispatch.
 	// Exempt: verbs whose own --repo already means something else.
 	var repoOverrideVal string
 	if !repoFlagExempt(os.Args[1:]) {
@@ -49,17 +56,14 @@ func main() {
 	// Derives the cliusage surface from the live tree, not a hardcoded table.
 	cliusage.SetRoot(rootCmd)
 
-	// Best-effort: a failed state migration warns and never blocks the verb.
-	home, homeErr := os.UserHomeDir()
-	if homeErr == nil {
+	verb := findFirstVerb(os.Args[1:])
+	// Realm previews and unapproved operations must not change user state.
+	if home, err := os.UserHomeDir(); verb != "realm" && err == nil {
 		if err := config.MigrateUserState(home); err != nil {
 			fmt.Fprintf(os.Stderr, "atomic: user state migration: %v\n", err)
 		}
-	}
 
-	// Banner comes from state.json alone; this process performs no network I/O.
-	if homeErr == nil {
-		selfupdateFastPath(home, findFirstVerb(os.Args[1:]), version.Version, noUpdateCheck, os.Stderr, time.Now, defaultUpdateSpawn)
+		selfupdateFastPath(home, verb, version.Version, noUpdateCheck, os.Stderr, time.Now, defaultUpdateSpawn)
 	}
 
 	// rootCmd sets SilenceErrors so the exit code is controlled here.
@@ -69,9 +73,6 @@ func main() {
 	}
 }
 
-// buildRootCmd assembles the verb tree. Every verb sets DisableFlagParsing so
-// the full arg slice reaches its handler unmodified, leaving the handler's own
-// flag.NewFlagSet and sub-switch in charge.
 func buildRootCmd(repoOverride *string) *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:           "atomic",
@@ -102,7 +103,7 @@ func buildRootCmd(repoOverride *string) *cobra.Command {
 
 	// Cobra's default template special-cases `help`, showing it despite
 	// Hidden:true. This copy drops that exception.
-	rootCmd.SetHelpTemplate(`{{with .Short}}{{. | trimRightSpace}}{{end}}
+	rootCmd.SetHelpTemplate(`{{if .Long}}{{.Long | trimRightSpace}}{{else}}{{.Short | trimRightSpace}}{{end}}
 
 Usage:
   {{.UseLine}}{{if .HasAvailableSubCommands}}
@@ -163,6 +164,8 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.
 
 	rootCmd.AddCommand(buildWikiCmd())
 
+	rootCmd.AddCommand(buildRealmCmd(repoOverride))
+
 	rootCmd.AddCommand(buildPromptCmd())
 
 	rootCmd.AddCommand(buildTemplateCmd())
@@ -180,7 +183,7 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.
 	return rootCmd
 }
 
-// Convention for the parent commands in cmd_*.go: the parent takes
+// For command families with a shared dispatcher, the parent takes
 // Args:cobra.ArbitraryArgs so unknown and empty verbs fall through to the
 // handler with its exit codes intact; each child prepends its own name so the
 // handler still receives [verb, ...rest]. Flags declared via cmd.Flags() are

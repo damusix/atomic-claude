@@ -238,7 +238,7 @@ flowchart TD
 
 ### What each harness receives
 
-Each adapter publishes only the artifact kinds its capability row proves, and reports every other kind as an unproven surface on the plan, the convergence report, and doctor.
+For global installation, each adapter publishes only the artifact kinds its capability row proves, and reports every other kind as an unproven surface on the plan, the convergence report, and doctor.
 
 | Surface | Claude | OMP | Codex |
 |---|---|---|---|
@@ -281,19 +281,19 @@ sequenceDiagram
     participant X as atomic.ts
     participant A as atomic binary
     O->>X: session_start with ctx.cwd
-    X->>A: hooks session-start --harness omp --cwd
+    X->>A: hooks session-start, with --realm-primary for eligible startup
     A-->>X: session context text, 5000 ms timeout
     O->>X: before_agent_start
-    X->>X: restart when ctx.cwd differs from base
+    X->>X: restart on cwd change or when leaving the primary transcript
     X-->>O: systemPrompt with atomic-rules and atomic-session-context
     O->>X: session_switch with ctx.cwd
-    X->>A: reload session context for the new cwd
+    X->>A: reload ordinary context without --realm-primary
     O->>X: tool_call
     X-->>O: block on exact bash predicate, else record read path
 ```
 
-- **session context**: `loadSessionContext` runs `atomic hooks session-start --format text --harness omp --cwd <cwd>`. A missing binary, a non-zero exit, or the timeout yields empty text, and the session still starts.
-- **reload**: `session_switch` calls `restart`. `/move` fires no event, so `before_agent_start` compares `ctx.cwd` with the loaded base through `sameDirectory` (resolved paths) and restarts on a difference.
+- **session context**: `loadSessionContext` runs `atomic hooks session-start --format text --harness omp --cwd <cwd>`. It adds `--realm-primary` only when `primarySessionFile` identifies a fresh persisted primary session. A missing binary, a non-zero exit, or the timeout yields empty text without blocking startup.
+- **reload**: `session_switch` calls `restart` even when the directory is unchanged. `/move` fires no event, so `before_agent_start` compares resolved directories and also checks whether the session left its original primary transcript. `restart` reloads ordinary context without realm guidance.
 - **dedupe**: each turn removes prompt parts whose first line carries Atomic's tag and marker (`atomic-omp-runtime` for rules, `atomic-omp-session-context` for context), then appends fresh copies, so blocks are replaced, never stacked.
 - **baseline bound**: `BuildSessionDelivery` measures the static rule index in UTF-16 code units. An index over `BaselineByteBound` (8192) is suppressed whole, never truncated.
 - **wired events**: `before_agent_start`, `session_switch`, and `tool_call` are wired only when their role is supported; the other three are always wired and marked observation-only in the plan, though `session_start` also starts the context load. `RegisteredEvents` reads the rendered bytes, so an audit catches a template registering an unplanned event.
@@ -322,7 +322,111 @@ Atomic owns the `SessionStart` member (matcher `startup|resume`, command `atomic
 
 `applySessionHook` saves the member's `settings` row to the ledger before the write, so a crash leaves a claim that repair, status, and uninstall can reach. A first enrollment saves the target record with it. A skipped or failed write undoes the row.
 
-`ObserveSessionHookTrust` and `ObservePreToolUseHookTrust` read `config.toml` `[hooks.state]` under the key `<hooks.json path>:<event>:<group>:<handler>` (`session_start` or `pre_tool_use`) and compare `trusted_hash` with `trustedMember.identityHash`, which mirrors Codex's own hook hash with the 600-second default timeout. The result is `trusted`, `untrusted`, `modified` (a stale trusted hash that Codex will not run), or `unknown` (including a member left unowned). The `session-context` row is `partial`: a trusted hook delivered workflow preferences to a primary model turn, but resume and child delivery remain unproven. Every Codex plan still reports `session-context delivery` as unproven.
+`ObserveSessionHookTrust` and `ObservePreToolUseHookTrust` read `config.toml` `[hooks.state]` under the key `<hooks.json path>:<event>:<group>:<handler>` (`session_start` or `pre_tool_use`) and compare `trusted_hash` with `trustedMember.identityHash`, which mirrors Codex's own hook hash with the 600-second default timeout. The result is `trusted`, `untrusted`, `modified` (a stale trusted hash that Codex will not run), or `unknown` (including a member left unowned). `InspectSessionHookActivation` also checks enrollment, whether the hook feature or member is disabled, and whether the owned definition matches the canonical or legacy digest. A trust hash alone does not make realm startup active. The general `session-context` row remains `partial`: the runtime evidence covers primary startup, not resume or child delivery. Codex plans still report `session-context delivery` as unproven.
+
+### Realm instructions at native startup
+
+Realm startup can deliver `.agents/realm.md` and the user's local `AGENTS.local.md` without making the private file shared.
+
+Claude returns only team text from its startup hook and imports private text separately; OMP and Codex return both through the startup context.
+
+```mermaid
+sequenceDiagram
+    %% source: atomic/cmd/atomic/cmd_hooks.go, atomic/internal/realmshare/instructions_context.go
+    accTitle: Reviewed realm instructions at startup
+    accDescr: A native startup callback resolves an eligible local realm and reads its current team source. Claude imports private text through its loader instead of the hook.
+    participant N as Native harness
+    participant H as cmd_hooks.go
+    participant R as SessionInstructions
+    participant C as Managed checkout
+    N->>H: Eligible startup callback
+    H->>H: sessionInstructionRealm
+    H->>R: Read guidance for the resolved realm
+    R->>R: Check enrollment and link receipt
+    R->>C: Check clone ownership and trusted mapping
+    C-->>R: Current .agents/realm.md
+    alt Claude local hook
+        R->>R: checkClaudeRealmContext
+        R-->>H: Team text only
+    else OMP or Codex
+        R->>R: Read local AGENTS.local.md
+        R-->>H: Team text followed by private text
+    end
+    H-->>N: Return context in native format
+```
+
+| Harness | Startup gate and delivery | Runtime observation (macOS) |
+|---|---|---|
+| Claude | An optional `SessionStart` member with matcher `startup` in [`.claude/settings.local.json`](../../.claude/settings.local.json) returns only team text. The realm's [`CLAUDE.md`](../../CLAUDE.md) imports `AGENTS.local.md` separately. | `TestClaudeRealmSharingStartupRequest` checks independent fresh publisher and joiner launches. Each tools-disabled Messages request contains the team text and only that developer's private text. |
+| Codex | The owned user hook must be active. The CLI adds realm text only for native stdin with `hook_event_name: "SessionStart"` and `source: "startup"`, without a cwd or repo override. | `TestCodexRealmSharingStartupRequest` compares fresh untrusted and trusted requests. Installed steering remains in both; only exact native trust adds ordinary hook context and the team and joiner-private text. |
+| OMP | `primarySessionFile` requires a fresh persisted session identity, a matching cwd, and no inherited transcript. The extension loads the team and private text into the ordinary session-context block. | `TestOMPRealmSharingStartupRequest` checks a tools-disabled persisted launch and confirms that `--no-session` and `--resume` retain the Atomic baseline without realm guidance. |
+
+The scope check rejects a nested repository and a linked path that escapes its verified target or crosses another alias. The reader requires a matching link receipt, clone owner, and trusted definition with the exact instruction mapping. Pending local operations suppress delivery. The team source must be valid UTF-8 text within 10,000 bytes; Claude's serialized hook output has the same byte limit. The startup fixtures capture requests without a model reply. They do not establish delivery in interactive, resumed, or child sessions.
+
+### Optional Claude realm setup
+
+`previewInstructions` requires the configured Claude target to be enrolled, `claude` to be on `PATH`, and the private file and native edits to pass its checks. `applyInstructions` rechecks the reviewed team source before recording activation.
+
+The reviewed instruction link can succeed while leaving Claude's native files untouched.
+
+```mermaid
+flowchart TD
+    %% source: atomic/internal/realmshare/instructions.go, atomic/internal/harness/claude/realm.go
+    accTitle: Optional Claude startup setup
+    accDescr: An instruction link may be recorded without changing Claude files. Only an eligible reviewed setup writes the local hook and private import.
+    P["previewInstructions"] --> A["applyInstructions"]
+    A --> V{"Reviewed source<br/>still matches?"}
+    V -->|no| E["Refuse activation"]
+    V -->|yes| T{"ClaudeTarget set?"}
+    T -->|no| L["Leave Claude files<br/>unchanged"]
+    T -->|yes| W["writeInstructionChange<br/>for reviewed edits"]
+```
+
+The setup creates a missing `AGENTS.local.md` without replacing an existing entry. It reuses an effective private import already in [`CLAUDE.md`](../../CLAUDE.md), or appends a managed block. The local member runs `atomic hooks session-start --harness claude --realm-instructions`; the hook and managed import carry separate ownership receipts. A conflicting hook or an unsafe loader leaves Claude setup unchanged, and unlink removes only the recorded native entries.
+
+### Realm artifact discovery and selection
+
+Native support is per artifact, not per harness. `RoleRealmSkill`, `RoleRealmCommand`, and `RoleRealmAgent` govern fresh launches from the realm root. They do not change the capability rows for globally installed artifacts. The discovery and invocation observations below are from macOS.
+
+| Harness | Skill | Slash workflow | Agent |
+|---|---|---|---|
+| Claude Code 2.1.328 | `.claude/skills/<name>`: listed and body delivered on named slash invocation | `.claude/commands/<name>.md`: listed and body delivered on named slash invocation | `.claude/agents/<name>.md`: listed and body delivered with `--agent` for the primary agent, not proof of delegation |
+| Codex CLI 0.147.0 | `.agents/skills/<name>`: app-server lists the skill; only explicit selection delivers its body in the fixture | Unsupported | Unsupported |
+| OMP 18.22.2 | `StatusPartial`: the canonical `.agents/skills/<name>` link was discoverable with `Read` available, but `/skill:` stayed literal in print mode. Invocation is unverified; native activation is unsupported and never attested as `active`. | `.agents/commands/<name>.md`: print-mode slash input expands the body and arguments | Unsupported |
+
+`TestClaudeRealmArtifactsReviewedLink`, `TestCodexRealmArtifactSkillReviewedLink`, and `TestOMPRealmArtifactCandidates` also probe a separate nested Git member. The tested realm-root artifacts are absent from the member's native listing or request, as applicable. The fixtures establish discovery or request content, not a model reply, tool permission, or support in an existing session. Realm activation checks only the effective default OMP profile, not named profiles or alternate agent directories.
+
+### Native artifact attestation
+
+An approved logical link exposes the source; Atomic attests native activation only when a supported capability matches the enrolled executable and the approved links still verify.
+
+```mermaid
+flowchart TD
+    %% source: atomic/internal/realmshare/artifact_policy.go, atomic/internal/realmshare/artifact_activation.go, atomic/internal/realmshare/artifact_version.go, atomic/internal/realmshare/links.go
+    accTitle: Native artifact attestation
+    accDescr: Review checks source and capability, then verifies the effective enrolled executable. Approved links and executable evidence must still match before status reports activation.
+    R["reviewArtifact"] --> S{"Supported role<br/>and native identity?"}
+    S -->|no| L["No native attestation"]
+    S -->|yes| P{"probeArtifactVersion<br/>matches tested row?"}
+    P -->|no| L
+    P -->|yes| E{"Approved, witnessed<br/>links?"}
+    E -->|no| L
+    E -->|yes| V["recordArtifactVersions"]
+    V --> A["reportOwnedArtifact"]
+```
+
+Claude uses a separate symlink under [`.claude/`](../../.claude); the supported Codex skill and OMP workflow use their canonical `.agents/` links without another projection. Artifacts in global profile paths or separate Git repositories are out of scope. Review runs `--version` on an independently installed executable outside the realm and managed checkouts. Status compares the saved link, profile, executable identity, and capability row version without running the executable. If the attestation drifts, status retains the link and calls for review again.
+
+### Shared wiki write permissions
+
+Link approval trusts future content updates to selected units from the bound remote. It neither grants native tool permissions nor changes sandbox settings. A directive in a reviewed artifact can still cause a harness to use its existing tools or run supporting scripts when invoked.
+
+| Saved permission fixture | Native setting | Observed boundary (macOS) |
+|---|---|---|
+| `TestClaudeRealmWikiSavedWrite` | `permissions.additionalDirectories` in [`.claude/settings.local.json`](../../.claude/settings.local.json) | A fresh realm-root launch in `acceptEdits` mode denies `Write` without the managed checkout in the list. With the grant, both the logical wiki path and its target show the written file. |
+| `TestCodexRealmWikiSavedWrite` | `sandbox_workspace_write.writable_roots` in a trusted project `.codex/config.toml` | A fresh realm-root `workspace-write` launch with approval set to `never` denies the shell write without the checkout in the list. With the grant, the bytes change through the wiki symlink. |
+
+These fixtures run without a realm instruction hook. Link review prints the physical checkout path so the user can grant access through native settings and start a new session.
 
 ### Codex edit-time cards
 
@@ -453,6 +557,18 @@ flowchart TD
 | [`atomic/internal/harness/codex/codex.go`](../../atomic/internal/harness/codex/codex.go), `lifecycle.go`, `enroll.go` | `CODEX_HOME` discovery; plan, converge with registration, `Enroll`, `Claims`, unregister at removal. |
 | [`atomic/internal/harness/codex/plugin.go`](../../atomic/internal/harness/codex/plugin.go), `matcher.go`, `steering.go` | `BuildPlugin` (marketplace, manifest without hooks, skills, rules, index, matcher), `CodexSteering` block. |
 | [`atomic/internal/harness/codex/hooks.go`](../../atomic/internal/harness/codex/hooks.go), `register.go`, `status.go` | Owned `hooks.json` member plan and write, `ObserveSessionHookTrust`, `ObservePreToolUseHookTrust`; `DefaultRegister`, `DefaultUnregister`, `ObserveRegistration`; doctor surface rows. |
+| [`atomic/internal/harness/claude/realm.go`](../../atomic/internal/harness/claude/realm.go) | Projects and verifies the realm-local `SessionStart` member without taking ownership of the settings file. |
+
+### Realm startup and artifact activation
+
+| Path | Role |
+|---|---|
+| [`atomic/cmd/atomic/cmd_hooks.go`](../../atomic/cmd/atomic/cmd_hooks.go) | Dispatches native startup, checks its event and local realm boundary, and formats returned context. |
+| [`atomic/internal/realmshare/instructions.go`](../../atomic/internal/realmshare/instructions.go), [`atomic/internal/realmshare/instructions_context.go`](../../atomic/internal/realmshare/instructions_context.go) | Reviews and records local instruction setup, then revalidates the trusted mapping and separates team from private delivery at startup. |
+| [`atomic/internal/realmshare/artifact_policy.go`](../../atomic/internal/realmshare/artifact_policy.go), [`atomic/internal/realmshare/artifact_activation.go`](../../atomic/internal/realmshare/artifact_activation.go), [`atomic/internal/realmshare/artifact_version.go`](../../atomic/internal/realmshare/artifact_version.go) | Validates authored metadata, computes native link effects, and attests executable identity and version against the capability row. |
+| [`atomic/internal/runtimeproof/realm_sharing_claude_test.go`](../../atomic/internal/runtimeproof/realm_sharing_claude_test.go), [`atomic/internal/runtimeproof/realm_sharing_codex_test.go`](../../atomic/internal/runtimeproof/realm_sharing_codex_test.go), [`atomic/internal/runtimeproof/realm_sharing_omp_test.go`](../../atomic/internal/runtimeproof/realm_sharing_omp_test.go) | Native startup request evidence for shared and private guidance. |
+| [`atomic/internal/runtimeproof/realm_artifacts_claude_test.go`](../../atomic/internal/runtimeproof/realm_artifacts_claude_test.go), [`atomic/internal/runtimeproof/realm_artifacts_codex_test.go`](../../atomic/internal/runtimeproof/realm_artifacts_codex_test.go), [`atomic/internal/runtimeproof/realm_artifacts_omp_test.go`](../../atomic/internal/runtimeproof/realm_artifacts_omp_test.go) | Discovery and explicit invocation evidence at the realm root and member boundary. |
+| [`atomic/internal/runtimeproof/realm_wiki_claude_write_test.go`](../../atomic/internal/runtimeproof/realm_wiki_claude_write_test.go), [`atomic/internal/runtimeproof/realm_wiki_codex_write_test.go`](../../atomic/internal/runtimeproof/realm_wiki_codex_write_test.go) | Compare fresh native writes with and without saved checkout permissions. |
 
 ### Orchestration and CLI
 
@@ -501,12 +617,14 @@ flowchart TD
 - **Bounds suppress, never truncate.** An OMP baseline index over 8192 UTF-16 units ships no baseline block; a Codex index over `InstructionByteBound` (32 KiB) is refused. A truncated index would misreport rules.
 - **Consent is explicit.** Without a terminal and without `--yes`, every mutating verb refuses. `--replace` and `--leave-unowned` are mutually exclusive, and `--all` with `--harness` or `--instance` is refused so a named harness is never dropped.
 - **Newer state is read-only to an older binary.** A ledger or journal with a higher `SchemaVersion` or `MinimumReader` refuses before any mutation; downgrading the binary after an upgrade blocks installs until the newer binary is back.
+- **Realm artifacts cannot declare native grants.** The metadata validator rejects tool grants or dependencies, hooks, MCP configuration, and plugin activation. For a skill's `agents/openai.yaml`, it accepts only the `policy.allow_implicit_invocation: false` setting.
 
 ## Coupling
 
 - **bundle**: the Claude adapter and `embeddedcorpus.Load` read `embedded.Manifest()`, which `make bundle` writes from [`context/`](../../context). `claude.Generation` digests that manifest, so any corpus change makes every Claude row `stale`. `bundlespec.GlobalSteering` and `bundlespec.ScopeSteering` name the steering paths `Renderer` writes.
 - **config**: owns `~/.atomic` path helpers (`config.LedgerPath`, `config.PackageRoot`, `config.TransactionDir`), the per-harness agent overrides (`AgentOverrides`) that `atomic config agents` edits after `harness.SelectAgentsHarness`, the repository state ladder behind `atomic state adopt|migrate`, `config.ResolveSteeringMode` behind the `[steering] claude` key, `config.CodexCardsSentPath`, the `hooks` package that owns the Claude `settings.json` and Codex `hooks.json` members and the `atomic hooks pre-tool-use` verb ([`docs/wiki/config.md`](config.md)), and `atomic update`, which calls `AdoptLegacyClaude` then `ConvergeEnrolled`. The legacy `claudeinstall` writer serves unenrolled Claude roots.
 - **wiki** and **signals**: `/refresh-wiki` and the `atomic-wiki-inferrer` agent write the canonical cards under `<state-root>/rules/wiki/`; `wiki.ProjectRepoCards`, wired in `cmd_cards.go`, projects them after a refresh. The steering pair is written by `wiki.InitRepoScope` and `wiki.InitRealmScope` and reshaped by `wiki.ConvertSteeringPair`; `wiki.RenderRepoCards` re-renders canonical cards with `description` and `globs` before OMP publication.
+- **realm sharing**: [`docs/wiki/wiki.md`](wiki.md) owns publication, the binding and link lifecycle, and sync. The harness reads native activation from those local receipts and does not make the startup settings or write grants portable.
 - **code-intel**: `realm.MoveCodeIndexBlock` moves a realm's code-index block to the mode's file before the pair converters run.
 - **doctor**: `checks_codex.go` reports `ObserveSessionHookTrust`, `ObservePreToolUseHookTrust`, `RuntimeState`, `RegistrationStateRow`, and `KindState`; `validate/projection.go` calls `artifacts.Load` and the agent projections to audit for policy-key leaks.
 - **CLI verbs, bus, and retro**: `harness.Detect` is read by CLI verbs that name the running harness (`cmd_where.go`, `cmd_workflow.go`, `cmd_config.go`, `cmd_doctor.go`), bus identity, and retro; `bus` also uses `ids`.

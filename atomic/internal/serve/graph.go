@@ -284,6 +284,12 @@ func isListItem(s string) bool {
 
 // BuildLinkGraph walks every *.md file under root and returns the resolved graph.
 func BuildLinkGraph(root string) *Graph {
+	scope := loadDocumentScope(root)
+	entries, _, _ := scope.scanDocuments(0, nil)
+	return buildLinkGraph(scope, entries)
+}
+
+func buildLinkGraph(scope documentScope, entries map[string]fileManifestEntry) *Graph {
 	g := &Graph{
 		nodeSet:   make(map[string]bool),
 		outbound:  make(map[string][]Edge),
@@ -296,32 +302,13 @@ func BuildLinkGraph(root string) *Graph {
 	// CodeFile rather than broken.
 	var mdFiles []string
 	sourceFiles := make(map[string]bool)
-	ignores := newGitIgnores(root)
-	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if d.IsDir() {
-			if path != root && ignores.skipWalkDir(path) {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if hiddenFile(d.Name()) || ignores.skipFile(path) {
-			return nil
-		}
-		rel, relErr := filepath.Rel(root, path)
-		if relErr != nil {
-			return nil
-		}
-		rel = filepath.ToSlash(rel)
-		if strings.HasSuffix(d.Name(), ".md") {
+	for rel := range entries {
+		if strings.HasSuffix(rel, ".md") {
 			mdFiles = append(mdFiles, rel)
 		} else {
 			sourceFiles[rel] = true
 		}
-		return nil
-	})
+	}
 	sort.Strings(mdFiles)
 	g.nodes = mdFiles
 	for _, rel := range mdFiles {
@@ -341,8 +328,7 @@ func BuildLinkGraph(root string) *Graph {
 	}
 
 	for _, relPage := range mdFiles {
-		absPath := filepath.Join(root, filepath.FromSlash(relPage))
-		data, err := os.ReadFile(absPath) //nolint:gosec // relPage is realm-relative and validated during walk
+		data, err := scope.readFile(relPage)
 		if err != nil {
 			continue
 		}
@@ -354,7 +340,7 @@ func BuildLinkGraph(root string) *Graph {
 		pageDir := filepath.Dir(filepath.FromSlash(relPage))
 
 		for _, l := range links {
-			edge := resolveLink(l, relPage, pageDir, root, basenameIndex, mdFiles, sourceFiles)
+			edge := scope.resolveLink(l, relPage, pageDir, basenameIndex, mdFiles, sourceFiles)
 			g.outbound[relPage] = append(g.outbound[relPage], edge)
 			if !edge.Broken && edge.ResolvedPath != "" {
 				g.inbound[edge.ResolvedPath] = append(g.inbound[edge.ResolvedPath], relPage)
@@ -372,11 +358,10 @@ func BuildLinkGraph(root string) *Graph {
 
 // resolveLink resolves one extracted link. pageDir is the source page's
 // directory relative to root ("sub" or ".").
-func resolveLink(
+func (s documentScope) resolveLink(
 	l mdlink.Link,
 	relPage string,
 	pageDir string,
-	root string,
 	basenameIndex map[string][]string,
 	allPages []string,
 	sourceFiles map[string]bool,
@@ -389,9 +374,9 @@ func resolveLink(
 
 	switch l.Kind {
 	case mdlink.Wikilink:
-		edge = resolveWikilink(edge, l.Target, pageDir, root, basenameIndex)
+		edge = resolveWikilink(edge, l.Target, pageDir, basenameIndex)
 	case mdlink.MarkdownLink:
-		edge = resolveMarkdownLink(edge, l.Target, pageDir, root, allPages, sourceFiles)
+		edge = s.resolveMarkdownLink(edge, l.Target, pageDir, allPages, sourceFiles)
 	}
 
 	return edge
@@ -402,7 +387,6 @@ func resolveWikilink(
 	edge Edge,
 	pageName string,
 	pageDir string,
-	root string,
 	basenameIndex map[string][]string,
 ) Edge {
 	key := strings.ToLower(strings.TrimSpace(pageName))
@@ -459,9 +443,8 @@ func nearestCandidate(candidates []string, pageDir string) string {
 //
 // combined must be clean and have no leading slash. ok=false means the caller
 // should treat the link as broken.
-func resolveRootRelative(
+func (s documentScope) resolveRootRelative(
 	combined string,
-	root string,
 	allPages []string,
 	sourceFiles map[string]bool,
 ) (resolvedPath string, codeFile bool, isDir bool, ok bool) {
@@ -470,23 +453,17 @@ func resolveRootRelative(
 			return combined, false, false, true
 		}
 	}
-	// Docs-site link styles routinely omit the .md extension.
-	if filepath.Ext(combined) == "" {
-		withExt := combined + ".md"
-		for _, p := range allPages {
-			if p == withExt {
-				return withExt, false, false, true
-			}
-		}
+	if resolved, ok := s.resolveExtensionlessPage(combined); ok {
+		return resolved, false, false, true
 	}
 	if sourceFiles[combined] {
 		return combined, true, false, true
 	}
-	// The walk skips directories that safeResolve can still serve.
-	if absPath, canServe := safeResolve(root, combined); canServe {
+	// Ignoring an entry during enumeration does not remove direct access.
+	if absPath, canServe := s.resolve(combined); canServe {
 		if info, statErr := os.Stat(absPath); statErr == nil {
 			if info.IsDir() {
-				if idx, found := resolveDirIndex(root, combined); found {
+				if idx, found := s.resolveDirIndex(combined); found {
 					return idx, !strings.HasSuffix(idx, ".md"), false, true
 				}
 				// A directory with no index still resolves — the page handler
@@ -502,14 +479,25 @@ func resolveRootRelative(
 	return "", false, false, false
 }
 
+func (s documentScope) resolveExtensionlessPage(rel string) (string, bool) {
+	if filepath.Ext(rel) == "" {
+		page := rel + ".md"
+		if abs, ok := s.resolve(page); ok {
+			if info, err := os.Stat(abs); err == nil && info.Mode().IsRegular() {
+				return page, true
+			}
+		}
+	}
+	return "", false
+}
+
 // resolveMarkdownLink resolves a markdown link target to a file in the realm.
 // External URLs and bare anchors keep no ResolvedPath; relative paths resolve
 // from pageDir; a leading slash means root-relative (OKF §5.1).
-func resolveMarkdownLink(
+func (s documentScope) resolveMarkdownLink(
 	edge Edge,
 	target string,
 	pageDir string,
-	root string,
 	allPages []string,
 	sourceFiles map[string]bool,
 ) Edge {
@@ -535,11 +523,11 @@ func resolveMarkdownLink(
 			edge.Broken = true
 			return edge
 		}
-		resolved, codeFile, isDir, ok := resolveRootRelative(rootRel, root, allPages, sourceFiles)
+		resolved, codeFile, isDir, ok := s.resolveRootRelative(rootRel, allPages, sourceFiles)
 		if !ok {
 			// The author's site root may be the docs directory rather than the
 			// repo root a repo-scoped serve starts from.
-			if docRel, dok := repairDocRootRelative(rootRel, root, allPages, sourceFiles); dok {
+			if docRel, dok := s.repairDocRootRelative(rootRel, allPages, sourceFiles); dok {
 				edge.ResolvedPath = docRel
 				return edge
 			}
@@ -561,8 +549,8 @@ func resolveMarkdownLink(
 	combined = filepath.ToSlash(filepath.Clean(combined))
 
 	if strings.HasPrefix(combined, "..") {
-		if repaired, ok := repairOverClimbedRelative(root, pageDir, cleanTarget); ok {
-			if resolved, codeFile, isDir, rok := resolveRootRelative(repaired, root, allPages, sourceFiles); rok {
+		if repaired, ok := s.repairOverClimbedRelative(pageDir, cleanTarget); ok {
+			if resolved, codeFile, isDir, rok := s.resolveRootRelative(repaired, allPages, sourceFiles); rok {
 				edge.ResolvedPath = resolved
 				edge.CodeFile = codeFile
 				edge.Dir = isDir
@@ -573,10 +561,10 @@ func resolveMarkdownLink(
 		return edge
 	}
 
-	resolved, codeFile, isDir, ok := resolveRootRelative(combined, root, allPages, sourceFiles)
+	resolved, codeFile, isDir, ok := s.resolveRootRelative(combined, allPages, sourceFiles)
 	if !ok {
-		if repaired, rok := repairOverClimbedRelative(root, pageDir, cleanTarget); rok {
-			if rresolved, rcodeFile, risDir, rrok := resolveRootRelative(repaired, root, allPages, sourceFiles); rrok {
+		if repaired, rok := s.repairOverClimbedRelative(pageDir, cleanTarget); rok {
+			if rresolved, rcodeFile, risDir, rrok := s.resolveRootRelative(repaired, allPages, sourceFiles); rrok {
 				edge.ResolvedPath = rresolved
 				edge.CodeFile = rcodeFile
 				edge.Dir = risDir
@@ -601,9 +589,8 @@ var docRootCandidates = []string{"docs", "doc", "documentation"}
 // — still resolves when the same file is served from the repository root.
 // Reached only after the path already failed against the real root, so a link
 // that resolves normally is never redirected.
-func repairDocRootRelative(
+func (s documentScope) repairDocRootRelative(
 	rootRel string,
-	root string,
 	allPages []string,
 	sourceFiles map[string]bool,
 ) (string, bool) {
@@ -611,11 +598,8 @@ func repairDocRootRelative(
 		if strings.HasPrefix(rootRel, candidate+"/") {
 			continue // already rooted there; the direct attempt covered it
 		}
-		if info, err := os.Stat(filepath.Join(root, candidate)); err != nil || !info.IsDir() {
-			continue
-		}
 		probe := candidate + "/" + rootRel
-		if resolved, _, _, ok := resolveRootRelative(probe, root, allPages, sourceFiles); ok {
+		if resolved, _, _, ok := s.resolveRootRelative(probe, allPages, sourceFiles); ok {
 			return resolved, true
 		}
 	}
@@ -624,23 +608,17 @@ func repairDocRootRelative(
 
 // statDocRootRelative is repairDocRootRelative's filesystem-only twin, for the
 // render path — which has no page index to consult, only the disk.
-func statDocRootRelative(root, combined string) (string, bool) {
+func (s documentScope) statDocRootRelative(combined string) (string, bool) {
 	for _, candidate := range docRootCandidates {
 		if strings.HasPrefix(combined, candidate+"/") {
 			continue
 		}
-		base := filepath.Join(root, candidate)
-		if info, err := os.Stat(base); err != nil || !info.IsDir() {
-			continue
+		probe := candidate + "/" + combined
+		if page, ok := s.resolveExtensionlessPage(probe); ok {
+			return page, true
 		}
-		for _, probe := range []string{candidate + "/" + combined, candidate + "/" + combined + ".md"} {
-			abs, ok := safeResolve(root, probe)
-			if !ok {
-				continue
-			}
-			if _, err := os.Stat(abs); err == nil {
-				return probe, true
-			}
+		if _, ok := s.resolve(probe); ok {
+			return probe, true
 		}
 	}
 	return "", false
@@ -650,7 +628,7 @@ func statDocRootRelative(root, combined string) (string, bool) {
 // their true target — an authoring slip in docs written against a different
 // nesting depth. It strips the leading ../ run and probes the remainder
 // against each ancestor of pageDir, deepest first.
-func repairOverClimbedRelative(root, pageDir, cleanTarget string) (string, bool) {
+func (s documentScope) repairOverClimbedRelative(pageDir, cleanTarget string) (string, bool) {
 	remainder := cleanTarget
 	for strings.HasPrefix(remainder, "../") {
 		remainder = remainder[3:]
@@ -664,10 +642,11 @@ func repairOverClimbedRelative(root, pageDir, cleanTarget string) (string, bool)
 		if dir != "." && dir != "" {
 			candidate = filepath.ToSlash(filepath.Join(dir, remainder))
 		}
-		if abs, ok := safeResolve(root, candidate); ok {
-			if _, err := os.Stat(abs); err == nil {
-				return candidate, true
-			}
+		if page, ok := s.resolveExtensionlessPage(candidate); ok {
+			return page, true
+		}
+		if _, ok := s.resolve(candidate); ok {
+			return candidate, true
 		}
 		if dir == "." || dir == "" {
 			break
@@ -689,6 +668,10 @@ func repairOverClimbedRelative(root, pageDir, cleanTarget string) (string, bool)
 // dead link stays in the shell and gets the in-app 404 rather than a full-page
 // navigation to a broken URL.
 func resolvePageHref(root, pageRelPath, raw string) (href string, htmxPage, external bool) {
+	return (documentScope{root: resolveDir(root)}).resolvePageHref(pageRelPath, raw)
+}
+
+func (s documentScope) resolvePageHref(pageRelPath, raw string) (href string, htmxPage, external bool) {
 	if strings.HasPrefix(raw, "http://") || strings.HasPrefix(raw, "https://") ||
 		strings.HasPrefix(raw, "mailto:") {
 		return raw, false, true
@@ -713,7 +696,10 @@ func resolvePageHref(root, pageRelPath, raw string) (href string, htmxPage, exte
 			return raw, false, false
 		}
 		combined := rootRel
-		if abs, ok := safeResolve(root, combined); ok {
+		if page, ok := s.resolveExtensionlessPage(combined); ok {
+			return "/page/" + page + anchor, true, false
+		}
+		if abs, ok := s.resolve(combined); ok {
 			if info, statErr := os.Stat(abs); statErr == nil {
 				if info.IsDir() {
 					return "/page/" + combined + "/" + anchor, true, false
@@ -724,7 +710,7 @@ func resolvePageHref(root, pageRelPath, raw string) (href string, htmxPage, exte
 				return "/file/" + combined + anchor, false, false
 			}
 		}
-		if repaired, ok := statDocRootRelative(root, combined); ok {
+		if repaired, ok := s.statDocRootRelative(combined); ok {
 			return "/page/" + repaired + anchor, true, false
 		}
 		if ext := filepath.Ext(combined); ext != "" && ext != ".md" {
@@ -740,11 +726,11 @@ func resolvePageHref(root, pageRelPath, raw string) (href string, htmxPage, exte
 	}
 	combined = filepath.ToSlash(filepath.Clean(combined))
 	if combined == ".." || strings.HasPrefix(combined, "../") {
-		if repaired, ok := repairOverClimbedRelative(root, pageDir, target); ok {
+		if repaired, ok := s.repairOverClimbedRelative(pageDir, target); ok {
 			if strings.HasSuffix(repaired, ".md") {
 				return "/page/" + repaired + anchor, true, false
 			}
-			if abs, aok := safeResolve(root, repaired); aok {
+			if abs, aok := s.resolve(repaired); aok {
 				if info, statErr := os.Stat(abs); statErr == nil && info.IsDir() {
 					return "/page/" + repaired + "/" + anchor, true, false
 				}
@@ -754,8 +740,12 @@ func resolvePageHref(root, pageRelPath, raw string) (href string, htmxPage, exte
 		return raw, false, false
 	}
 
+	if page, ok := s.resolveExtensionlessPage(combined); ok {
+		return "/page/" + page + anchor, true, false
+	}
+
 	// Classify against the filesystem, which is the servable surface.
-	if abs, ok := safeResolve(root, combined); ok {
+	if abs, ok := s.resolve(combined); ok {
 		if info, statErr := os.Stat(abs); statErr == nil {
 			if info.IsDir() {
 				return "/page/" + combined + "/" + anchor, true, false
@@ -769,7 +759,7 @@ func resolvePageHref(root, pageRelPath, raw string) (href string, htmxPage, exte
 
 	// An over-climb landing exactly at the root cleans to a plain miss, so it
 	// only reaches the ancestor probe here.
-	if repaired, ok := repairOverClimbedRelative(root, pageDir, target); ok {
+	if repaired, ok := s.repairOverClimbedRelative(pageDir, target); ok {
 		if strings.HasSuffix(repaired, ".md") {
 			return "/page/" + repaired + anchor, true, false
 		}
@@ -785,7 +775,7 @@ func resolvePageHref(root, pageRelPath, raw string) (href string, htmxPage, exte
 
 // resolveDirIndex finds a directory's index page. Probe order favors a human
 // entry point over the project signals page.
-func resolveDirIndex(root, dirRel string) (string, bool) {
+func (s documentScope) resolveDirIndex(dirRel string) (string, bool) {
 	for _, candidate := range []string{
 		"README.md",
 		"readme.md",
@@ -793,7 +783,7 @@ func resolveDirIndex(root, dirRel string) (string, bool) {
 		".claude/project/signals.md",
 	} {
 		rel := filepath.ToSlash(filepath.Join(dirRel, candidate))
-		abs, ok := safeResolve(root, rel)
+		abs, ok := s.resolve(rel)
 		if !ok {
 			continue
 		}

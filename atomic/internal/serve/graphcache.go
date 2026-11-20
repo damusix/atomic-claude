@@ -39,13 +39,14 @@ func (c *graphDataCache) assemble(g *Graph) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// fullJSON reassembles only when the fingerprint moved. The fingerprint is
-// returned so the handler can hand it to the client, which keys its layout
-// cache off it — it changes on any edit, not just a node-set change.
+// fullJSON returns the full graph and its layout cache key.
 func (c *graphDataCache) fullJSON() (data []byte, fingerprint string, err error) {
 	snap, _ := c.store.ensureFresh()
-	fp := snap.fp
-	g := snap.graph
+	return c.snapshotJSON(snap)
+}
+
+func (c *graphDataCache) snapshotJSON(snap *realmSnapshot) (data []byte, fingerprint string, err error) {
+	fp := snap.graphFP
 
 	c.mu.RLock()
 	if c.fp == fp && c.cachedJSON != nil {
@@ -65,13 +66,15 @@ func (c *graphDataCache) fullJSON() (data []byte, fingerprint string, err error)
 		}
 		c.mu.RUnlock()
 
-		b, aErr := c.assemble(g)
+		b, aErr := c.assemble(snap.graph)
 		if aErr != nil {
 			return nil, aErr
 		}
 		c.mu.Lock()
-		c.fp = fp
-		c.cachedJSON = b
+		if c.store.current() == snap {
+			c.fp = fp
+			c.cachedJSON = b
+		}
 		c.mu.Unlock()
 		return b, nil
 	})
@@ -81,8 +84,9 @@ func (c *graphDataCache) fullJSON() (data []byte, fingerprint string, err error)
 	return v.([]byte), fp, nil
 }
 
-// warm precomputes at startup so the first graph open serves cached bytes.
-// Errors are non-fatal: the request path falls back to a live assemble.
+// warm uses the published startup graph so it does not contend with refreshes.
 func (c *graphDataCache) warm() {
-	_, _, _ = c.fullJSON()
+	if snap := c.store.current(); snap.graph != nil {
+		_, _, _ = c.snapshotJSON(snap)
+	}
 }

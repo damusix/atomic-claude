@@ -185,7 +185,7 @@ func TestWikiInitAction_MissingScope_ExitsUsageError_WritesNothing(t *testing.T)
 	root := t.TempDir()
 	var buf bytes.Buffer
 
-	code := wikiInitAction([]string{"--root=" + root}, root, &buf)
+	code := (ActionOptions{}).wikiInitAction([]string{"--root=" + root}, root, &buf)
 	if code != 1 {
 		t.Errorf("exit code = %d, want 1", code)
 	}
@@ -201,7 +201,7 @@ func TestWikiInitAction_InvalidScope_ExitsUsageError_WritesNothing(t *testing.T)
 	root := t.TempDir()
 	var buf bytes.Buffer
 
-	code := wikiInitAction([]string{"--scope=bogus", "--root=" + root}, root, &buf)
+	code := (ActionOptions{}).wikiInitAction([]string{"--scope=bogus", "--root=" + root}, root, &buf)
 	if code != 1 {
 		t.Errorf("exit code = %d, want 1", code)
 	}
@@ -215,7 +215,7 @@ func TestWikiInitAction_RepoScope_ViaCLI(t *testing.T) {
 	root := t.TempDir()
 	var buf bytes.Buffer
 
-	code := wikiInitAction([]string{"--scope=repo", "--root=" + root}, root, &buf)
+	code := (ActionOptions{}).wikiInitAction([]string{"--scope=repo", "--root=" + root}, root, &buf)
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0, output:\n%s", code, buf.String())
 	}
@@ -245,7 +245,7 @@ func TestWikiInitAction_RealmScope_ViaCLI(t *testing.T) {
 	root := t.TempDir()
 	var buf bytes.Buffer
 
-	code := wikiInitAction([]string{"--scope=realm", "--root=" + root}, root, &buf)
+	code := (ActionOptions{}).wikiInitAction([]string{"--scope=realm", "--root=" + root}, root, &buf)
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0, output:\n%s", code, buf.String())
 	}
@@ -292,7 +292,7 @@ func TestWikiInitAction_ScopeConflict_ExitsError_LeavesMarkerUntouched(t *testin
 	}
 
 	var buf bytes.Buffer
-	code := wikiInitAction([]string{"--scope=realm", "--root=" + root}, root, &buf)
+	code := (ActionOptions{}).wikiInitAction([]string{"--scope=realm", "--root=" + root}, root, &buf)
 	if code != 1 {
 		t.Errorf("exit code = %d, want 1, output:\n%s", code, buf.String())
 	}
@@ -315,7 +315,7 @@ func TestWikiInitAction_ScopeConflict_ExitsError_LeavesMarkerUntouched(t *testin
 func TestWikiInitAction_ScopeMarkerIdempotent(t *testing.T) {
 	root := t.TempDir()
 	var buf1 bytes.Buffer
-	if code := wikiInitAction([]string{"--scope=repo", "--root=" + root}, root, &buf1); code != 0 {
+	if code := (ActionOptions{}).wikiInitAction([]string{"--scope=repo", "--root=" + root}, root, &buf1); code != 0 {
 		t.Fatalf("first run exit code = %d, output:\n%s", code, buf1.String())
 	}
 
@@ -326,7 +326,7 @@ func TestWikiInitAction_ScopeMarkerIdempotent(t *testing.T) {
 	}
 
 	var buf2 bytes.Buffer
-	if code := wikiInitAction([]string{"--scope=repo", "--root=" + root}, root, &buf2); code != 0 {
+	if code := (ActionOptions{}).wikiInitAction([]string{"--scope=repo", "--root=" + root}, root, &buf2); code != 0 {
 		t.Fatalf("second run exit code = %d, output:\n%s", code, buf2.String())
 	}
 

@@ -5,8 +5,8 @@ package serve
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -46,6 +46,26 @@ func writeAPIError(w http.ResponseWriter, status int, msg string) {
 	_, _ = w.Write(b)
 }
 
+func writeDocumentPathError(w http.ResponseWriter, scope documentScope, rel string) {
+	if !scope.bound {
+		if _, contained := safeResolve(scope.root, rel); contained {
+			writeAPIError(w, http.StatusNotFound, "not found: "+rel)
+			return
+		}
+	}
+	writeAPIError(w, http.StatusNotFound, "path traversal rejected: "+rel)
+}
+
+func documentGraph(g graphProvider, scope documentScope) *Graph {
+	if isNilGraphProvider(g) {
+		return nil
+	}
+	if store, ok := g.(*snapshotStore); ok {
+		return store.currentGraphInScope(scope)
+	}
+	return g.currentGraph()
+}
+
 // apiPageResponse is the /api/page payload for a file.
 type apiPageResponse struct {
 	HTML       string          `json:"html"`
@@ -72,67 +92,46 @@ func NewAPIPageHandler(root string, g graphProvider, landing string) http.Handle
 			relPath = landing
 		}
 
-		var graph *Graph
-		if !isNilGraphProvider(g) {
-			graph = g.currentGraph()
-		}
-
-		abs, ok := safeResolve(root, relPath)
+		scope := loadDocumentScope(root)
+		file, ok := scope.open(relPath)
 		if !ok {
-			writeAPIError(w, http.StatusNotFound, "path traversal rejected: "+relPath)
+			writeDocumentPathError(w, scope, relPath)
 			return
 		}
 
-		info, statErr := os.Stat(abs)
+		defer file.Close()
+
+		info, statErr := file.Stat()
 		if statErr != nil {
 			writeAPIError(w, http.StatusNotFound, "not found: "+relPath)
 			return
 		}
 
+		renderRelPath := normRelPath(relPath)
+		var data []byte
+		var err error
 		if info.IsDir() {
-			dirRel := normRelPath(relPath)
-			if idxRel, found := resolveDirIndex(root, dirRel); found {
-				idxAbs, idxOK := safeResolve(root, idxRel)
-				if !idxOK {
-					writeAPIError(w, http.StatusNotFound, "not found: "+relPath)
+			if idxRel, found := scope.resolveDirIndex(renderRelPath); found {
+				renderRelPath = idxRel
+				data, err = scope.readFile(idxRel)
+			} else {
+				entries, listOK := scope.listDirEntries(renderRelPath, file)
+				if !listOK {
+					writeAPIError(w, http.StatusNotFound, "cannot list folder: "+relPath)
 					return
 				}
-				data, err := readFile(idxAbs)
-				if err != nil {
-					writeAPIError(w, http.StatusNotFound, "not found: "+relPath)
-					return
-				}
-				bodyHTML, hasMermaid, renderErr := RenderMarkdownWithGraph(data, root, idxRel, graph)
-				if renderErr != nil {
-					writeAPIError(w, http.StatusInternalServerError, "render failed: "+renderErr.Error())
-					return
-				}
-				writeAPIJSON(w, apiPageResponse{
-					HTML:       bodyHTML,
-					Title:      baseName(idxRel),
-					RelPath:    idxRel,
-					HasMermaid: hasMermaid,
-					Breadcrumb: breadcrumbSegmentsData(idxRel),
-				})
+				writeAPIJSON(w, apiPageDirResponse{Dir: true, RelPath: renderRelPath, Entries: entries})
 				return
 			}
-
-			entries, listOK := listDirEntries(root, dirRel)
-			if !listOK {
-				writeAPIError(w, http.StatusNotFound, "cannot list folder: "+relPath)
-				return
-			}
-			writeAPIJSON(w, apiPageDirResponse{Dir: true, RelPath: dirRel, Entries: entries})
-			return
+		} else {
+			data, err = io.ReadAll(file)
 		}
-
-		data, err := readFile(abs)
 		if err != nil {
 			writeAPIError(w, http.StatusNotFound, "not found: "+relPath)
 			return
 		}
-		renderRelPath := normRelPath(relPath)
-		bodyHTML, hasMermaid, renderErr := RenderMarkdownWithGraph(data, root, renderRelPath, graph)
+		graph := documentGraph(g, scope)
+		bodyHTML, hasMermaid, renderErr := scope.renderPage(data, renderRelPath, graph)
 		if renderErr != nil {
 			writeAPIError(w, http.StatusInternalServerError, "render failed: "+renderErr.Error())
 			return
@@ -163,13 +162,15 @@ func NewAPIFileHandler(root string) http.Handler {
 			return
 		}
 
-		abs, ok := safeResolve(root, relPath)
+		scope := loadDocumentScope(root)
+		file, ok := scope.open(relPath)
 		if !ok {
-			writeAPIError(w, http.StatusNotFound, "path traversal rejected: "+relPath)
+			writeDocumentPathError(w, scope, relPath)
 			return
 		}
 
-		data, err := os.ReadFile(abs) //nolint:gosec // path validated by safeResolve
+		defer file.Close()
+		data, err := io.ReadAll(file)
 		if err != nil {
 			writeAPIError(w, http.StatusNotFound, "not found: "+relPath)
 			return
@@ -215,13 +216,15 @@ func NewAPIRailHandler(root string, g graphProvider) http.Handler {
 			return
 		}
 
-		abs, ok := safeResolve(root, relPath)
+		scope := loadDocumentScope(root)
+		file, ok := scope.open(relPath)
 		if !ok {
-			writeAPIError(w, http.StatusNotFound, "path traversal rejected: "+relPath)
+			writeDocumentPathError(w, scope, relPath)
 			return
 		}
 
-		graph := g.currentGraph()
+		defer file.Close()
+		graph := documentGraph(g, scope)
 		rel := normRelPath(relPath)
 		if !graph.Has(rel) {
 			writeAPIError(w, http.StatusNotFound, "not found: "+relPath)
@@ -240,10 +243,14 @@ func NewAPIRailHandler(root string, g graphProvider) http.Handler {
 		if outbound == nil {
 			outbound = []Edge{}
 		}
+		var properties []propKV
+		if data, err := io.ReadAll(file); err == nil {
+			properties = railProperties(data)
+		}
 		writeAPIJSON(w, apiRailResponse{
 			RelPath:      rel,
 			Orphan:       graph.IsOrphan(rel),
-			Properties:   railProperties(abs),
+			Properties:   properties,
 			Outbound:     outbound,
 			Backlinks:    apiBacklinks,
 			GraphDataURL: "/graph/data?node=" + rel + "&depth=1",

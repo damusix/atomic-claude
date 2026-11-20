@@ -3,12 +3,14 @@
 package serve
 
 import (
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/wiki"
 )
 
@@ -144,6 +146,27 @@ func walkMarkdownFilesRecursive(dir string) []string {
 	return results
 }
 
+func (scope documentScope) navMarkdownFiles(dirRel string, recursive bool) []string {
+	var files []string
+	_ = scope.walk(dirRel, func(rel, _ string, d fs.DirEntry) error {
+		if rel == dirRel {
+			return nil
+		}
+		if d.IsDir() {
+			if !recursive {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if strings.HasSuffix(d.Name(), ".md") && !hiddenFile(d.Name()) {
+			files = append(files, strings.TrimPrefix(rel, dirRel+"/"))
+		}
+		return nil
+	})
+	sort.Strings(files)
+	return files
+}
+
 func stripMDExt(name string) string {
 	return strings.TrimSuffix(name, ".md")
 }
@@ -165,14 +188,35 @@ type navGroupJSON struct {
 
 // buildRealmNavGroupsJSON builds the five realm-scope nav groups.
 func buildRealmNavGroupsJSON(opts NavOptions) []navGroupJSON {
+	scope := loadDocumentScope(opts.RealmRoot)
+	filesIn := func(rel string, recursive bool) []string {
+		if scope.bound {
+			return scope.navMarkdownFiles(rel, recursive)
+		}
+		dir := filepath.Join(opts.RealmRoot, filepath.FromSlash(rel))
+		if recursive {
+			return walkMarkdownFilesRecursive(dir)
+		}
+		return walkMarkdownFiles(dir)
+	}
+
 	groups := make([]navGroupJSON, 0, 5)
 
-	groups = append(groups, navGroupJSON{
-		Name:  "Realm",
-		Items: []navNodeJSON{{Label: "index", RelPath: "wiki/index.md"}},
-	})
-
-	members, _ := wiki.ReadScanMembers(opts.WikiIndexPath)
+	realmItems := []navNodeJSON{{Label: "index", RelPath: "wiki/index.md"}}
+	var members []wiki.Member
+	if scope.bound {
+		if _, ok := scope.resolve("wiki/index.md"); !ok {
+			realmItems = []navNodeJSON{}
+		}
+		if rel, ok := realmNavRelative(opts.RealmRoot, scope.root, opts.WikiIndexPath); ok {
+			if data, err := scope.readFile(filepath.ToSlash(rel)); err == nil {
+				members = wiki.ParseScanMembers(data)
+			}
+		}
+	} else if opts.WikiIndexPath != "" {
+		members, _ = wiki.ReadScanMembers(opts.WikiIndexPath)
+	}
+	groups = append(groups, navGroupJSON{Name: "Realm", Items: realmItems})
 
 	// A member with nothing to expand stays a flat leaf rather than a folder
 	// holding only its own index.
@@ -181,17 +225,25 @@ func buildRealmNavGroupsJSON(opts NavOptions) []navGroupJSON {
 		name := filepath.Base(m.Path)
 		stale := opts.StaleMembers[m.Path]
 		landing := memberLinkRel(opts.RealmRoot, m)
+		if scope.bound {
+			if _, ok := scope.resolve(m.Path); !ok {
+				continue
+			}
+			if _, ok := scope.resolve(landing); !ok {
+				continue
+			}
+		}
 
 		children := []navNodeJSON{{Label: "index", RelPath: landing}}
 		memberDocsRel := filepath.ToSlash(m.Path) + "/docs"
-		if docsFiles := walkMarkdownFilesRecursive(filepath.Join(opts.RealmRoot, filepath.FromSlash(memberDocsRel))); len(docsFiles) > 0 {
+		if docsFiles := filesIn(memberDocsRel, true); len(docsFiles) > 0 {
 			children = append(children, navNodeJSON{
 				Label:    "docs",
 				Children: folderTreeToJSON(memberDocsRel, docsFiles),
 			})
 		}
 		wikiRepoRel := "wiki/repos/" + name
-		if wikiFiles := walkMarkdownFilesRecursive(filepath.Join(opts.RealmRoot, "wiki", "repos", name)); len(wikiFiles) > 0 {
+		if wikiFiles := filesIn(wikiRepoRel, true); len(wikiFiles) > 0 {
 			children = append(children, navNodeJSON{
 				Label:    "wiki",
 				Children: folderTreeToJSON(wikiRepoRel, wikiFiles),
@@ -206,14 +258,19 @@ func buildRealmNavGroupsJSON(opts NavOptions) []navGroupJSON {
 	}
 	groups = append(groups, navGroupJSON{Name: "Repos", Items: repoItems})
 
-	concerns := walkMarkdownFiles(filepath.Join(opts.RealmRoot, "wiki", "concerns"))
+	concerns := filesIn("wiki/concerns", false)
 	concernItems := make([]navNodeJSON, 0, len(concerns))
 	for _, name := range concerns {
 		concernItems = append(concernItems, navNodeJSON{Label: stripMDExt(name), RelPath: "wiki/concerns/" + name})
 	}
 	groups = append(groups, navGroupJSON{Name: "Concerns", Items: concernItems})
 
-	buckets, _ := wiki.ReadBucketEntries(opts.WikiIndexPath)
+	var buckets []wiki.BucketEntry
+	if scope.bound {
+		buckets = scope.buckets()
+	} else {
+		buckets, _ = wiki.ReadBucketEntries(opts.WikiIndexPath)
+	}
 	bucketItems := make([]navNodeJSON, 0, len(buckets))
 	for _, b := range buckets {
 		dir := b.Path
@@ -221,10 +278,19 @@ func buildRealmNavGroupsJSON(opts NavOptions) []navGroupJSON {
 			dir = filepath.Join(opts.RealmRoot, b.Name)
 		}
 		prefix := b.Name
-		if rel, err := filepath.Rel(opts.RealmRoot, dir); err == nil {
+		base := opts.RealmRoot
+		if scope.bound {
+			base = scope.root
+		}
+		if rel, err := filepath.Rel(base, dir); err == nil {
 			prefix = filepath.ToSlash(rel)
 		}
-		files := walkMarkdownFilesRecursive(dir)
+		var files []string
+		if scope.bound {
+			files = filesIn(prefix, true)
+		} else {
+			files = walkMarkdownFilesRecursive(dir)
+		}
 		bucketItems = append(bucketItems, navNodeJSON{
 			Label:    b.Name,
 			Children: folderTreeToJSON(prefix, files),
@@ -240,6 +306,21 @@ func buildRealmNavGroupsJSON(opts NavOptions) []navGroupJSON {
 	})
 
 	return groups
+}
+
+func realmNavRelative(root, canonicalRoot, target string) (string, bool) {
+	if target == "" {
+		return "", false
+	}
+	absRoot, rootErr := filepath.Abs(root)
+	absTarget, targetErr := filepath.Abs(target)
+	if rootErr != nil || targetErr != nil {
+		return "", false
+	}
+	if rel, ok := config.RepoRelative(absRoot, absTarget); ok {
+		return rel, true
+	}
+	return config.RepoRelative(canonicalRoot, absTarget)
 }
 
 // buildRepoNavGroupsJSON builds the repo-scope docs tree from the snapshot's

@@ -422,15 +422,27 @@ func buildWikisBlock(paths []string) string {
 	return sb.String()
 }
 
+func regularWikiFile(path string) (os.FileInfo, error) {
+	info, err := os.Lstat(path)
+	if err == nil && !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s must be a regular file", path)
+	}
+	return info, err
+}
+
 // writeFileAtomic writes data to path via a temp file + rename, keeping an
 // existing file's permission bits and giving a new file 0644.
 func writeFileAtomic(path string, data []byte) error {
+	info, err := regularWikiFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("mkdir %s: %w", dir, err)
 	}
 	perm := os.FileMode(0o644)
-	if info, err := os.Stat(path); err == nil {
+	if info != nil {
 		perm = info.Mode().Perm()
 	}
 	tmp, err := os.CreateTemp(dir, ".registry-*.tmp")

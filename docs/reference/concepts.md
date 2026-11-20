@@ -105,7 +105,7 @@ A wiki is a generated knowledge graph for a tree of code: context curated once a
 | Scope | Root | Maps | Steered by |
 |-------|------|------|------------|
 | **repo** | `docs/wiki/` inside the repository | one project: framework, commands, domain map | `docs/wiki/AGENTS.md` (+ `CLAUDE.md` loader) |
-| **realm** | `<root>/wiki/`, its own git repo | a folder of repositories: what each is, what cuts across them | `<root>/AGENTS.md` (+ `CLAUDE.md` loader) |
+| **realm** | `<root>/wiki/`, an independent Git repository or a link into the managed shared checkout | a folder of repositories: what each is, what cuts across them | `<root>/AGENTS.md` (+ `CLAUDE.md` loader), or separate team and local steering in a shared realm |
 
 They compose. A realm summarizes the repos under it without writing into them, and a member repo with its own wiki is linked rather than re-summarized.
 
@@ -126,7 +126,9 @@ On a monorepo or unconventional layout inference guesses wrong. `docs/wiki/AGENT
 ### Realm scope
 
 
-A realm wiki maps how a folder of repos relate: shared libraries, contracts one repo owns and another consumes, patterns duplicated across services. It is a git-initialized knowledge base at `<root>/wiki/`, registered in the authoritative `~/.atomic/wikis.md`, which is projected into the harness global file's `<wikis>` block so every session in any repo knows it exists.
+A realm wiki maps how a folder of repos relate: shared libraries, contracts one repo owns and another consumes, patterns duplicated across services. The realm is registered in `~/.atomic/wikis.md`, which supplies the `<wikis>` block in the harness's global instructions.
+
+An independent wiki commits to its own Git repository. A linked wiki lives in the managed shared checkout; editing it does not exchange changes with teammates. Run `atomic realm sync` to exchange changes. See the [realm-sharing guide](/guides/realm-sharing) for setup and local steering.
 
 | Verb | Does |
 |------|------|
@@ -135,7 +137,7 @@ A realm wiki maps how a folder of repos relate: shared libraries, contracts one 
 | `atomic wiki stale` | Report repos added, removed, or reclassified since the last scan |
 | `atomic serve` | Browse the realm as a navigable graph in the browser |
 
-An `AGENTS.md` at the realm root steers all of it (with a thin `CLAUDE.md` loader beside it for Claude Code), again through the harness: Claude Code walks up the directory tree loading every `CLAUDE.md` it finds, and the walk crosses repo boundaries. Rules that span repos go there once and reach every session inside the realm.
+In an independent realm, root `AGENTS.md` carries realm-wide steering (with a thin `CLAUDE.md` loader for Claude Code). A shared realm keeps team instructions separate from local steering.
 
 
 ### Scope resolution

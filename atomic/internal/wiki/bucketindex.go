@@ -76,7 +76,7 @@ func walkBucketTopics(bucketDir string) ([]BucketTopic, error) {
 		if name == "index.md" {
 			continue
 		}
-		if !strings.HasSuffix(name, ".md") {
+		if !e.Type().IsRegular() || !strings.HasSuffix(name, ".md") {
 			continue
 		}
 		fileNames = append(fileNames, name)
@@ -143,7 +143,7 @@ func countDescendantMD(dir string) (int, error) {
 			}
 			return nil
 		}
-		if osJunk[d.Name()] {
+		if !d.Type().IsRegular() || osJunk[d.Name()] {
 			return nil
 		}
 		if strings.HasSuffix(d.Name(), ".md") {
@@ -180,7 +180,7 @@ func walkDirChildren(dir string) ([]BucketTopic, error) {
 			topic.Path = name
 			topic.Dir = true
 			topics = append(topics, topic)
-		case name != "index.md" && strings.HasSuffix(name, ".md"):
+		case e.Type().IsRegular() && name != "index.md" && strings.HasSuffix(name, ".md"):
 			topic := readTopicMeta(filepath.Join(dir, name))
 			topic.Path = name
 			topics = append(topics, topic)
@@ -232,9 +232,11 @@ func readEntryMeta(path, fallbackTitle string) BucketTopic {
 	var meta map[string]any
 	var body string
 
-	if data, err := os.ReadFile(path); err == nil {
-		if m, b, ferr := frontmatter.Parse(string(data)); ferr == nil {
-			meta, body = m, b
+	if !isBucketSymlink(path) {
+		if data, err := os.ReadFile(path); err == nil {
+			if m, b, ferr := frontmatter.Parse(string(data)); ferr == nil {
+				meta, body = m, b
+			}
 		}
 	}
 
@@ -244,6 +246,11 @@ func readEntryMeta(path, fallbackTitle string) BucketTopic {
 		Tags:        deriveTags(meta),
 		Indexed:     hasRecognizedFrontmatterKey(meta),
 	}
+}
+
+func isBucketSymlink(path string) bool {
+	info, err := os.Lstat(path)
+	return err == nil && info.Mode()&os.ModeSymlink != 0
 }
 
 // hasRecognizedFrontmatterKey treats a nil meta — no block, or an unparseable
@@ -415,6 +422,9 @@ func indexOneDir(dir string, topics []BucketTopic, check bool) (IndexResult, err
 	}
 
 	indexPath := filepath.Join(dir, "index.md")
+	if isBucketSymlink(indexPath) {
+		return res, nil
+	}
 
 	var document string
 	if data, err := os.ReadFile(indexPath); err == nil {
@@ -449,6 +459,10 @@ func IndexDir(dir string, check bool) (IndexResult, error) {
 // RebuildBucketTree indexes bucketDir and every walkable directory under it,
 // summing counts; each failing directory adds one error and the walk goes on.
 func RebuildBucketTree(bucketDir string) (TopicCounts, []error) {
+	return rebuildBucketTree(bucketDir, "")
+}
+
+func rebuildBucketTree(bucketDir, protectedDir string) (TopicCounts, []error) {
 	var total TopicCounts
 	var errs []error
 
@@ -460,12 +474,14 @@ func RebuildBucketTree(bucketDir string) (TopicCounts, []error) {
 			return
 		}
 
-		res, err := indexOneDir(dir, topics, false)
-		if err != nil {
-			errs = append(errs, err)
+		if protectedDir == "" || filepath.Clean(dir) != protectedDir {
+			res, err := indexOneDir(dir, topics, false)
+			if err != nil {
+				errs = append(errs, err)
+			}
+			total.Indexed += res.Indexed
+			total.Unindexed += res.Unindexed
 		}
-		total.Indexed += res.Indexed
-		total.Unindexed += res.Unindexed
 
 		for _, t := range topics {
 			if t.Dir {
@@ -507,7 +523,11 @@ func renderBucketList(wikiDir string, entries []BucketEntry) string {
 			}
 
 			link += "/index.md"
-			desc := DeriveMemberDescription(filepath.Join(e.Path, "index.md"))
+			desc := ""
+			indexPath := filepath.Join(e.Path, "index.md")
+			if !isBucketSymlink(indexPath) {
+				desc = DeriveMemberDescription(indexPath)
+			}
 			if desc != "" {
 				fmt.Fprintf(&sb, "- [%s](%s) - %s", e.Name, link, desc)
 			} else {
@@ -529,6 +549,9 @@ func rebuildRealmBucketList(wikiDir string, entries []BucketEntry) error {
 	}
 
 	indexPath := filepath.Join(wikiDir, "index.md")
+	if isBucketSymlink(indexPath) {
+		return nil
+	}
 
 	var document string
 	if data, readErr := os.ReadFile(indexPath); readErr == nil {
@@ -551,32 +574,47 @@ func rebuildRealmBucketList(wikiDir string, entries []BucketEntry) error {
 
 // RebuildAllBucketIndexes rebuilds each bucket tree, then the realm list, and
 // returns counts by bucket name. Each failure adds one error without stopping the loop.
-//
-// root is unused; it exists for call-site symmetry with Scan, since registry
-// bucket paths are already absolute.
 func RebuildAllBucketIndexes(root, wikiDir string) (map[string]TopicCounts, []error) {
+	var err error
+	wikiDir, err = filepath.Abs(wikiDir)
+	if err != nil {
+		return nil, []error{err}
+	}
+	root, err = filepath.Abs(root)
+	if err != nil {
+		return nil, []error{err}
+	}
 	indexPath := filepath.Join(wikiDir, "index.md")
+	if isBucketSymlink(indexPath) {
+		return map[string]TopicCounts{}, nil
+	}
 
 	entries, err := readBucketEntries(indexPath)
 	if err != nil {
 		return nil, []error{fmt.Errorf("read bucket entries: %w", err)}
 	}
 
+	resolved := resolveBucketEntries(root, entries)
+
+	results, errs := rebuildBucketTrees(resolved, "")
+	if err := rebuildRealmBucketList(wikiDir, resolved); err != nil {
+		errs = append(errs, err)
+	}
+	return results, errs
+}
+
+func rebuildBucketTrees(entries []BucketEntry, protectedDir string) (map[string]TopicCounts, []error) {
 	results := map[string]TopicCounts{}
 	var errs []error
 	for _, e := range entries {
 		if !fileExists(e.Path) {
 			continue
 		}
-		counts, rebErrs := RebuildBucketTree(e.Path)
+		counts, rebErrs := rebuildBucketTree(e.Path, protectedDir)
 		results[e.Name] = counts
 		for _, rebErr := range rebErrs {
 			errs = append(errs, fmt.Errorf("bucket %q: %w", e.Name, rebErr))
 		}
-	}
-
-	if err := rebuildRealmBucketList(wikiDir, entries); err != nil {
-		errs = append(errs, err)
 	}
 
 	return results, errs

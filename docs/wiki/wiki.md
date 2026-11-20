@@ -14,9 +14,11 @@ A set of related repos has no shared description of itself. Answering "what does
 
 A wiki is that description. Code owns structure (member discovery, classification, managed regions, bucket indexes, the realm registry); the model owns meaning (repo summaries and cross-cutting concerns). Nothing tracks whether a summary or concern is current: `atomic wiki stale` reports membership drift only, and `/refresh-wiki` re-authors only the summaries and concerns the user picks.
 
-Repo scope and realm scope share almost no implementation. **Repo scope** lives at [`docs/wiki/`](.) inside one repo and is built by the signals domain; this package contributes only its steering pair and the pointer-card projection that `atomic wiki init --scope repo` runs. **Realm scope** lives at `<root>/wiki/`, its own git repo, spans the member repos found under `<root>`, and is built by [`atomic/internal/wiki/`](../../atomic/internal/wiki). `/refresh-wiki` is the single entry point and detects which applies.
+Repo scope and realm scope share almost no implementation. **Repo scope** lives at [`docs/wiki/`](.) inside one repo and is built by the signals domain; this package contributes only its steering pair and the pointer-card projection that `atomic wiki init --scope repo` runs. **Realm scope** lives at `<root>/wiki/`, spans the member repos found under `<root>`, and is built by [`atomic/internal/wiki/`](../../atomic/internal/wiki). An independent realm wiki has its own Git repository; a linked wiki is content in the realm's managed checkout. `/refresh-wiki` detects the scope and runs the realm refresh only for an independent wiki.
 
 The package also owns the list of realms a machine knows about: `~/.atomic/wikis.md` is the authority, and every enrolled harness's global steering file carries a derived `<wikis>` block. Without that registry, `atomic where`, the workflow resolver, and code-intel realm fan-out cannot place a directory inside a realm that has no `scope = "realm"` marker above it.
+
+Realm sharing lets collaborators exchange selected wiki pages and capture folders without relocating their workspaces or publishing their private buckets. `atomic realm join <git-url>` receives the shared definition and content; `atomic realm link` lets the recipient review which paths to use in their realm.
 
 
 ## How it works
@@ -47,7 +49,7 @@ Most of [`atomic/internal/wiki/`](../../atomic/internal/wiki) is realm scope. Th
 
 ### Realm refresh
 
-Only pending repos get a summary without asking; an existing summary or concern changes only when the user picks it, and the closing scan runs after every write.
+For an independent wiki, only pending repos get a summary without asking; an existing summary or concern changes only when the user picks it, and the closing scan runs after every write.
 
 ```mermaid
 flowchart TD
@@ -101,19 +103,149 @@ A version and a documented contract value are the only carve-out. This repo's [`
 
 ### Verbs
 
-`atomic wiki <verb>`, dispatched by `wikiAction` in [`atomic/internal/wiki/action.go`](../../atomic/internal/wiki/action.go). Any other verb exits 1 with `unknown verb`. `runWiki` in [`atomic/cmd/atomic/cmd_wiki.go`](../../atomic/cmd/atomic/cmd_wiki.go) injects the home directory, the cwd, and `wikiSteeringPaths`, the resolver for the files `scan` projects into.
+`atomic wiki <verb>` is dispatched by `WikiAction` in [`atomic/internal/wiki/action.go`](../../atomic/internal/wiki/action.go). Unknown verbs exit 1. `runWiki` in [`atomic/cmd/atomic/cmd_wiki.go`](../../atomic/cmd/atomic/cmd_wiki.go) supplies the home and working directories, steering paths, and realm-sharing resolvers for scan, init, and bucket commands.
 
 | Verb | Args and flags | Behavior |
 |------|----------------|----------|
-| `scan` | `--root` | Discover members, classify, scaffold `wiki/`, rewrite the managed regions, rebuild bucket indexes, write the realm scope marker, register `wiki/index.md` in `~/.atomic/wikis.md` and add it to the `<wikis>` block of every enrolled target's global steering file. Warns on stderr for each projected entry the authority lacks. Prints a member handoff to stdout. |
+| `scan` | `--root` | Discover and classify local members, rebuild bucket indexes, write the realm scope marker, and register `wiki/index.md` locally and in enrolled steering. Scaffold and rewrite the wiki's scan and member regions only for an independent wiki. Warn on stderr about projected registry entries absent from the authority. Print a member handoff to stdout. |
 | `stale` | `--root` | Read-only membership-drift report: `DRIFT added\|removed\|status` lines. Exit 0 no drift, 1 drift, 2 hard error. |
-| `init` | `--scope repo\|realm`, `--root` | Writes the scope marker in `<state-root>/atomic.toml` and the scope's steering pair in the root's `[steering] claude` mode (see Steering pair modes). The guidance is the fixed-content repo scaffold under [`docs/wiki/`](.), or only the `@index.md` self-reference under `wiki/`. An unknown or unreadable mode fails the write. Prints `created <path>` per file written or changed, and per file conversion removes. Repo scope then re-renders the existing pointer cards and projects them to enrolled Claude and OMP targets. |
+| `init` | `--scope repo\|realm`, `--root` | Write the scope marker in `<state-root>/atomic.toml`. Unless the realm wiki is already a verified shared link, write the scope's steering pair in the root's `[steering] claude` mode (see Steering pair modes). An unknown or unreadable mode fails the pair write. Report created or changed paths. Repo scope also re-renders the existing pointer cards and projects them to enrolled Claude and OMP targets. |
 | `linkify` | `--root` | Rewrite path citations under `wiki/` as relative markdown links. Idempotent; never touches fenced code. |
-| `bucket add <name>` | `--root` | Register a bucket: folder, `index.md` stub, `<wiki-buckets>` registry entry, capture-surfaces bullet in the realm root's steering file, then a `RebuildBucketTree` pass. Refuses a name already in the registry. |
-| `bucket list` | `--root` | One `<name>\t<path>` line per registered bucket. Exit 0 even when none are registered. |
+| `bucket add <name>` | `--root` | Create or prepare a local bucket folder and build its index. An unbound realm uses its wiki's `<wiki-buckets>` registry and local steering; a bound realm records a private bucket in the binding instead. Refuses duplicate registrations. |
+| `bucket list` | `--root` | Print a `<name>\t<path>` line for each usable registration. Exit 0 when the list is empty. |
 | `bucket doc <bucket> <slug>` | `--root` | Scaffold the item folder `<bucket>/<slug>/index.md` plus its `<slug>/01_raw/index.md` stage, print the `<slug>/index.md` path, then rebuild the bucket's indexes. Refuses an existing `<slug>` path. |
 | `bucket skill <bucket>` | `--root` | Scaffold `<realm>/.claude/skills/<bucket>-management/SKILL.md`. No-op if present. |
-| `bucket index [<bucket>]` | `--root` | Force a rebuild of the `<bucket-docs>` region in every directory of one bucket (or every registered bucket) and the `<wiki-bucket-list>` region outside a scan, printing `<name>: N indexed, M unindexed` per bucket, summed over the whole tree. |
+| `bucket index [<bucket>]` | `--root` | Rebuild `<bucket-docs>` in one bucket or each usable registered bucket. Refresh the realm `<wiki-bucket-list>` only when unbound. |
+
+### Realm sharing topology
+
+Each developer keeps a local workspace and a managed Git checkout. The remote exchanges content and definitions between checkouts; local symlinks expose selected content to each workspace.
+
+```mermaid
+flowchart TD
+    %% source: docs/design/realm-sharing.md, atomic/internal/realmshare/manifest.go, atomic/internal/realmshare/binding.go, atomic/internal/realmshare/share.go, atomic/internal/realmshare/join.go, atomic/internal/realmshare/sync.go, atomic/internal/realmshare/orientation.go
+    accTitle: Local realms and their managed checkouts
+    accDescr: Each realm uses its own binding and link receipts to reach its checkout. Sync exchanges Git commits with the same remote.
+    Remote["Binding.Remote"]
+    CloneA["Binding.ClonePath<br/>A: realm.toml"]
+    CloneB["Binding.ClonePath<br/>B: realm.toml"]
+    RealmA["Binding.Links<br/>A: realm-share.toml"]
+    RealmB["Binding.Links<br/>B: realm-share.toml"]
+    Remote <-->|"Sync"| CloneA
+    Remote <-->|"Sync"| CloneB
+    RealmA -->|"witnessed symlinks"| CloneA
+    RealmB -->|"witnessed symlinks"| CloneB
+```
+
+| Surface | What it records |
+|---------|-----------------|
+| Managed checkout, `~/.atomic/realms/<name>/` by default | Selected content and the shared Git history. `realm.toml` holds the format version, realm ID, clone-relative sources, realm-relative destinations and bucket registrations, and member definitions. Member definitions are not member repository contents. |
+| `<state-root>/realm-share.toml` | The local binding to a checkout, remote, and branch; private bucket registrations, trust and activation records, link receipts, backups and restoration records, pending operations, and cached sync state. |
+| Local realm | The workspace for member repos, private folders, and linked paths. `LinkedRoots` lists logical paths only when their declaration, source, and link witness agree. The backing checkout is storage, not the active realm. |
+
+### Receiving a shared bucket
+
+When a publisher adds a bucket mapping to an already-bound realm, `sync` gives the recipient the content and portable registration. The bucket becomes usable in the recipient's wiki commands only after the recipient reviews, approves, and installs the link.
+
+```mermaid
+sequenceDiagram
+    %% source: docs/design/realm-sharing.md, atomic/cmd/atomic/cmd_realm.go, atomic/internal/realmshare/wiki_buckets.go, atomic/internal/realmshare/share.go, atomic/internal/realmshare/recovery.go, atomic/internal/realmshare/sync.go, atomic/internal/realmshare/status.go, atomic/internal/realmshare/links.go
+    participant B as Publisher
+    participant R as Binding.Remote
+    participant A as Recipient
+    B->>B: AddWikiBucket registers privately
+    B->>B: PreviewShare reviews bucket and content
+    B->>R: ApplyShare publishes content and realm.toml
+    R-->>B: Push succeeds
+    B->>B: cutoverShare records link and removes private registration
+    A->>R: Sync
+    R-->>A: Receive content and realm.toml
+    A->>A: InspectStatus reports available or conflicting
+    alt Destination conflicts
+        A->>A: Stop without installing a link
+    else Mapping available
+        A->>A: PreviewLink presents the selection for review
+        A->>A: Request approval of the reviewed plan
+        opt Recipient approves
+            A->>A: ApplyLink installs the link
+        end
+    end
+```
+
+On a bound realm, `WikiBuckets` combines usable private directories with portable buckets covered by a verified directory link. It resolves shared bucket paths against the consuming realm and gives same-name private registrations precedence. An ordinary real parent directory without a private registration does not block a nested link. `link` refuses an overlapping private bucket registration or an occupied destination unless the destination is already an owned link or a verified restored original.
+
+### Selected publication and local cutover
+
+`ApplyShare` requires a successful publication before `cutoverShare` can replace originals. A completed push can outlive a failed local cutover.
+
+```mermaid
+flowchart TD
+    %% source: docs/design/realm-sharing.md, atomic/internal/realmshare/share.go, atomic/internal/realmshare/recovery.go, atomic/internal/realmshare/git.go, atomic/internal/realmshare/links.go
+    accTitle: Share publication precedes local cutover
+    accDescr: After publication, validation can stop cutover before any originals move. If a later step fails, cutover rolls back only its own moves without overwriting replacements.
+    Review["PreviewShare<br/>ApplyShare rechecks"] --> Commit["prepareCommit<br/>or reuse PendingShare"]
+    Commit --> Push{"sharePush succeeds<br/>or already published?"}
+    Push -->|"no"| Pending["PendingShare<br/>originals unchanged"]
+    Push -->|"yes"| Pre{"shareOriginalState<br/>revalidates originals?"}
+    Pre -->|"no"| Stop["cutoverShare stops<br/>before moving originals"]
+    Pre -->|"yes"| Cut{"cutoverShare moves<br/>and verifies links?"}
+    Cut -->|"verified"| Record["LinkReceipt and<br/>RestorationReceipt"]
+    Cut -->|"move or check failed"| Rollback["rollbackShareLink<br/>undo this attempt<br/>keep blocked backups"]
+```
+
+If a replacement blocks restoration during rollback, the original stays in the backup rather than overwriting the replacement.
+
+Initial `share` requires an existing empty Git remote and defaults to `main`. It can seed portable member definitions from a local wiki scan. An addition reuses the recorded remote and branch and requires a clean checkout at the remote tip, except when resuming a recorded share. Selection is explicit: new siblings outside a mapping stay local, while changes within a shared directory go through `sync` if they are in scope and not Git-ignored. The share preview reports exclusions and includes any portable bucket registrations covered by the selected directories.
+
+`share` and `link` both support interactive approval or an explicit path selection with `--dry-run` followed by `--yes --review <digest>`. The first noninteractive `share` also requires `--remote`. The dry run prints `Review digest: sha256:<hex>`, and apply rechecks the reviewed plan under the writer lock.
+
+`sync` can publish a prepared `PendingShare`, but it does not perform local cutover. Resume with a fresh review of the same `share` selection. The recorded originals, bucket registrations, and checkout state must still pass revalidation. Both `link` and `unlink` refuse while a share is pending.
+
+### Sync and conflicts
+
+`Sync` exchanges commits in the managed checkout, even with no local links. Only a push rejected because the remote advanced leads to fetch and integration.
+
+```mermaid
+flowchart TD
+    %% source: docs/design/realm-sharing.md, atomic/internal/realmshare/sync.go, atomic/internal/realmshare/sync_git.go
+    accTitle: Sync integrates only after remote advance
+    accDescr: Sync fetches after remote advance, validates the received snapshot before merging, and checks the checkout and history before its only retry. Conflicts preserve Git merge state.
+    Prepare["syncBoundClone<br/>validate and stage"] --> Push{"syncPush result"}
+    Push -->|"accepted"| Done["recordSync"]
+    Push -->|"other failure"| Retain["SyncResult.Head<br/>commit retained"]
+    Push -->|"remote advanced"| Fetch["syncFetch"]
+    Fetch -->|"commitManifest valid<br/>and checkout clean"| Merge{"mergeSyncHead result"}
+    Fetch -->|"fetch or check failed"| Retain
+    Merge -->|"clean"| Guard{"verifySyncCheckout<br/>requireSyncClean<br/>history.validate"}
+    Guard -->|"yes"| Retry["syncPush again"]
+    Guard -->|"no"| Retain
+    Merge -->|"conflict"| Conflict["syncConflictError"]
+    Retry -->|"accepted"| Done
+    Retry -->|"failed"| Retain
+```
+
+Sync stages only declared content and `realm.toml`. It rejects unrelated staged work, unfinished Git operations, and new or changed mappings that bypass `share`. It creates no commit for an unchanged tree. On conflict it preserves Git's merge state and reports clone-relative paths and their realm paths where mapped. Conflict resolution takes place in the checkout (`git -C <clone>`). A second remote advance returns a retry error with local work retained. Receiving a mapping never creates its local link.
+
+At fresh session startup, `realmshare.ClaimSyncReminder` checks the bound checkout for declared worktree changes or commits ahead of the cached remote tip. It compares worktree changes with `HEAD` through an isolated Git index. The hook claims the local calendar day in private realm state, across harnesses, without writing to the managed checkout or contacting the remote.
+
+### Local realm operations
+
+| Command | Local effect |
+|---------|--------------|
+| `join <git-url>` | Download and validate a shared realm, record an untrusted binding, and preview mappings and collisions without installing links or cloning members. Use the advertised default branch if it contains the manifest; otherwise require an unambiguous branch with a manifest. Repeating `join` against the recorded remote inspects the existing checkout without fetching. |
+| `link [<path>...]` | Review and apply selected mappings. Keep verified owned links. For a destination restored by `unlink`, require matching restoration evidence and a recoverable original before relinking; refuse other occupied destinations. |
+| `status [--json]` | Report available, linked, conflicting, and pending paths, drift, clone changes, and merge conflicts. Any reported remote tip, divergence, or last successful sync comes from local observations. Status does not fetch or write. |
+| `unlink` | Remove owned links and restore retained originals without overwriting replacements. Keep the binding, checkout, and recoverable work. A repeat with no links or pending work makes no path changes. |
+
+### Independent and linked wiki Git
+
+| Operation | Independent `wiki/` | Verified linked `wiki/` |
+|-----------|--------------------|-------------------------|
+| Git history | Lives in `wiki/.git`; realm `/refresh-wiki` commits in that repository. | Lives in the managed checkout. Editing through the link changes the checkout; `atomic realm sync` exchanges those changes. |
+| `atomic wiki scan` | Classifies members, scaffolds missing files, and writes the local scan and member regions. | Classifies local members for the handoff without using or rewriting the shared scan or member regions. Rebuilds usable bucket trees while protecting the shared wiki index, and still registers the local wiki path. |
+| `atomic wiki init --scope realm` and `/refresh-wiki` | Init writes the steering scaffold. Refresh runs the realm synthesis pipeline. | Init reuses the wiki without scaffolding it. Refresh stops at a `wiki/` symlink, even if dangling. |
+
+The Git import exception applies only to an entire `wiki/` with a real `wiki/.git` directory. Atomic copies the current content without `.git` and keeps the original repository and history in the local backup. It rejects a wiki with a `.git` file, including a Git worktree, and rejects other nested Git repositories rather than flattening them. Publication strips the local scan and bucket regions from `wiki/index.md`; portable bucket definitions live in `realm.toml`.
 
 ### Member discovery
 
@@ -172,21 +304,21 @@ Rule 2 outranks rule 3 only for a member not already recorded `summarized`: with
 
 ### Buckets
 
-A bucket is a user-named capture folder at the realm root, beside `wiki/`. It has no manifest and no freshness state; its only derived output is its doc index.
+A bucket is a user-named capture folder, normally beside `wiki/`. Its doc index is derived; it has no freshness state. The registration source depends on whether the realm is bound.
 
-Code writes every bucket structure; only the purpose line and conventions in the bucket's `index.md` come from the model or the user.
+For an unbound realm, Atomic scaffolds the folder and registers it in the wiki and local steering. The author supplies the purpose and conventions.
 
 ```mermaid
 flowchart TD
-    %% source: docs/design/wiki-buckets.md, atomic/internal/wiki/action.go (wikiBucketAddAction, wikiBucketDocAction, wikiBucketIndexAction), atomic/internal/wiki/bucket_registry.go, atomic/internal/wiki/bucketdoc.go, atomic/internal/wiki/bucketindex.go
-    ADD["wikiBucketAddAction"] --> REG["spliceBucketEntry<br/>writeCaptureSurfacesSection"]
+    %% source: docs/design/wiki-buckets.md, atomic/internal/wiki/action.go (addLegacyBucket, bucketDocAction, bucketIndexAction), atomic/internal/wiki/bucket_registry.go, atomic/internal/wiki/bucketdoc.go, atomic/internal/wiki/bucketindex.go
+    ADD["addLegacyBucket"] --> REG["spliceBucketEntry"]
     ADD --> STUB["createBucketIndexStub"]
     STUB --> FILL["purpose, conventions<br/>(model or user)"]
-    DOC["wikiBucketDocAction"] --> ITEM["ScaffoldBucketDoc<br/>slug/index.md, 01_raw/"]
-    IDX["Scan,<br/>wikiBucketIndexAction"] --> TREE["RebuildBucketTree<br/>bucket-docs per folder"]
+    DOC["bucketDocAction"] --> ITEM["ScaffoldBucketDoc<br/>slug/index.md, 01_raw/"]
+    IDX["Scan,<br/>bucketIndexAction"] --> TREE["rebuildBucketTree<br/>bucket-docs per folder"]
 ```
 
-`bucket add` runs these writes in order, each gated on the one before:
+In an unbound realm, `addLegacyBucket` runs these writes in order, each gated on the one before:
 
 1. `RegisterBucket` validates the name and refuses one already in the `<wiki-buckets>` registry in `wiki/index.md`, writing nothing.
 2. The bucket folder and its `index.md` stub (`createBucketIndexStub`) are created.
@@ -194,9 +326,9 @@ flowchart TD
 4. `captureSurfacesFile` picks the realm root's steering file, and `writeCaptureSurfacesSection` adds a `` - `<bucket>/index.md` `` bullet under `## Capture surfaces` there, or returns early when the section already names the bucket.
 5. `RebuildBucketTree` fills the new folder's `<bucket-docs>` region.
 
-`captureSurfacesFile` takes the first of `AGENTS.md`, [`CLAUDE.md`](../../CLAUDE.md), and [`claude.md`](../../claude.md) at the realm root that already holds a `## Capture surfaces` heading; otherwise a [`CLAUDE.md`](../../CLAUDE.md) that does not import `@AGENTS.md` (`bundlespec.ScopeSteering.LoaderWithoutImport`); otherwise `ScopeSteering.GuidanceFile(mode)`, which is [`CLAUDE.md`](../../CLAUDE.md) under `claude-md` and `AGENTS.md` otherwise. `bucket add` resolves the mode first and exits 1 when it cannot. Only under `loader`, when it lands on `AGENTS.md` and no Claude loader exists, does `bucket add` write the [`CLAUDE.md`](../../CLAUDE.md) loader through `initSteeringPair`. When a [`CLAUDE.md`](../../CLAUDE.md) exists that does not import it, `bucket add` warns that the loader needs an `@AGENTS.md` line.
+`captureSurfacesFile` takes the first of `AGENTS.md`, [`CLAUDE.md`](../../CLAUDE.md), and [`claude.md`](../../claude.md) at the realm root that already holds a `## Capture surfaces` heading; otherwise a [`CLAUDE.md`](../../CLAUDE.md) that does not import `@AGENTS.md` (`bundlespec.ScopeSteering.LoaderWithoutImport`); otherwise `ScopeSteering.GuidanceFile(mode)`, which is [`CLAUDE.md`](../../CLAUDE.md) under `claude-md` and `AGENTS.md` otherwise. `addLegacyBucket` resolves the mode before the steering write and exits 1 if resolution fails. Under `loader`, when the capture section lands on `AGENTS.md`, the action calls `initSteeringPair` unless it finds a Claude loader without the `@AGENTS.md` import. In that case it warns that the loader needs the import.
 
-`atomic wiki scan` and an all-bucket `atomic wiki bucket index` rebuild every directory of each registered bucket through `RebuildAllBucketIndexes`, then the realm `<wiki-bucket-list>` region. A named `atomic wiki bucket index <bucket>` runs `RebuildBucketTree` on that bucket alone, then `rebuildRealmBucketList`. Buckets get no inference pass.
+`atomic wiki scan` and `atomic wiki bucket index` rebuild registered bucket trees and, in an unbound realm, refresh the realm `<wiki-bucket-list>`. In a bound realm, both use the private and verified linked bucket view; neither regenerates the wiki's bucket list. A named `bucket index` limits the tree rebuild to that bucket. Buckets get no inference pass.
 
 An item is a folder, not a file. `atomic wiki bucket doc` (`ScaffoldBucketDoc`) writes `<slug>/index.md` and `<slug>/01_raw/index.md` from the embedded templates, and later stages are numbered folders the user adds (`02_findings/`, `10_publish/`):
 
@@ -230,8 +362,8 @@ Each directory's `index.md` is rebuilt before any of its subdirectories is visit
 ```mermaid
 flowchart TD
     %% source: atomic/internal/wiki/bucketindex.go, atomic/internal/wiki/action.go, atomic/internal/wiki/wiki.go, atomic/internal/wiki/registry.go
-    ALL["RebuildAllBucketIndexes<br/>Scan, all-bucket<br/>wikiBucketIndexAction"] --> RBT["RebuildBucketTree"]
-    ONE["wikiBucketAddAction<br/>wikiBucketDocAction<br/>wikiBucketIndexAction"] -->|"named bucket"| RBT
+    ALL["RebuildAllBucketIndexes<br/>or rebuildBucketTrees"] --> RBT["rebuildBucketTree"]
+    ONE["RebuildBucketTree<br/>named bucket"] --> RBT
     RBT --> WDC["walkDirChildren(dir)<br/>sorted by childLess"]
     WDC --> IOD["indexOneDir<br/>spliceManagedRegion"]
     IOD --> CH{"bucket-docs<br/>region changed?"}
@@ -263,6 +395,7 @@ XML-tag regions (`<tag>…</tag>`) delimit every code-generated splice in a wiki
 
 - A blank line on each side of the region content is mandatory, not cosmetic. CommonMark parses a tag alone on a line as an HTML block running to the next blank line, so unpadded content renders as raw text. `renderManagedRegion` is the only emitter of that padding; `rewriteScanBlock` adds none.
 - An unpaired `wiki-member-list` fails the scan: `writeMembersSection` returns the `errUnpairedRegion`, and `Scan` errors with `wiki scan: write members section`. An unpaired `<bucket-docs>` or `<wiki-bucket-list>` warns to stderr and the run continues.
+- The collision checks and scaffolding below apply to an independent wiki.
 - `atomic wiki scan` is idempotent: it rewrites only the managed regions. Content outside them, and everything under `repos/` and `concerns/`, is untouched. A fresh scan scaffolds `index.md`, [`README.md`](../../README.md), the steering pair (through `InitRealmScope`, only when `wiki/` holds no `AGENTS.md` or [`CLAUDE.md`](../../CLAUDE.md), per `hasSteeringFiles`), `repos/`, and `concerns/`, and `git init`s `wiki/`; it overwrites none of them when present, and reshaping an existing pair is left to `atomic repo init` and `atomic update`. When `atomic.toml` is malformed, the scan has already warned about it and writes the pair in `loader` shape; a readable file with an invalid `[steering] claude` value fails the scan.
 - Scan refuses a `wiki/` whose `index.md` lacks the `<wiki-scan>` marker, or which has no `index.md` and holds anything but what `wiki init --scope realm` writes, unedited. `onlyInitScaffold` accepts what `init` writes in any steering mode: an `AGENTS.md` equal to the realm scaffold beside a [`CLAUDE.md`](../../CLAUDE.md) equal to `bundlespec.ScopeSteering.LoaderDocument()` (`loader`), a lone `AGENTS.md` equal to the scaffold (`agents-md`), or a lone [`CLAUDE.md`](../../CLAUDE.md) equal to the scaffold wrapped in an Atomic block (`claude-md`) or to the bare scaffold, which an init from before the pair wrote. An empty `wiki/` is refused. The error names the path.
 
@@ -378,11 +511,24 @@ A [`CLAUDE.md`](../../CLAUDE.md) is Atomic's own when its block equals the loade
 
 | Path | Role |
 |------|------|
-| [`atomic/internal/wiki/wiki.go`](../../atomic/internal/wiki/wiki.go) | `Scan(root, Options)`: collision check, parse prior entries, `discoverMembers` (with `declaredRoots`, `classifyHits`, `skippedRoot`, `walkRoot`, `walkForRepos`), `classifyMembers`, `scaffold`, write scan block, write member list, rebuild bucket indexes. `Options.Clock` is injectable for deterministic tests. Also holds `onlyInitScaffold`, `DeriveMemberDescription`, and the legacy-marker migration. |
+| [`atomic/internal/wiki/wiki.go`](../../atomic/internal/wiki/wiki.go) | `Scan(root, Options)`: `discoverMembers`, `classifyMembers`, and bucket index rebuild. For an independent wiki it checks collisions, parses prior entries, scaffolds, and writes the scan block and member list. `Options.Clock` is injectable for deterministic tests. Also holds `onlyInitScaffold`, `DeriveMemberDescription`, and the legacy-marker migration. |
 | [`atomic/internal/wiki/stale.go`](../../atomic/internal/wiki/stale.go) | `Stale(root, out)`: membership drift only, printing `discoverMembers` warnings to stderr, and the `StaleCode*` exit constants. |
 | [`atomic/internal/wiki/scan_members.go`](../../atomic/internal/wiki/scan_members.go) | `ReadScanMembers`: lists members from the `<wiki-scan>` block without a filesystem walk. |
 | [`atomic/internal/wiki/managedregion.go`](../../atomic/internal/wiki/managedregion.go) | The XML-tag region primitive behind the `wiki-member-list`, `<wiki-bucket-list>`, and `<bucket-docs>` splices. |
 | [`atomic/internal/wiki/linkify.go`](../../atomic/internal/wiki/linkify.go) | `LinkifyWiki`. Base resolution: `repos/**` uses each summary's `repo:` frontmatter, `concerns/*.md` and `index.md` use the realm root. |
+
+### Realm sharing
+
+| Path | Role |
+|------|------|
+| [`atomic/cmd/atomic/cmd_realm.go`](../../atomic/cmd/atomic/cmd_realm.go) | Realm verbs, local realm resolution, and approval and review output. |
+| [`atomic/internal/realmshare/manifest.go`](../../atomic/internal/realmshare/manifest.go), [`atomic/internal/realmshare/binding.go`](../../atomic/internal/realmshare/binding.go) | Validate the portable definition separately from the local binding and ownership receipts. |
+| [`atomic/internal/realmshare/share.go`](../../atomic/internal/realmshare/share.go), [`atomic/internal/realmshare/recovery.go`](../../atomic/internal/realmshare/recovery.go), [`atomic/internal/realmshare/links.go`](../../atomic/internal/realmshare/links.go) | Seal and recheck selected publication, record and complete local cutover, review links, and restore originals on unlink. |
+| [`atomic/internal/realmshare/join.go`](../../atomic/internal/realmshare/join.go), [`atomic/internal/realmshare/sync.go`](../../atomic/internal/realmshare/sync.go), [`atomic/internal/realmshare/status.go`](../../atomic/internal/realmshare/status.go) | Download and bind, exchange validated commits, and inspect clone and path state without fetching. |
+| [`atomic/internal/realmshare/wiki_buckets.go`](../../atomic/internal/realmshare/wiki_buckets.go), [`atomic/internal/realmshare/orientation.go`](../../atomic/internal/realmshare/orientation.go) | Supply bucket registrations and declared, witnessed discovery roots. |
+| [`docs/design/realm-sharing.md`](../design/realm-sharing.md) | Realm topology, bucket receipt, publication boundary, and sync design. |
+| [`docs/spec/realm-sharing.md`](../spec/realm-sharing.md) | Contracts for publication, linking, sync, and native activation. |
+| [`docs/guides/realm-sharing.md`](../guides/realm-sharing.md) | Publisher and recipient workflows for sharing selected realm content. |
 
 ### Buckets
 
@@ -436,6 +582,8 @@ A [`CLAUDE.md`](../../CLAUDE.md) is Atomic's own when its block equals the loade
 
 **A clean `atomic wiki stale` says nothing about content.** Exit 0 means the member set and statuses match the `<wiki-scan>` block. A summary or concern describing a repo that has since changed is invisible to every verb; only a user pick in `/refresh-wiki` Step 7b, or a hand edit, updates it.
 
+**A destination symlink alone does not establish ownership.** `link` requires the matching receipt and witness to reuse a link; `unlink` refuses replacements. `scan` and realm `init` do not follow an unowned `wiki/` symlink.
+
 **Older realms keep inert files.** A realm built by an earlier release may still hold `wiki/.dirty`, `wiki/.buckets/`, `wiki/knowledge/`, `reflects_*` frontmatter, and a `.dirty` line in `wiki/.gitignore`. No code reads or removes them, and `/refresh-wiki` Step 7b does not offer `wiki/knowledge/` pages.
 
 **Bucket names must be safe single path segments:** not empty or whitespace, not `-`-prefixed, no `/` or `\`, not `.` or `..`, and not the reserved `wiki`. `validateBucketName` is the register-time backstop for programmatic callers; the CLI scanner rejects dash tokens first.
@@ -467,10 +615,12 @@ A [`CLAUDE.md`](../../CLAUDE.md) is Atomic's own when its block equals the loade
 - **signals domain** owns the repo-scope scan, inference, and linkify. `atomic signals scan --out <dir>` is a direct dependency of realm wiki-output mode: the inferrer redirects the scan so it never writes into the member repo. A change to that flag or to `scan.md`'s format breaks member summarization. `atomic signals linkify` handles [`docs/wiki/`](.); `atomic wiki linkify` handles `wiki/`. Neither covers the other's tree.
 - **docs-meta domain** owns the page shape both pipeline references encode. The domain-page order in `references/repo.md` and the realm summary shape in `references/realm.md` are the `atomic-writing` skill's `## Structure before sentences` order applied to each. The same domain owns `~/.claude/skills/atomic-writing/references/mermaid.md`, which the writer and the reviewer both apply, and rule 17, the no-counts ban both reviewers enforce. `atomic docs index` in [`atomic/cmd/atomic/cmd_docs.go`](../../atomic/cmd/atomic/cmd_docs.go) calls `wiki.IndexDir`, which shares `indexOneDir` and `writeFileAtomic` with the bucket tree walk.
 - **Design-doc ownership is decided per file, at partition time.** `repo.md` Step 3 assigns each `docs/design/*.md` file to a domain and hands that list to the domain's writer dispatch as `<design_docs>`; `realm.md` W3/W4 do the same for a member repo's design docs. A design doc's owning domain is whatever that assignment produces, not its directory.
-- **config domain** owns `config.WikisPath` (the `~/.atomic/wikis.md` location), `config.ClaudeConfigDir`, `config.LedgerPath`, `config.RepositoryStateDir`, `config.ProjectKey`, and the scope marker. `wikiInitAction` and `wikiScanAction` call `config.EnsureScopeMarker`; under `init` a root already marked with the other scope exits 1 without touching either file, and under `scan` it only warns. `FindRealm` prefers that marker (`config.FindScopeRoot`) over the registry. `config.ResolveSteeringMode` supplies the `[steering] claude` mode that `initScopePair`, `wikiBucketAddAction`, and the realm code-index writer resolve before writing. `declaredRoots` reads `[realm] repos` through `config.LoadRepoConfig` and forwards only the `realm.*` load warnings.
+- **config domain** owns `config.WikisPath` (the `~/.atomic/wikis.md` location), `config.ClaudeConfigDir`, `config.LedgerPath`, `config.RepositoryStateDir`, `config.ProjectKey`, and the scope marker. `wikiInitAction` and `scanAction` call `config.EnsureScopeMarker`; `init` refuses a conflicting marker, while `scan` warns and leaves it unchanged. `FindRealm` prefers the marker (`config.FindScopeRoot`) over the registry. `config.ResolveSteeringMode` supplies the `[steering] claude` mode for `initScopePair`, `addLegacyBucket`, and the realm code-index writer. `declaredRoots` reads `[realm] repos` through `config.LoadRepoConfig` and forwards only the `realm.*` load warnings.
 - **harness domain** owns the install ledger and the per-harness steering paths `wikiSteeringPaths` maps targets to (`claude.GlobalSteeringPath`, `omp.SteeringPath`, `codex.SteeringPath`); a new harness kind projects no `<wikis>` block until it gets a case there. It owns `bundlespec.ScopeSteering` (the `AGENTS.md` source, the [`CLAUDE.md`](../../CLAUDE.md) loader, `LoaderDocument()`, `LoaderWithoutImport`, `OwnsLoader`, `GuidanceFile`) and `claude.ConvertScope`, which `convergeSteeringMode` runs before `ConvertSteeringPair`; `ScopeSteering` is what `initSteeringPair`, `onlyInitScaffold`, and `captureSurfacesFile` use; a change to the loader bytes changes what `scan` accepts as an unedited init. `claude.Verify` calls `ProjectionConflict`. `convergeRepoCards` in [`atomic/cmd/atomic/cmd_cards.go`](../../atomic/cmd/atomic/cmd_cards.go) implements `ProjectRepoCards` with `claude.EnsureCardLink` and `omp.Adapter.PublishProjectCards`, and the `rules` package's `ParseWiki` and `LoadWiki` define the card format `Refresh` validates.
+- **Native realm activation** belongs to [`docs/wiki/harness.md`](harness.md); publishing, receiving, and linking content are separate from native availability.
 - **workflow domain** owns the ship verbs; no ship verb touches a realm wiki, and `/refresh-wiki` Step 10 commits the wiki through the `atomic-git-discipline` skill. `realmPrefsPath` in [`atomic/internal/workflow/resolve.go`](../../atomic/internal/workflow/resolve.go) locates realm workflow preferences through `FindRealm`.
 - **doctor domain** owns [`atomic/internal/cliusage/cliusage.go`](../../atomic/internal/cliusage/cliusage.go). `main.go` calls `cliusage.SetRoot(rootCmd)`, so `--help` and the A1 citation lint read the live Cobra tree through `DeriveCommands`; the static `commands` slice is the golden table `TestDeriveCommandsGolden` checks. Register a `wiki` verb in [`atomic/cmd/atomic/cmd_wiki.go`](../../atomic/cmd/atomic/cmd_wiki.go), then update the golden slice in `cliusage.go`, or `TestDeriveCommandsGolden` fails. [`atomic/internal/doctor/checks_repo_config.go`](../../atomic/internal/doctor/checks_repo_config.go) reads the registry through `RegisteredIndexPaths`.
 - **bundle domain** embeds [`context/commands/refresh-wiki.md`](../../context/commands/refresh-wiki.md), the wiki agents, and the `atomic-wiki` skill through `make bundle`, which expands the agents' `{{ template }}` partials. The files in [`atomic/internal/wiki/templates/`](../../atomic/internal/wiki/templates) are a separate `go:embed`, compiled into the binary and never installed.
 - **serve domain** consumes `ReadBucketEntries` and the `Member` type ([`atomic/internal/serve/nav.go`](../../atomic/internal/serve/nav.go)), `ReadScanMembers` (`nav.go`, `code_members.go`, `api_plans.go`), and `Stale` plus `StaleCodeError` ([`atomic/internal/serve/stale.go`](../../atomic/internal/serve/stale.go), `staleness_cache.go`, `health.go`). Renaming any of them breaks `atomic serve`.
+- **Shared document discovery** uses `DocumentView` from [`atomic/internal/realmshare/wiki_buckets.go`](../../atomic/internal/realmshare/wiki_buckets.go). Browser scope and path handling belong to [`docs/wiki/serve.md`](serve.md).
 - **code-intel domain** reads realm membership through `ReadScanMembers` ([`atomic/internal/codeintel/realm/seed.go`](../../atomic/internal/codeintel/realm/seed.go)) and the registry through `RegisteredIndexPaths` ([`atomic/internal/codeintel/realm/resolver.go`](../../atomic/internal/codeintel/realm/resolver.go)). [`atomic/internal/where/where.go`](../../atomic/internal/where/where.go) locates the realm through `FindRealm` and places the cwd among members with `ReadScanMembers` and `IsUnder`. `realm.WriteCodeIndexBlock` and `realm.MoveCodeIndexBlock` ([`atomic/internal/codeintel/realm/codeindex_block.go`](../../atomic/internal/codeintel/realm/codeindex_block.go)) import the `<code-index>` markers, stub, `FindCodeIndexBlock`, and `StripCodeIndex` from `codeindex.go`, and `initSteeringPair`'s code-index-only check reads the same markers, so changing either side's block format breaks the other.

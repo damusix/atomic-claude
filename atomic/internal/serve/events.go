@@ -178,7 +178,7 @@ func startTicker(ctx context.Context, store *snapshotStore, registry *subscriber
 				if registry.count() == 0 {
 					continue
 				}
-				snap, changed := store.ensureFresh()
+				snap, changed := store.tryEnsureFresh()
 				if changed == nil {
 					continue
 				}

@@ -2,24 +2,19 @@
 // (fingerprint, nav paths, link graph) published through a single atomic
 // pointer, so nav, page, rail, and graph all read the same state.
 //
-// Two walk tiers keep that cheap. fingerprint() is stat-only and runs on every
-// ensureFresh; rebuild() reads and parses every page and runs only when the
-// fingerprint moved.
-//
-// Concurrent stale observers do not each rebuild: one wins a non-blocking CAS
-// gate and the rest return the current snapshot rather than wait. The gate is
-// the dedup key, not the fingerprint value, because two walkers racing a
-// changing filesystem can legitimately compute different fingerprints for the
-// same moment.
+// Refresh stats the document scope once and parses the recorded files only
+// when their fingerprint changes.
 package serve
 
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"hash"
 	"io/fs"
-	"path/filepath"
+	"os"
 	"sort"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -32,10 +27,12 @@ const (
 	defaultQuietWindow = 2 * time.Second
 )
 
-// fileManifestEntry is comparable, so two entries diff with !=.
 type fileManifestEntry struct {
 	size        int64
 	modUnixNano int64
+	physical    string
+	info        fs.FileInfo
+	version     uint64
 }
 
 // realmSnapshot is one immutable view of realm state. Publishing it as a
@@ -43,23 +40,24 @@ type fileManifestEntry struct {
 // impossible — there is only ever one field to read.
 type realmSnapshot struct {
 	fp       string
+	graphFP  string
 	navPaths []string
 	graph    *Graph
 	manifest map[string]fileManifestEntry
+	quiet    map[string]fileManifestEntry
 }
 
 // snapshotStore owns the published snapshot, the fingerprint walk, and the
 // funnel collapsing concurrent triggers into one rebuild.
 type snapshotStore struct {
 	root         string
+	scopeRoot    string
 	tickInterval time.Duration
 	quietWindow  time.Duration
 
 	ptr atomic.Pointer[realmSnapshot]
 
-	// rebuilding gates the funnel: the CAS winner rebuilds, losers return the
-	// current snapshot and let a later ensureFresh retry.
-	rebuilding atomic.Bool
+	rebuilding sync.Mutex
 
 	// rebuildCalls is test instrumentation proving concurrent callers collapse
 	// to one rebuild.
@@ -69,7 +67,7 @@ type snapshotStore struct {
 // newSnapshotStore returns a store with an empty snapshot; the first
 // ensureFresh performs the initial rebuild.
 func newSnapshotStore(root string, tickInterval, quietWindow time.Duration) *snapshotStore {
-	s := &snapshotStore{root: root, tickInterval: tickInterval, quietWindow: quietWindow}
+	s := &snapshotStore{root: root, scopeRoot: resolveDir(root), tickInterval: tickInterval, quietWindow: quietWindow}
 	s.ptr.Store(&realmSnapshot{})
 	return s
 }
@@ -98,16 +96,35 @@ func (s *snapshotStore) currentGraph() *Graph {
 	return snap.graph
 }
 
+func (s *snapshotStore) currentGraphInScope(scope documentScope) *Graph {
+	if scope.root != s.scopeRoot {
+		return s.currentGraph()
+	}
+	snap, _ := s.ensureFreshInScope(scope)
+	return snap.graph
+}
+
 // seed publishes an already-built graph instead of rebuilding, so a caller
 // holding one can hand revalidation to the store without discarding it. The
 // fingerprint is taken now, so a later ensureFresh still detects drift.
 func (s *snapshotStore) seed(g *Graph) {
-	entries, fp := s.fingerprint()
+	s.rebuilding.Lock()
+	defer s.rebuilding.Unlock()
+
+	scope := loadDocumentScope(s.root)
+	if scope.bound {
+		s.refresh(scope)
+		return
+	}
+	entries, quiet, fp := scope.scanDocuments(s.quietWindow, nil)
+	quietInputs, graphFP := splitQuietInputs(entries, quiet, fp)
 	s.ptr.Store(&realmSnapshot{
 		fp:       fp,
+		graphFP:  graphFP,
 		navPaths: append([]string(nil), g.Nodes()...),
 		graph:    g,
 		manifest: entries,
+		quiet:    quietInputs,
 	})
 }
 
@@ -116,99 +133,163 @@ func (s *snapshotStore) current() *realmSnapshot {
 	return s.ptr.Load()
 }
 
-// ensureFresh fingerprints the realm and rebuilds when it has drifted. It is
-// the one accessor the ticker, per-request validation, and the startup warm
-// all share. The returned diff is nil when no rebuild occurred.
+// ensureFresh revalidates the snapshot for requests. A nil diff means no
+// stable document changed, even if the graph was rebuilt.
 func (s *snapshotStore) ensureFresh() (*realmSnapshot, []string) {
-	entries, fp := s.fingerprint()
-	cur := s.current()
-	if cur.graph != nil && cur.fp == fp {
-		return cur, nil
-	}
-	if !s.rebuilding.CompareAndSwap(false, true) {
-		// Already in flight — skip rather than block; a later call sees it.
-		return cur, nil
-	}
-	defer s.rebuilding.Store(false)
-
-	return s.rebuild(entries, fp)
+	s.rebuilding.Lock()
+	defer s.rebuilding.Unlock()
+	return s.refresh(loadDocumentScope(s.root))
 }
 
-// rebuild rebuilds the graph and publishes it in one pointer swap. entries and
-// fp come from the caller's fingerprint walk, so this does not re-walk.
-//
-// A file that vanishes between the fingerprint and the content read is simply
-// absent from this pass; the next rebuild picks it up if it reappears.
-func (s *snapshotStore) rebuild(entries map[string]fileManifestEntry, fp string) (*realmSnapshot, []string) {
+func (s *snapshotStore) tryEnsureFresh() (*realmSnapshot, []string) {
+	if !s.rebuilding.TryLock() {
+		return nil, nil
+	}
+	defer s.rebuilding.Unlock()
+	return s.refresh(loadDocumentScope(s.root))
+}
+
+func (s *snapshotStore) ensureFreshInScope(scope documentScope) (*realmSnapshot, []string) {
+	s.rebuilding.Lock()
+	defer s.rebuilding.Unlock()
+
+	return s.refresh(scope)
+}
+
+func (s *snapshotStore) refresh(scope documentScope) (*realmSnapshot, []string) {
+	cur := s.current()
+	entries, quiet, fp := scope.scanDocuments(s.quietWindow, cur)
+	if cur.graph != nil && cur.fp == fp && !cur.lostQuietInput(entries) {
+		return cur, nil
+	}
+	return s.rebuild(scope, entries, quiet, fp)
+}
+
+func (s *realmSnapshot) lostQuietInput(entries map[string]fileManifestEntry) bool {
+	for path, old := range s.quiet {
+		cur, ok := entries[path]
+		if !ok || cur.physical != old.physical || cur.version != old.version || cur.info.Mode() != old.info.Mode() {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *snapshotStore) rebuild(scope documentScope, entries map[string]fileManifestEntry, quiet []string, fp string) (*realmSnapshot, []string) {
 	s.rebuildCalls.Add(1)
 
-	g := BuildLinkGraph(s.root)
+	g := buildLinkGraph(scope, entries)
 	navPaths := append([]string(nil), g.Nodes()...)
+	quietInputs, graphFP := splitQuietInputs(entries, quiet, fp)
 
-	prev := s.current()
-	changed := diffManifest(prev.manifest, entries)
-
-	next := &realmSnapshot{fp: fp, navPaths: navPaths, graph: g, manifest: entries}
+	var changed []string
+	if prev := s.current(); prev.fp != fp {
+		changed = diffManifest(prev.manifest, entries)
+	}
+	next := &realmSnapshot{fp: fp, graphFP: graphFP, navPaths: navPaths, graph: g, manifest: entries, quiet: quietInputs}
 	s.ptr.Store(next)
 	return next, changed
 }
 
-// fingerprint stats every non-hidden file under root, skipping any modified
-// inside the quiet window. It uses the same filters as BuildLinkGraph, so the
-// fingerprint tracks exactly what the graph depends on, and reads no content.
-func (s *snapshotStore) fingerprint() (map[string]fileManifestEntry, string) {
-	now := time.Now()
-	entries := make(map[string]fileManifestEntry)
-	ignores := newGitIgnores(s.root)
-	_ = filepath.WalkDir(s.root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
+func splitQuietInputs(entries map[string]fileManifestEntry, quiet []string, fp string) (map[string]fileManifestEntry, string) {
+	if len(quiet) == 0 {
+		return nil, fp
+	}
+	h := sha256.New()
+	h.Write([]byte(fp))
+	hashManifestEntries(h, quiet, entries)
+	inputs := make(map[string]fileManifestEntry, len(quiet))
+	for _, path := range quiet {
+		inputs[path] = entries[path]
+		delete(entries, path)
+	}
+	return inputs, hex.EncodeToString(h.Sum(nil))
+}
+
+func (s documentScope) scanDocuments(quietWindow time.Duration, previous *realmSnapshot) (entries map[string]fileManifestEntry, quiet []string, fp string) {
+	cutoff := time.Now().Add(-quietWindow)
+	entries = make(map[string]fileManifestEntry)
+	var keys []string
+	_ = s.walk(".", func(rel, physical string, d fs.DirEntry) error {
 		if d.IsDir() {
-			if path != s.root && ignores.skipWalkDir(path) {
-				return filepath.SkipDir
-			}
 			return nil
 		}
-		if hiddenFile(d.Name()) || ignores.skipFile(path) {
+		info, err := d.Info()
+		if err != nil || !info.Mode().IsRegular() {
 			return nil
 		}
-		rel, relErr := filepath.Rel(s.root, path)
-		if relErr != nil {
-			return nil
-		}
-		info, infoErr := d.Info()
-		if infoErr != nil {
-			// Vanished between listing and stat; a later walk will see it.
-			return nil
-		}
-		if now.Sub(info.ModTime()) < s.quietWindow {
-			return nil
-		}
-		entries[filepath.ToSlash(rel)] = fileManifestEntry{
+		entry := fileManifestEntry{
 			size:        info.Size(),
 			modUnixNano: info.ModTime().UnixNano(),
+			physical:    physical,
+			info:        info,
+		}
+		if previous != nil {
+			old, ok := previous.manifest[rel]
+			if !ok {
+				old, ok = previous.quiet[rel]
+			}
+			if ok {
+				entry.version = old.version
+				if !os.SameFile(info, old.info) {
+					entry.version++
+				}
+			}
+		}
+		entries[rel] = entry
+		if quietWindow > 0 && info.ModTime().After(cutoff) {
+			quiet = append(quiet, rel)
+		} else {
+			keys = append(keys, rel)
 		}
 		return nil
 	})
 
-	keys := make([]string, 0, len(entries))
-	for k := range entries {
-		keys = append(keys, k)
+	h := sha256.New()
+	if s.bound {
+		h.Write([]byte{1})
+	}
+	hashManifestEntries(h, keys, entries)
+	keys = keys[:0]
+	for path, mount := range s.roots {
+		if s.mountAvailable(mount) {
+			keys = append(keys, path)
+		}
 	}
 	sort.Strings(keys)
+	for _, path := range keys {
+		h.Write([]byte(path))
+		h.Write([]byte{0})
+		h.Write([]byte(s.roots[path].Target))
+		h.Write([]byte{0})
+	}
+	for _, state := range s.privateStateRoots() {
+		h.Write([]byte(state))
+		h.Write([]byte{0})
+	}
+	return entries, quiet, hex.EncodeToString(h.Sum(nil))
+}
 
-	h := sha256.New()
+func hashManifestEntries(h hash.Hash, keys []string, entries map[string]fileManifestEntry) {
+	sort.Strings(keys)
+	var storage [256]byte
+	buf := storage[:0]
 	for _, k := range keys {
 		e := entries[k]
-		h.Write([]byte(k))
-		h.Write([]byte{0})
-		h.Write([]byte(strconv.FormatInt(e.size, 10)))
-		h.Write([]byte{0})
-		h.Write([]byte(strconv.FormatInt(e.modUnixNano, 10)))
-		h.Write([]byte{'\n'})
+		buf = append(buf[:0], k...)
+		buf = append(buf, 0)
+		buf = strconv.AppendInt(buf, e.size, 10)
+		buf = append(buf, 0)
+		buf = strconv.AppendInt(buf, e.modUnixNano, 10)
+		buf = append(buf, 0)
+		buf = strconv.AppendUint(buf, e.version, 10)
+		buf = append(buf, 0)
+		buf = append(buf, e.physical...)
+		buf = append(buf, 0)
+		buf = strconv.AppendUint(buf, uint64(e.info.Mode()), 10)
+		buf = append(buf, '\n')
+		h.Write(buf)
 	}
-	return entries, hex.EncodeToString(h.Sum(nil))
 }
 
 // diffManifest returns the sorted relpaths added, edited, or removed. A nil
@@ -216,7 +297,8 @@ func (s *snapshotStore) fingerprint() (map[string]fileManifestEntry, string) {
 func diffManifest(prev, next map[string]fileManifestEntry) []string {
 	var changed []string
 	for path, n := range next {
-		if p, ok := prev[path]; !ok || p != n {
+		if p, ok := prev[path]; !ok || p.size != n.size || p.modUnixNano != n.modUnixNano || p.physical != n.physical || p.version != n.version ||
+			(p.info != nil && n.info != nil && p.info.Mode() != n.info.Mode()) {
 			changed = append(changed, path)
 		}
 	}

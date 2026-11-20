@@ -561,14 +561,36 @@ const pi = {
 };
 atomic(pi as unknown as Parameters<typeof atomic>[0]);
 const results: unknown[] = [];
+let primaryCtx: unknown;
 for (const step of spec.steps) {
 	if (step.event === "new_factory") {
 		atomic(pi as unknown as Parameters<typeof atomic>[0]);
+		primaryCtx = undefined;
 		results.push(null);
 		continue;
 	}
 	const handler = handlers[step.event];
-	results.push(handler ? await handler(step.payload, step.ctx) : { missing: step.event });
+	if (step.primary) {
+		const notices: string[] = [];
+		const cwd = step.ctx.cwd;
+		const ctx = {
+			...step.ctx,
+			sessionManager: {
+				getSessionFile: () => cwd + "/session.jsonl",
+				getSessionId: () => "fresh",
+				getHeader: () => ({ type: "session", id: "fresh", cwd }),
+				getEntries: () => [],
+				isSessionOnDisk: () => false,
+			},
+			ui: { notify: (message: string) => notices.push(message) },
+		};
+		primaryCtx = ctx;
+		await handler(step.payload, ctx);
+		results.push({ notices });
+	} else {
+		const payload = step.reusePreviousPrompt ? results.at(-1) : step.payload;
+		results.push(handler ? await handler(payload, step.ctx ?? primaryCtx) : { missing: step.event });
+	}
 }
 writeFileSync(process.argv[3], JSON.stringify(results, null, 2));
 `
@@ -928,6 +950,9 @@ case "$ATOMIC_STUB_MODE" in
 fail) printf 'partial\n'; exit 1 ;;
 hang) exec /bin/sleep 10 ;;
 esac
+if [ "$ATOMIC_STUB_MODE" = "notice" ]; then
+	printf '%s\n' 'atomic-realm-sync-reminder: Shared realm changes are pending. Run ` + "`" + `atomic realm sync` + "`" + ` to publish them.' >&2
+fi
 printf '## Workflow preferences\n- from %s\n' "$(pwd -P)"
 `
 
@@ -1003,6 +1028,34 @@ func contextBlocks(parts []string) []string {
 }
 
 const sessionContextMarker = "atomic-omp-session-context"
+
+func TestExtensionModuleDeliversRealmSyncReminder(t *testing.T) {
+	const notice = "Shared realm changes are pending. Run `atomic realm sync` to publish them."
+	for _, hasUI := range []bool{true, false} {
+		t.Run(fmt.Sprintf("hasUI=%t", hasUI), func(t *testing.T) {
+			results := driveModule(t, ruleDelivery(t), []map[string]any{
+				{"event": "session_start", "primary": true, "payload": map[string]any{"type": "session_start"}, "ctx": map[string]any{"cwd": t.TempDir(), "mode": "print", "hasUI": hasUI}},
+				{"event": "before_agent_start", "payload": map[string]any{"systemPrompt": []string{"base"}}},
+				{"event": "before_agent_start", "reusePreviousPrompt": true},
+			}, stubAtomicDir(t), "ATOMIC_STUB_LOG="+filepath.Join(t.TempDir(), "calls"), "ATOMIC_STUB_MODE=notice")
+			notices, _ := results[0]["notices"].([]any)
+			if hasUI && (len(notices) != 1 || notices[0] != notice) || !hasUI && len(notices) != 0 {
+				t.Errorf("native notices = %v", notices)
+			}
+			firstParts, secondParts := promptParts(results[1]), promptParts(results[2])
+			first, second := strings.Join(firstParts, "\n"), strings.Join(secondParts, "\n")
+			if strings.Contains(first, notice) == hasUI || strings.Contains(second, notice) {
+				t.Errorf("unexpected reminder delivery: first=%q second=%q", first, second)
+			}
+			for _, parts := range [][]string{firstParts, secondParts} {
+				blocks := contextBlocks(parts)
+				if len(parts) == 0 || parts[0] != "base" || len(blocks) != 1 || !strings.Contains(blocks[0], "## Workflow preferences") {
+					t.Errorf("base or startup context was lost or duplicated: %q", parts)
+				}
+			}
+		})
+	}
+}
 
 // The verb runs once per session and every turn reuses its text; a child session
 // in the same process resolves its own directory, never the parent's.

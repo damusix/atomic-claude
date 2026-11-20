@@ -121,17 +121,29 @@ const (
 // SessionStart returns the JSON hook payload, or "" when there is nothing to
 // surface. kind is the harness (claude, omp, codex) the session runs under.
 func SessionStart(repoRoot, kind string, now time.Time) (string, error) {
-	body := SessionStartText(repoRoot, kind, now)
-	if body == "" {
+	return FormatSessionStartContext(SessionStartText(repoRoot, kind, now))
+}
+
+// FormatSessionStartContext wraps context without running session bootstrap.
+func FormatSessionStartContext(body string) (string, error) {
+	return FormatSessionStartOutput(body, "")
+}
+
+// FormatSessionStartOutput keeps the user notice separate from model context.
+func FormatSessionStartOutput(body, notice string) (string, error) {
+	if body == "" && notice == "" {
 		return "", nil
 	}
 
-	payload := map[string]any{
-		"hookSpecificOutput": map[string]any{
+	payload := map[string]any{"suppressOutput": true}
+	if body != "" {
+		payload["hookSpecificOutput"] = map[string]string{
 			"hookEventName":     "SessionStart",
 			"additionalContext": body,
-		},
-		"suppressOutput": true,
+		}
+	}
+	if notice != "" {
+		payload["systemMessage"] = notice
 	}
 	out, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {

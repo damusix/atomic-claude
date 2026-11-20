@@ -37,7 +37,7 @@ func TestWikiInitRepoRefreshesAndProjectsCards(t *testing.T) {
 	t.Cleanup(func() { ProjectRepoCards = prev })
 
 	var out bytes.Buffer
-	if code := wikiInitAction([]string{"--scope=repo", "--root=" + root}, root, &out); code != 0 {
+	if code := (ActionOptions{}).wikiInitAction([]string{"--scope=repo", "--root=" + root}, root, &out); code != 0 {
 		t.Fatalf("exit %d:\n%s", code, out.String())
 	}
 	after, err := os.ReadFile(card)
@@ -74,7 +74,7 @@ func TestWikiInitRepoRefusesAMalformedCard(t *testing.T) {
 	t.Cleanup(func() { ProjectRepoCards = prev })
 
 	var out bytes.Buffer
-	if code := wikiInitAction([]string{"--scope=repo", "--root=" + root}, root, &out); code != 1 {
+	if code := (ActionOptions{}).wikiInitAction([]string{"--scope=repo", "--root=" + root}, root, &out); code != 1 {
 		t.Fatalf("exit %d, want 1", code)
 	}
 	if !strings.Contains(out.String(), "created "+filepath.Join(root, "docs", "wiki", "CLAUDE.md")) {
@@ -91,7 +91,7 @@ func TestWikiInitRepoWarnsOnAProjectionError(t *testing.T) {
 	t.Cleanup(func() { ProjectRepoCards = prev })
 
 	var out bytes.Buffer
-	if code := wikiInitAction([]string{"--scope=repo", "--root=" + root}, root, &out); code != 0 {
+	if code := (ActionOptions{}).wikiInitAction([]string{"--scope=repo", "--root=" + root}, root, &out); code != 0 {
 		t.Fatalf("exit %d, want 0", code)
 	}
 	if !strings.Contains(out.String(), "created ") {

@@ -18,10 +18,6 @@ func normRelPath(p string) string {
 	return filepath.ToSlash(filepath.Clean(strings.TrimPrefix(p, "/")))
 }
 
-func readFile(absPath string) ([]byte, error) {
-	return os.ReadFile(absPath) //nolint:gosec // caller must validate path before calling
-}
-
 func baseName(p string) string {
 	return filepath.Base(p)
 }
@@ -52,12 +48,8 @@ const summaryCap = 150
 
 // describeEntry reuses the graph hover-card extraction, so a document is
 // described identically wherever it appears.
-func describeEntry(root, fileRel string) (title, summary string) {
-	abs, ok := safeResolve(root, fileRel)
-	if !ok {
-		return "", ""
-	}
-	data, err := readFile(abs)
+func (scope documentScope) describeEntry(fileRel string) (title, summary string) {
+	data, err := scope.readFile(fileRel)
 	if err != nil {
 		return "", ""
 	}
@@ -135,17 +127,23 @@ func truncateRunes(s string, limit int) string {
 
 // listDirEntries returns dirRel's immediate markdown files and subfolders,
 // sorted, omitting hidden files and skip-dirs.
-func listDirEntries(root, dirRel string) (entries []dirEntry, ok bool) {
-	abs, resolveOK := safeResolve(root, dirRel)
-	if !resolveOK {
+func listDirEntries(root, dirRel string) ([]dirEntry, bool) {
+	scope := loadDocumentScope(root)
+	dir, ok := scope.open(dirRel)
+	if !ok {
 		return nil, false
 	}
-	rawEntries, err := os.ReadDir(abs)
+	defer dir.Close()
+	return scope.listDirEntries(dirRel, dir)
+}
+
+func (scope documentScope) listDirEntries(dirRel string, dir *os.File) (entries []dirEntry, ok bool) {
+	rawEntries, err := dir.ReadDir(-1)
 	if err != nil {
 		return nil, false
 	}
-
-	repo, top := abs, resolveDir(root)
+	abs := filepath.Clean(dir.Name())
+	repo, top := abs, scope.root
 	for repo != top && !isGitRepoRoot(repo) && filepath.Dir(repo) != repo {
 		repo = filepath.Dir(repo)
 	}
@@ -153,7 +151,25 @@ func listDirEntries(root, dirRel string) (entries []dirEntry, ok bool) {
 	var dirs, files []string
 	for _, e := range rawEntries {
 		name := e.Name()
-		if e.IsDir() {
+		isDir := e.IsDir()
+		if scope.bound {
+			rel := filepath.ToSlash(filepath.Join(dirRel, name))
+			if e.Type()&os.ModeSymlink != 0 {
+				child, allowed := scope.open(rel)
+				if !allowed {
+					continue
+				}
+				info, err := child.Stat()
+				_ = child.Close()
+				if err != nil {
+					continue
+				}
+				isDir = info.IsDir()
+			} else if _, allowed := scope.resolve(rel); !allowed {
+				continue
+			}
+		}
+		if isDir {
 			if filter.hiddenDir(filepath.Join(abs, name)) {
 				continue
 			}
@@ -172,15 +188,15 @@ func listDirEntries(root, dirRel string) (entries []dirEntry, ok bool) {
 			Folder:  true,
 		}
 		// A folder with an index opens that document, so describe it by that.
-		if index, found := resolveDirIndex(root, filepath.ToSlash(filepath.Join(dirRel, d))); found {
+		if index, found := scope.resolveDirIndex(strings.TrimSuffix(entry.RelPath, "/")); found {
 			entry.Index = index
-			entry.Title, entry.Summary = describeEntry(root, index)
+			entry.Title, entry.Summary = scope.describeEntry(index)
 		}
 		entries = append(entries, entry)
 	}
 	for _, f := range files {
 		fileRel := filepath.ToSlash(filepath.Join(dirRel, f))
-		title, summary := describeEntry(root, fileRel)
+		title, summary := scope.describeEntry(fileRel)
 		entries = append(entries, dirEntry{
 			Name:     stripMDExt(f),
 			Filename: f,

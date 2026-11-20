@@ -3,6 +3,10 @@
 ## Unreleased
 
 
+### Features
+
+- Share selected realm files, folders, and team guidance through Git. Review and approve what to publish or link. Private instructions, unselected files, and local harness settings stay local.
+
 ### Bug Fixes
 
 - Back up edited managed artifacts before updates and retire removed artifacts without leaving obsolete commands installed.

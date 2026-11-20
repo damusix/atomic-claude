@@ -226,6 +226,16 @@ func TestCapabilityMatrixReflectsProbedRows(t *testing.T) {
 	assertCapability(t, codex, RoleSessionContext, StatusPartial, "$CODEX_HOME/hooks.json SessionStart")
 	assertCapability(t, codex, RoleAgentDelivery, StatusUnsupported, "$CODEX_HOME/agents/<name>.toml")
 
+	assertCapability(t, claude, RoleRealmSkill, StatusSupported, ".claude/skills/<name>")
+	assertCapability(t, claude, RoleRealmCommand, StatusSupported, ".claude/commands/<name>.md")
+	assertCapability(t, claude, RoleRealmAgent, StatusSupported, ".claude/agents/<name>.md")
+	assertCapability(t, codex, RoleRealmSkill, StatusSupported, ".agents/skills/<name>")
+	assertCapability(t, codex, RoleRealmCommand, StatusUnsupported, "")
+	assertCapability(t, codex, RoleRealmAgent, StatusUnsupported, "")
+	assertCapability(t, omp, RoleRealmSkill, StatusPartial, ".agents/skills/<name>")
+	assertCapability(t, omp, RoleRealmCommand, StatusSupported, ".agents/commands/<name>.md")
+	assertCapability(t, omp, RoleRealmAgent, StatusUnsupported, "")
+
 	// No harness has proven a native scoped-rule surface, so nothing may claim
 	// static-scope parity.
 	for _, m := range []CapabilityMatrix{claude, omp, codex} {
@@ -241,8 +251,8 @@ func TestCapabilityMatrixReflectsProbedRows(t *testing.T) {
 	}
 
 	roles := claude.Roles()
-	if len(roles) != 5 {
-		t.Fatalf("claude rows = %d, want 5", len(roles))
+	if len(roles) != 8 {
+		t.Fatalf("claude rows = %d, want 8", len(roles))
 	}
 	if !sort.SliceIsSorted(roles, func(i, j int) bool { return roles[i].Role < roles[j].Role }) {
 		t.Errorf("roles not in stable order: %+v", roles)

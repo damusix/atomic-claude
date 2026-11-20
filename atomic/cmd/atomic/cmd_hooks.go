@@ -1,17 +1,23 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/damusix/atomic-claude/atomic/internal/cliutil"
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/harness"
 	"github.com/damusix/atomic-claude/atomic/internal/hooks"
+	"github.com/damusix/atomic-claude/atomic/internal/realmshare"
 	"github.com/damusix/atomic-claude/atomic/internal/repoctx"
+	"github.com/damusix/atomic-claude/atomic/internal/wiki"
 	"github.com/spf13/cobra"
 )
 
@@ -72,6 +78,7 @@ func runHooks(args []string, repoOverride string) {
 		fs.StringVar(&format, "format", "json", "output format: json or text")
 		fs.StringVar(&harnessFlag, "harness", "claude", "harness the hook runs under: claude, omp, or codex")
 		fs.StringVar(&cwdFlag, "cwd", "", cwdHelp)
+		realmPrimary := fs.Bool("realm-primary", false, "")
 		if err := fs.Parse(args[1:]); err != nil {
 			os.Exit(2)
 		}
@@ -82,19 +89,62 @@ func runHooks(args []string, repoOverride string) {
 		}
 		harnessFlag = string(kind)
 
-		root, err := resolveSessionRoot(cwdFlag, pipedStdin(os.Stdin), repoOverride)
+		stdin := pipedStdin(os.Stdin)
+		var realmDir string
+		var loadInstructions, remind bool
+		if kind == harness.KindOMP && *realmPrimary && repoOverride == "" {
+			realmDir = cwdFlag
+			loadInstructions, remind = true, format == "text"
+		}
+		if (kind == harness.KindCodex || kind == harness.KindClaude) && cwdFlag == "" && repoOverride == "" && stdin != nil {
+			input, err := readSessionStartInput(stdin, stdinWait, true)
+			cwdFlag, stdin = input.Cwd, nil
+			if err == nil && input.primaryStartup() {
+				realmDir = input.Cwd
+				loadInstructions = kind == harness.KindCodex
+				remind = format == "json" && input.primaryAgent()
+			}
+		}
+		root, err := resolveSessionRoot(cwdFlag, stdin, repoOverride)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "atomic hooks session-start: %v\n", err)
 			os.Exit(1)
 		}
 
-		now := time.Now().UTC()
-		var out string
-		if format == "text" {
-			out = hooks.SessionStartText(root, harnessFlag, now)
-		} else if out, err = hooks.SessionStart(root, harnessFlag, now); err != nil {
-			fmt.Fprintf(os.Stderr, "atomic hooks session-start: %v\n", err)
-			os.Exit(1)
+		now := time.Now()
+		out := hooks.SessionStartText(root, harnessFlag, now.UTC())
+		if repoOverride == "" {
+			out = orientSessionLinks(root, out)
+		}
+		var notice string
+		if realmDir != "" && (loadInstructions || remind) {
+			realm, err := sessionInstructionRealm(realmDir)
+			if err == nil && realm != "" {
+				if remind {
+					notice = sessionRealmSyncReminder(realm, now)
+				}
+				if loadInstructions {
+					var body string
+					body, err = realmshare.SessionInstructions(realm, kind, false)
+					if err == nil && body != "" {
+						if out != "" {
+							out += "\n\n"
+						}
+						out += body
+					}
+				}
+			}
+			if err != nil && loadInstructions {
+				fmt.Fprintf(os.Stderr, "atomic hooks session-start: %v\n", err)
+			}
+		}
+		if format != "text" {
+			if out, err = hooks.FormatSessionStartOutput(out, notice); err != nil {
+				fmt.Fprintf(os.Stderr, "atomic hooks session-start: %v\n", err)
+				os.Exit(1)
+			}
+		} else if notice != "" {
+			fmt.Fprintln(os.Stderr, "atomic-realm-sync-reminder: "+notice)
 		}
 		if out != "" {
 			fmt.Println(out)
@@ -174,6 +224,179 @@ func runHooks(args []string, repoOverride string) {
 	}
 }
 
+func runClaudeRealmSessionStart(stdin io.Reader, projectDir string) error {
+	input, err := readSessionStartInput(stdin, stdinWait, true)
+	if err != nil {
+		return err
+	}
+	if !input.primaryStartup() {
+		return fmt.Errorf("realm instructions require a native SessionStart startup event")
+	}
+
+	root, err := sessionInstructionRealm(input.Cwd)
+	if err != nil {
+		return err
+	}
+	if projectDir != "" && projectDir != input.Cwd {
+		projectRoot, err := sessionInstructionRealm(projectDir)
+		if err != nil {
+			return err
+		}
+		if projectRoot != root {
+			return fmt.Errorf("Claude project directory and SessionStart cwd must be in the same local realm")
+		}
+	}
+	if root == "" {
+		return nil
+	}
+
+	body, err := realmshare.SessionInstructions(root, harness.KindClaude, true)
+	var notice string
+	if input.primaryAgent() {
+		notice = sessionRealmSyncReminder(root, time.Now())
+	}
+	out, formatErr := hooks.FormatSessionStartOutput(body, notice)
+	if formatErr != nil {
+		return formatErr
+	}
+	if out != "" {
+		if _, writeErr := fmt.Print(out); writeErr != nil {
+			return writeErr
+		}
+	}
+	return err
+}
+
+func sessionRealmSyncReminder(root string, now time.Time) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if realmshare.ClaimSyncReminder(ctx, root, now) {
+		return "Shared realm changes are pending. Run `atomic realm sync` to publish them."
+	}
+	return ""
+}
+
+func sessionInstructionRealm(dir string) (string, error) {
+	if !filepath.IsAbs(dir) || dir != filepath.Clean(dir) {
+		return "", fmt.Errorf("realm instruction directory must be a clean absolute path")
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		return "", fmt.Errorf("resolve realm instruction directory: %w", err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("realm instruction path %q is not a directory", dir)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	claudeMDPath := filepath.Join(home, ".claude", "CLAUDE.md")
+	if root, linked, err := sessionLinkedRealm(dir, claudeMDPath); linked || err != nil {
+		return root, err
+	}
+	physical, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return "", fmt.Errorf("resolve realm instruction directory: %w", err)
+	}
+	realm, found, err := wiki.FindRealm(physical, claudeMDPath)
+	if err != nil || !found {
+		return "", err
+	}
+	if physical != dir {
+		logical, found, err := wiki.FindRealm(dir, claudeMDPath)
+		if err != nil || !found {
+			return "", err
+		}
+		info, err := os.Lstat(logical.Root)
+		if err != nil || !info.IsDir() {
+			return "", nil
+		}
+		resolved, err := filepath.EvalSymlinks(logical.Root)
+		if err != nil || resolved != realm.Root {
+			return "", err
+		}
+	}
+	if physical != realm.Root && sessionNestedRepo(physical, realm.Root, false) {
+		return "", nil
+	}
+	return realm.Root, nil
+}
+
+func sessionLinkedRealm(dir, claudeMDPath string) (string, bool, error) {
+	root, linked, err := localRealmFromLink(dir, claudeMDPath)
+	if err != nil || root == "" {
+		return root, linked, err
+	}
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		return "", true, nil
+	}
+	// The witnessed link is the boundary; another alias below it is unowned.
+	var link string
+	for path := dir; path != root && wiki.IsUnder(path, root); path = filepath.Dir(path) {
+		if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
+			if link != "" {
+				return "", true, nil
+			}
+			link = path
+		}
+	}
+	if link == "" {
+		return "", true, nil
+	}
+	target, err := filepath.EvalSymlinks(link)
+	if err != nil {
+		return "", true, err
+	}
+	physical, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return "", true, err
+	}
+	if !wiki.IsUnder(physical, target) || sessionNestedRepo(physical, target, true) {
+		return "", true, nil
+	}
+	return root, true, nil
+}
+
+func sessionNestedRepo(dir, boundary string, includeBoundary bool) bool {
+	inside := func(path string) bool {
+		return wiki.IsUnder(path, boundary) && (includeBoundary || path != boundary)
+	}
+	if marker, found := config.FindScopeRoot(dir, "repo"); found && inside(marker) {
+		return true
+	}
+	for path := dir; inside(path); path = filepath.Dir(path) {
+		if _, err := os.Lstat(filepath.Join(path, ".git")); !os.IsNotExist(err) {
+			return true
+		}
+		if path == boundary {
+			break
+		}
+	}
+	return false
+}
+
+func orientSessionLinks(root, body string) string {
+	roots, err := realmshare.LinkedRoots(root)
+	if err != nil || len(roots) == 0 {
+		return body
+	}
+	const header = "## Orientation\n"
+	var orientation strings.Builder
+	orientation.WriteString(header)
+	for _, root := range roots {
+		fmt.Fprintf(&orientation, "- Linked discovery root: %s\n", root)
+	}
+	if rest, found := strings.CutPrefix(body, header); found {
+		orientation.WriteString(rest)
+	} else if body != "" {
+		orientation.WriteByte('\n')
+		orientation.WriteString(body)
+	}
+	return strings.TrimRight(orientation.String(), "\n")
+}
+
 // preToolUse is a seam so a test can make the hook panic.
 var preToolUse = hooks.PreToolUse
 
@@ -200,6 +423,14 @@ func resolveSessionRoot(flagCwd string, stdin io.Reader, repoOverride string) (s
 			return "", err
 		}
 	}
+	if repoOverride == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			root, _, err := sessionLinkedRealm(dir, filepath.Join(home, ".claude", "CLAUDE.md"))
+			if err == nil && root != "" {
+				repoOverride = root
+			}
+		}
+	}
 	root, _, err := repoctx.ResolveFrom(dir, repoOverride)
 	return root, err
 }
@@ -219,28 +450,77 @@ func pipedStdin(f *os.File) io.Reader {
 	return f
 }
 
-// sessionStartCwd gives up on r after wait: a harness may leave stdin open.
 func sessionStartCwd(flagCwd string, r io.Reader, wait time.Duration) string {
 	if flagCwd != "" || r == nil {
 		return flagCwd
 	}
-	got := make(chan string, 1)
+	input, _ := readSessionStartInput(r, wait, false)
+	return input.Cwd
+}
+
+type sessionStartInput struct {
+	Cwd     string          `json:"cwd"`
+	Event   json.RawMessage `json:"hook_event_name"`
+	Source  json.RawMessage `json:"source"`
+	AgentID json.RawMessage `json:"agent_id"`
+}
+
+func (p sessionStartInput) primaryStartup() bool {
+	var event, source string
+	return json.Unmarshal(p.Event, &event) == nil && event == "SessionStart" &&
+		json.Unmarshal(p.Source, &source) == nil && source == "startup"
+}
+
+func (p sessionStartInput) primaryAgent() bool {
+	return p.AgentID == nil
+}
+
+// A harness may leave stdin open; never let it delay startup indefinitely.
+func readSessionStartInput(r io.Reader, wait time.Duration, complete bool) (sessionStartInput, error) {
+	if r == nil {
+		return sessionStartInput{}, fmt.Errorf("missing SessionStart stdin")
+	}
+	type result struct {
+		input sessionStartInput
+		err   error
+	}
+	got := make(chan result, 2)
 	go func() {
-		var payload struct {
-			Cwd string `json:"cwd"`
-		}
-		if err := json.NewDecoder(io.LimitReader(r, 1<<20)).Decode(&payload); err != nil {
-			got <- ""
+		var input *sessionStartInput
+		limited := &io.LimitedReader{R: r, N: 1 << 20}
+		decoder := json.NewDecoder(limited)
+		if err := decoder.Decode(&input); err != nil {
+			got <- result{err: fmt.Errorf("invalid SessionStart stdin: %w", err)}
 			return
 		}
-		got <- payload.Cwd
+		if input == nil {
+			got <- result{err: fmt.Errorf("SessionStart stdin must be a JSON object")}
+			return
+		}
+		// Keep cwd available for the baseline even if the stream never closes.
+		got <- result{input: *input}
+		if complete {
+			if _, err := decoder.Token(); err != io.EOF || limited.N == 0 {
+				got <- result{err: fmt.Errorf("SessionStart stdin must be one JSON object within 1 MiB")}
+				return
+			}
+			got <- result{}
+		}
 	}()
-	select {
-	case cwd := <-got:
-		return cwd
-	case <-time.After(wait):
-		return ""
+	deadline := time.After(wait)
+	read := func() result {
+		select {
+		case next := <-got:
+			return next
+		case <-deadline:
+			return result{err: fmt.Errorf("timed out reading SessionStart stdin")}
+		}
 	}
+	first := read()
+	if first.err != nil || !complete {
+		return first.input, first.err
+	}
+	return first.input, read().err
 }
 
 // resolveHooksRoot: user scope writes no repository state, so it skips the

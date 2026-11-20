@@ -14,6 +14,8 @@ A wiki realm is a set of markdown files and a set of SQLite symbol graphs. Read 
 
 `atomic serve [path] [--port N] [--host H] [--open]` renders all of it in a browser (default port 4500, default bind `127.0.0.1`). Go serves a JSON API; the UI is a React + TypeScript SPA built by Bun into the gitignored `frontend/dist/` (`make -C atomic frontend`) and embedded with `go:embed`, so `go build` itself never invokes Bun or Node.
 
+At a linked realm root, readers can browse selected shared documents at their realm-relative paths without browsing the rest of the shared checkout.
+
 Serve is read-only with respect to realm and repo content. The `/api/bus/*` chat endpoints are the one exception: they write to the bus daemon's own state (room membership and messages), never to files, and every one of them is refused unless the request's TCP peer is loopback.
 
 
@@ -74,7 +76,7 @@ Each guard sits at a different layer:
 | Guard | Where | Rejects |
 |-------|-------|---------|
 | `isLoopbackPeer` | every `/api/bus/*` request | a non-loopback TCP peer |
-| `safeResolve` (`render.go`) | page, rail, file | a path escaping the served root |
+| `documentScope` ([`atomic/internal/serve/walk.go`](../../atomic/internal/serve/walk.go)) | page, rail, file | paths outside the served root without a verified mount, and protected paths in a bound realm |
 | `requireRoom` | bus room names | a name that would escape `RoomLogPath` |
 | `resolvePlansPath` (`api_plans_page.go`) | plans page and raw-file reads | a path escaping a worktree-issued root, or an unregistered worktree id |
 | `rejectCrossOrigin` (`origin_guard.go`) | every `/api/bus/*` POST route, `/api/reindex` POST | a request whose `Origin` or `Sec-Fetch-Site` header does not match the server's own origin |
@@ -83,7 +85,7 @@ Each guard sits at a different layer:
 
 **`rejectCrossOrigin` replaces containment the iframe sandbox used to provide.** Once a bundle-mock HTML file's iframe can run scripts (see the Plans section below), a script served from this origin could otherwise POST straight to the loopback-gated bus and reindex routes. An opaque-origin document — what a sandboxed frame produces — sends `Origin: null`, which never equals the server's own `scheme://host`, so `rejectCrossOrigin` refuses it with `403`. It checks `Origin` first, falling back to `Sec-Fetch-Site` when `Origin` is absent; either header naming a different origin is rejected.
 
-**Path traversal is rejected at the handler**, not by the filesystem. `safeResolve` and `resolvePlansPath` both delegate to `render.go`'s `resolveContained`, but against different allowed roots: `safeResolve` is fixed to the single served root at every existing call site (`api_handlers.go`, `context_handler.go`, `graph.go`); `resolvePlansPath` calls `resolveContained` directly against whichever worktree root the plans registry resolved the request's `worktree` id to, since a worktree can sit anywhere on disk. `requireRoom` is the equivalent guard for bus room names, which get spliced into a filesystem path.
+**Document reads and Plans use separate roots.** `documentScope` resolves wiki and source paths against the handler's root, with the verified shared mounts described below. `resolvePlansPath` calls `resolveContained` against the checkout selected by the worktree registry, which can be outside that root. `requireRoom` guards bus room names before they become filesystem paths.
 
 **`webSessionID` is derived from the served directory**, as `serve-web-<first 8 hex of sha256(TargetDir)>`, not from the pid, so a restarted server reclaims its existing roster entry instead of minting a new member each time. One identity per serve instance, shared by every browser tab.
 
@@ -97,9 +99,40 @@ Each guard sits at a different layer:
 
 **`DisplayScopeRepo` covers a repo with no code index.** Docs-only mode is valid; serve never requires an index to start.
 
+**The navigation root does not widen page or source requests.** `RunWithContext` uses the resolved realm root for navigation, the rail, Markdown search, and the docs graph in realm and member scope. `/api/page/` and `/api/file/` use the directory passed to `atomic serve`.
+
 **[`.claude`](../../.claude) is not skipped by the walkers.** It holds servable project docs that `atomic wiki linkify` cites across members; skipping it would render valid links as broken and 404 their rails. Nested dotdirs inside it are still skipped.
 
 **Wikilink resolution happens once.** `wikilinkResolverFromGraph` reads the focused page's already-resolved outbound edges filtered to `mdlink.Wikilink`, so the page body and the right rail cannot disagree. Renaming that constant breaks the resolver.
+
+### Shared documents and logical paths
+
+A shared path can resolve outside the served root only through a verified mount. If the shared view omits an invalid mount, ordinary contained local reads can still succeed. If a mount returned by the view fails its recheck, the resolver refuses the path without falling back.
+
+```mermaid
+flowchart TD
+    %% source: atomic/internal/serve/walk.go
+    accTitle: Linked document resolution
+    accDescr: The resolver checks the mount witness and applies path protection to descendants before reading a shared source.
+    L["documentScope.locate"] --> P{"protected?"}
+    P -->|yes| R["Refuse path"]
+    P -->|no| M{"mount?"}
+    M -->|no| O["Resolve under served<br/>root"]
+    M -->|yes| V{"mountPath verified?"}
+    V -->|no| R
+    V -->|mount root| S["documentPath"]
+    V -->|descendant| A{"openDir succeeds?"}
+    A -->|no| R
+    A -->|yes| D{"pathBelow blocks<br/>or cannot resolve?"}
+    D -->|yes| R
+    D -->|no| S
+```
+
+`loadDocumentScope` keys the roots returned by `realmshare.DocumentView` by their realm-local paths. `mountPath` rechecks the local link and its target, then checks the checkout and source identities. Mounts can point to directories or individual files. For a descendant, Serve opens the mounted directory and `pathBelow` checks for protected paths before resolving the suffix. Serve does not follow symlinks inside a mounted tree.
+
+Realm navigation walks the accessible wiki and registered buckets. Markdown search, including the stream's `md` event, returns logical `RelPath` values. Page responses, breadcrumbs, and docs graph nodes use those same paths rather than exposing the backing checkout. For example, the linked-realm fixture returns `buckets/research/sessions/note.md` from search and serves it at `/api/page/buckets/research/sessions/note.md`.
+
+The docs graph reflects edits and removals under verified mounts. Unlinking removes the shared nodes, navigation entries, and search hits; direct page and source requests for the removed paths return `404`.
 
 ### Bus facade
 
@@ -205,7 +238,7 @@ Go, all in [`atomic/internal/serve/`](../../atomic/internal/serve):
 | `serve.go` | `Run` / `RunWithContext`, `Options`, `DisplayScope`, `ResolveDisplayScope`, the whole mux (including the `/api/plans*` routes), `newSPAHandler`, listener and graceful shutdown |
 | `api_handlers.go` | The page, file, rail, nav, md-search, code-search, and search-stream handlers; `writeAPIJSON` / `writeAPIError` share one `{"error": "..."}` envelope |
 | `context_handler.go` | Relpath resolution shared by page and rail (index files, directory listing) |
-| `render.go` | goldmark + chroma renderer, mermaid fence pass-through, `RenderMarkdownWithGraph`, `safeResolve`, `resolveContained` (the shared containment algorithm both `safeResolve` and `api_plans_page.go` call) |
+| `render.go` | goldmark + chroma renderer, mermaid fence pass-through, `RenderMarkdownWithGraph`, `safeResolve`, and `resolveContained` for paths constrained to a root |
 | `wikilink.go` | goldmark inline parser and renderer for `[[page]]` / `[[page\|alias]]` |
 | `graph.go` | `BuildLinkGraph` plus the `Graph` queries: `Has`, `Outbound`, `Backlinks`, `IsOrphan`, `NodeType`, `Meta` |
 | `snapshot.go` | `snapshotStore` — fingerprint, nav paths, and link graph behind one `atomic.Pointer` |
@@ -224,7 +257,9 @@ Go, all in [`atomic/internal/serve/`](../../atomic/internal/serve):
 | `external.go` | `BuildExternalRegistry`, `GitOrMtimeDateFn` |
 | `stale.go` | Sole parser for `wiki.Stale` output, reading `DRIFT` lines only |
 | `staleness_cache.go` | `navStalenessCache`: one `wiki.Stale` walk shared by `/api/nav` and `/api/status`; an aged answer is served while a background refresh runs |
-| `walk.go` | `shouldSkipDir`, shared by every file walker in the package |
+| [`atomic/internal/serve/walk.go`](../../atomic/internal/serve/walk.go) | `documentScope` for mount witnesses, private-state exclusion, and logical document walking; `shouldSkipDir` for walker exclusions |
+| [`atomic/internal/serve/serve_test.go`](../../atomic/internal/serve/serve_test.go) | `TestRunWithContext_LinkedRealmContent` covers logical paths, direct refusals, graph refresh, and unlink; `TestScopeMappingTable` covers ordinary scope resolution |
+| [`atomic/internal/serve/walk_test.go`](../../atomic/internal/serve/walk_test.go) | Ordinary docs graph coverage, including configured state roots and non-duplication through aliases |
 | `plans.go` | `plansAggregator` — the worktree enumeration, content-SHA version grouping, bundle collection, `rowUpdatedAt` (newest mtime across a row's doc versions and bundle files, rows sorted descending with a slug tiebreak), and the stat-only fingerprint cache the Plans surface reads from |
 | `api_plans.go` | `/api/plans` and `/api/plans/members`; `plansRegistry` sharing one `plansAggregator` per root and indexing worktree ids across every aggregator built |
 | `api_plans_page.go` | `/api/plans/page`; `resolvePlansPath`, `plansContentType`'s HTML/XML-sniff clamp for `raw=1` responses |
@@ -312,13 +347,15 @@ Docs:
 
 **A symlink under [`docs/design/`](../design) or [`docs/spec/`](../spec) is never followed.** The docs walk spans every checkout including review-only worktrees, and a symlink there would hash and title-extract an arbitrary file from outside the repository into a row.
 
-**`safeResolve`'s allowed root is never widened for Plans.** `api_plans_page.go` calls `resolveContained` directly against a worktree-issued root instead, so cross-worktree reads cannot relax containment at any of `safeResolve`'s other call sites.
+**An absent navigation entry is not a read guard.** In a bound realm, direct `/api/page/` and `/api/file/` requests return `404` for unknown targets and protected paths, including configured state directories of nested repos. Mounting a wiki does not make an unlinked bucket in the shared checkout readable.
+
+**The private-state rule is scoped to the bound realm.** An ordinary repo or unbound realm can still include documents from configured state roots, such as wiki pointer cards, in its docs graph.
 
 
 ## Coupling
 
 
-- **wiki domain.** `serve` calls `wiki.Stale`, `wiki.ReadScanMembers`, and `wiki.ReadBucketEntries`. The `DRIFT added|removed <path>` / `DRIFT status <path> <old>→<new>` line grammar is a wire format between them: `parseStaleLines` keys on the third field, so a change to it breaks `stale.go`, and with it the nav badges and `/api/status`. `plansMembers` also calls `wiki.ReadScanMembers` to enumerate every wiki-scanned member Plans can aggregate, alongside `realm.Resolve`'s declared members.
+- **Wiki domain ([`docs/wiki/wiki.md`](wiki.md)).** The wiki domain owns realm sharing and source ownership. Serve consumes `realmshare.DocumentView` for bound-realm roots and bucket registrations; ordinary realm navigation still uses `wiki.ReadBucketEntries`. Serve also calls `wiki.Stale` and `wiki.ReadScanMembers`. The `DRIFT added|removed <path>` / `DRIFT status <path> <old>→<new>` line grammar is a wire format between them: `parseStaleLines` keys on the third field, so a change to it breaks `stale.go`, and with it the nav badges and `/api/status`. `plansMembers` also calls `wiki.ReadScanMembers` to enumerate every wiki-scanned member Plans can aggregate, alongside `realm.Resolve`'s declared members.
 - **code-intel domain.** `serve` calls `realm.Resolve` for scope, opens per-member indexes through `engine.NewWithDBPath`, and talks to the engine only through the `CodeEngine` interface in `codeexplorer.go`. Adding a method there means every fake in `codeexplorer_fakes_test.go` grows too. `api_plans.go` reuses `realm.Resolve` and the `codeMember` type from `code_members.go` to build its member list, rather than defining a second one.
 - **bus domain.** `api_bus.go` imports `internal/bus` in-process, not as a subprocess, and uses `bus.JoinIdentity`, `bus.Dial`, `bus.EnsureDaemon`, and `bus.RoomLogPath`. The wire types `bus.Request`, `bus.Response`, `bus.Envelope`, `bus.RoomInfo`, `bus.Member`, and `bus.Error` cross the boundary with no translation layer, so their JSON shapes are also serve's contract with the `/bus` frontend. `bus.Error.Code` drives the HTTP status mapping.
 - **doctor domain.** `health.go` calls `doctor.RunCheckCodeIndexRealmWith` and `doctor.RunCheckCodeIndexWith` for the code-index half of `/api/status`. Separately, `atomic validate artifacts` lints `atomic serve` citations against the live Cobra tree, which `main.go` hands to `cliusage.SetRoot(rootCmd)` and `DeriveCommands` walks. The static `commands` slice in `cliusage.go` is the golden table `TestDeriveCommandsGolden` checks, so a new flag registered in Cobra also needs a matching golden entry or that test fails.

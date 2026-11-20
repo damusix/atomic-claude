@@ -178,12 +178,13 @@ Use "initialized" if R2 found no existing signals; "refreshed" otherwise.
 
 ## Realm scope
 
-A failed scan stops the run, and a run with nothing to refresh goes straight to the commit step.
+A wiki symlink or a failed scan stops the run. If there is nothing to refresh, go straight to the commit step.
 
 ```mermaid
 flowchart TD
-    R["Step 1: resolve root"] --> S{"Step 2: scan ok?"}
-    S -->|no| X["Stop"]
+    R{"Step 1: wiki symlink?"} -->|yes| X["Stop"]
+    R -->|no| S{"Step 2: scan ok?"}
+    S -->|no| X
     S -->|yes| B["Steps 3–4: buckets"]
     B --> A{"Step 5:<br/>anything to do?"}
     A -->|no| C["Step 10: commit"]
@@ -195,6 +196,8 @@ flowchart TD
 ### Step 1 — Resolve root
 
 If `[root]` was supplied, use it as the realm root. Otherwise default to the current working directory. `[root]` is the realm root (the parent of `wiki/`), never the `wiki/` directory itself — `atomic wiki scan --root <resolved-root>` creates `wiki/` underneath it, and the rest of this workflow appends `wiki/` to `<resolved-root>` (e.g. `<resolved-root>/wiki/index.md`).
+
+Realm-scope `/refresh-wiki` is for an independent wiki repository. Before scanning or authoring, set `resolved_root` to the resolved realm root and run `test -L "$resolved_root/wiki"` (no trailing slash). If it succeeds, stop, even if the link target is missing. Tell the user to edit the declared wiki links explicitly with the required write access and to run `atomic realm sync` only when they intend to publish those changes.
 
 ### Step 2 — Scan (deterministic)
 

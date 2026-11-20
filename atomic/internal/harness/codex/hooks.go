@@ -192,6 +192,65 @@ const (
 	HookTrustUnknown  HookTrust = "unknown"
 )
 
+// SessionHookActivation is the local activation state of the enrolled SessionStart hook.
+type SessionHookActivation string
+
+const (
+	SessionHookInactive        SessionHookActivation = "inactive"
+	SessionHookAbsent          SessionHookActivation = "absent"
+	SessionHookUntrusted       SessionHookActivation = "untrusted"
+	SessionHookStale           SessionHookActivation = "stale"
+	SessionHookFeatureDisabled SessionHookActivation = "feature-disabled"
+	SessionHookMemberDisabled  SessionHookActivation = "member-disabled"
+	SessionHookActive          SessionHookActivation = "active"
+)
+
+// InspectSessionHookActivation checks the configured, enrolled Codex root
+// without modifying hook settings or trust.
+func InspectSessionHookActivation(home string) (SessionHookActivation, error) {
+	root, err := DefaultHome(home)
+	if errors.Is(err, harness.ErrUnsupported) {
+		return SessionHookInactive, nil
+	}
+	if err != nil {
+		return SessionHookInactive, err
+	}
+	ledger, err := installstate.LoadLedger(config.LedgerPath(home))
+	if err != nil {
+		return SessionHookInactive, err
+	}
+	target, ok := ledger.FindTarget(string(harness.KindCodex), root)
+	if !ok || target.NativeRoot != root || ledger.IsLeft(target.Key(), hooks.CodexHooksPath(root)) {
+		return SessionHookInactive, nil
+	}
+	obs, err := readHookTrust(root, sessionStartTrust)
+	if err != nil {
+		return SessionHookInactive, err
+	}
+	switch {
+	case obs.trust == HookTrustUnknown:
+		return SessionHookAbsent, nil
+	case obs.featureDisabled:
+		return SessionHookFeatureDisabled, nil
+	case obs.memberDisabled:
+		return SessionHookMemberDisabled, nil
+	case obs.trust == HookTrustModified:
+		return SessionHookStale, nil
+	case obs.trust != HookTrusted:
+		return SessionHookUntrusted, nil
+	}
+	// Position identifies the command; the digest also checks its definition.
+	member, err := hooks.ObserveCodexHooksOwned(root)
+	if err != nil {
+		return SessionHookInactive, err
+	}
+	if member.Conflict != managedfile.ConflictNone ||
+		(member.Digest != hooks.CodexCanonicalDigest() && member.Digest != hooks.CodexLegacyDigest()) {
+		return SessionHookStale, nil
+	}
+	return SessionHookActive, nil
+}
+
 // ObserveSessionHookTrust reads, never writes, Codex's trust record for the
 // owned member. See docs/research/harness-capability-matrix.md, Session context.
 func ObserveSessionHookTrust(home, root string) (HookTrust, string) {
@@ -212,18 +271,48 @@ func observeHookTrust(home, root string, m trustedMember) (HookTrust, string) {
 	if ledger.IsLeft(target.Key(), hooks.CodexHooksPath(root)) {
 		return HookTrustUnknown, "member left unowned; Atomic does not report trust for a hook it does not own"
 	}
-	group, handler, found, err := m.position(root)
+	obs, err := readHookTrust(root, m)
 	if err != nil {
 		return HookTrustUnknown, err.Error()
 	}
-	if !found {
+	if obs.trust == HookTrustUnknown {
 		return HookTrustUnknown, "hooks.json carries no Atomic " + m.name + " member"
+	}
+	evidence := ConfigPath(root) + obs.evidence
+	if obs.memberDisabled {
+		evidence += "; the hook is disabled"
+	}
+	switch obs.trust {
+	case HookUntrusted:
+		evidence += "; review and trust the hook in Codex's /hooks"
+	case HookTrustModified:
+		evidence += "; review the hook in Codex's /hooks and trust it again"
+	}
+	return obs.trust, evidence
+}
+
+type hookTrustObservation struct {
+	trust                           HookTrust
+	evidence                        string
+	featureDisabled, memberDisabled bool
+}
+
+func readHookTrust(root string, m trustedMember) (hookTrustObservation, error) {
+	group, handler, found, err := m.position(root)
+	if err != nil {
+		return hookTrustObservation{}, err
+	}
+	if !found {
+		return hookTrustObservation{trust: HookTrustUnknown}, nil
 	}
 	data, err := os.ReadFile(ConfigPath(root))
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return HookTrustUnknown, err.Error()
+		return hookTrustObservation{}, err
 	}
 	var doc struct {
+		Features struct {
+			Hooks *bool `toml:"hooks"`
+		} `toml:"features"`
 		Hooks struct {
 			State map[string]struct {
 				Enabled     *bool  `toml:"enabled"`
@@ -232,11 +321,16 @@ func observeHookTrust(home, root string, m trustedMember) (HookTrust, string) {
 		} `toml:"hooks"`
 	}
 	if err := toml.Unmarshal(data, &doc); err != nil {
-		return HookTrustUnknown, fmt.Sprintf("%s does not parse: %v", ConfigPath(root), err)
+		return hookTrustObservation{}, fmt.Errorf("%s does not parse: %w", ConfigPath(root), err)
 	}
 
+	obs := hookTrustObservation{
+		trust:           HookUntrusted,
+		featureDisabled: doc.Features.Hooks != nil && !*doc.Features.Hooks,
+	}
 	if len(doc.Hooks.State) == 0 {
-		return HookUntrusted, fmt.Sprintf("%s records no hook trust; review and trust the hook in Codex's /hooks", ConfigPath(root))
+		obs.evidence = " records no hook trust"
+		return obs, nil
 	}
 	suffix := fmt.Sprintf(":%s:%d:%d", m.eventKey, group, handler)
 	path := hooks.CodexHooksPath(root)
@@ -249,19 +343,19 @@ func observeHookTrust(home, root string, m trustedMember) (HookTrust, string) {
 		if !ok {
 			continue
 		}
-		disabled := ""
-		if state.Enabled != nil && !*state.Enabled {
-			disabled = "; the hook is disabled"
+		obs.memberDisabled = state.Enabled != nil && !*state.Enabled
+		switch {
+		case state.TrustedHash == "":
+			obs.evidence = " records the member with no trusted hash"
+		case state.TrustedHash == m.identityHash():
+			obs.trust, obs.evidence = HookTrusted, " records the member's current hash"
+		default:
+			obs.trust, obs.evidence = HookTrustModified, " records a trusted hash that differs from the member's current hash"
 		}
-		if state.TrustedHash == "" {
-			return HookUntrusted, fmt.Sprintf("%s records the member with no trusted hash%s; review and trust it in Codex's /hooks", ConfigPath(root), disabled)
-		}
-		if state.TrustedHash == m.identityHash() {
-			return HookTrusted, fmt.Sprintf("%s records the member's current hash%s", ConfigPath(root), disabled)
-		}
-		return HookTrustModified, fmt.Sprintf("%s records a trusted hash that differs from the member's current hash%s; review the hook in Codex's /hooks and trust it again", ConfigPath(root), disabled)
+		return obs, nil
 	}
-	return HookUntrusted, fmt.Sprintf("%s records no trust for this member, only for other hooks; review and trust it in Codex's /hooks", ConfigPath(root))
+	obs.evidence = " records no trust for this member, only for other hooks"
+	return obs, nil
 }
 
 // trustedMember is an owned member as Codex keys and hashes it in config.toml.

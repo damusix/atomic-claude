@@ -120,6 +120,47 @@ type BucketEntry struct {
 	Path string
 }
 
+// BucketView holds paths usable from a bound realm. It omits unlinked
+// registrations and therefore cannot regenerate the realm's bucket list.
+type BucketView struct {
+	Bound      bool
+	Private    []BucketEntry
+	Shared     []BucketEntry
+	SharedWiki bool
+}
+
+func (v BucketView) entries() []BucketEntry {
+	if len(v.Private) == 0 {
+		return v.Shared
+	}
+	if len(v.Shared) == 0 {
+		return v.Private
+	}
+	entries := make([]BucketEntry, 0, len(v.Private)+len(v.Shared))
+	entries = append(entries, v.Private...)
+	return append(entries, v.Shared...)
+}
+
+func resolveBucketEntries(root string, entries []BucketEntry) []BucketEntry {
+	resolved := entries[:0]
+	for _, e := range entries {
+		if !filepath.IsAbs(e.Path) {
+			rel := filepath.FromSlash(e.Path)
+			if !filepath.IsLocal(rel) {
+				continue
+			}
+			rel = filepath.Clean(rel)
+			link, info, err := firstSymlink(root, filepath.ToSlash(rel))
+			if link != "" || err != nil && !os.IsNotExist(err) || info != nil && !info.IsDir() {
+				continue
+			}
+			e.Path = filepath.Join(root, rel)
+		}
+		resolved = append(resolved, e)
+	}
+	return resolved
+}
+
 type bucketEntry = BucketEntry
 
 // ReadBucketEntries returns nil, no error, when the file or block is absent;

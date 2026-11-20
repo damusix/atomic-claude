@@ -172,6 +172,7 @@ func RunWithContext(ctx context.Context, opts Options) int {
 			landingRel = rel
 		}
 	}
+	// Member page and source requests must not inherit the broader navigation root.
 	mux.Handle("/api/page/", NewAPIPageHandler(opts.TargetDir, store, landingRel))
 	mux.Handle("/api/file/", NewAPIFileHandler(opts.TargetDir))
 	mux.Handle("/api/rail/", NewAPIRailHandler(navRoot, store))
