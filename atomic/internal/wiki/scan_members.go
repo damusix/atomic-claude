@@ -17,10 +17,14 @@ func ReadScanMembers(indexPath string) ([]Member, error) {
 		}
 		return nil, fmt.Errorf("wiki: read scan members: %w", err)
 	}
+	return ParseScanMembers(data), nil
+}
 
+// ParseScanMembers lists the members recorded in wiki index content.
+func ParseScanMembers(data []byte) []Member {
 	blockContent := extractBlockContent(string(data))
 	if blockContent == "" {
-		return nil, nil
+		return nil
 	}
 
 	var members []Member
@@ -48,5 +52,5 @@ func ReadScanMembers(indexPath string) ([]Member, error) {
 		}
 		members = append(members, m)
 	}
-	return members, nil
+	return members
 }

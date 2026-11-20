@@ -1,0 +1,1 @@
+../../.atomic/rules/wiki/code-intel.md

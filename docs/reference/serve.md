@@ -38,7 +38,7 @@ The resolved scope reaches the client as `GET /api/status`'s `isRealmScope` fiel
 
 The nav tree, markdown search, the docs graph, and the change-detection fingerprint all walk the same tree and share one exclusion rule.
 
-Skipped: dot-directories, `node_modules`, `vendor`, `tmp`, and anything git ignores. `.claude` and each repository's state root (`.atomic` by default, else the root the [resolution order](/reference/concepts#state-root-resolution-order) picks) are the deliberate exceptions to the dot-directory rule. They hold servable project docs that wiki links cite across members, so skipping them would break valid links.
+The walk skips dot-directories, `node_modules`, `vendor`, `tmp`, and paths Git ignores. `.claude` is an exception to the dot-directory rule. The [resolved state root](/reference/concepts#state-root-resolution-order) can also be an exception where the server allows access to it.
 
 Git-ignored is not on its own enough to skip, because a realm gitignores its member repositories. From the realm's point of view they carry their own history and are disposable, yet they are the very thing a realm exists to serve. An ignored directory is nonetheless walked when it is a repository in its own right (when it holds a `.git` **directory**). This still leaves out a second copy of content already reachable somewhere else:
 
@@ -50,7 +50,11 @@ Git-ignored is not on its own enough to skip, because a realm gitignores its mem
 
 A linked worktree carries `.git` as a file pointing back at the repository it duplicates, which is what tells it apart from a member repo. Before this rule, a repo with eight worktrees showed every doc nine times in nav, search, and the graph.
 
-This governs enumeration only. An ignored file still renders when you navigate to it by path. It does not show up in a listing, a search result, or the graph.
+Git ignore rules govern enumeration only: an ignored file can still render by path if the server allows access to it.
+
+In a bound realm, the server excludes private state from enumeration and rejects direct `GET /api/page/<relpath>` and `GET /api/file/<relpath>` requests for it. The dot-directory exceptions above do not expose that state.
+
+The server presents a declared shared wiki or bucket root at its realm-local URL only while it can verify the link belongs to the binding. For example, a linked wiki page opens at `/page/wiki/index.md`; the managed checkout does not get its own URLs.
 
 ## The interface
 

@@ -47,7 +47,7 @@ All ship commands delegate commit messages to the `atomic-git-discipline` skill.
 | Command | What it does |
 |---------|-------------|
 | `/setup-wiki` | Bootstrap a repo for atomic conventions. Audits `.gitignore`, `docs/` layout, and the project steering file. Proposes only what is missing — never overwrites. |
-| `/refresh-wiki` | Refresh the project wiki; scope is auto-detected. Repo scope: generate or update the `docs/wiki/` pages that map your repo's shape, plus one path-scoped pointer card per domain under `<state-root>/rules/wiki/` that names the domain's page and docs whenever the harness touches a file in it. Realm scope: run `atomic wiki scan` to classify member repos (scaffolding included), write summaries for pending repos, then re-author only the existing summaries and concerns you pick from a numbered list, and re-scan so `index.md` records the new summaries. On first run in a realm with no `<wiki-buckets>` block, prompts to register capture folders; a blank response records the decline so the offer never re-fires. Prints a per-artifact disposition and commits the wiki automatically when done — its git history is the changelog. Idempotent. |
+| `/refresh-wiki` | Refresh the project wiki; scope is auto-detected. Repo scope updates `docs/wiki/` and its path-scoped pointer cards under `<state-root>/rules/wiki/`. Independent realm scope scans member repos, writes pending summaries, re-authors the selected summaries and concerns, and commits inside `wiki/`. The one-time bucket offer records a blank response as a decline. For a linked `wiki/`, edit the selected files and use `atomic realm sync` instead. See [Realm wiki](/reference/realm-wiki). |
 
 
 ## Maintenance
@@ -84,6 +84,7 @@ All ship commands delegate commit messages to the `atomic-git-discipline` skill.
 | `atomic workflow` | `atomic workflow resolve [--json]` prints the resolved source-control, issue-tracker, and worktree preferences for this directory; `atomic workflow set <key> <value> [--level profile\|realm\|repo]` writes one preference line. | [Concepts](/reference/concepts#workflow-preferences) |
 | `atomic code` | Build and query the symbol graph — where a symbol is defined, what calls it, what breaks if it changes. Also serves the graph over MCP. | [Code intelligence](/reference/code-intel) |
 | `atomic wiki` | Scan and maintain the cross-repo wiki, and register capture buckets whose docs it indexes. | [Wiki workflow](/reference/realm-wiki) |
+| `atomic realm` | Publish, receive, review, and link selected realm paths without sharing member repositories. Verbs: `share`, `sync`, `join`, `link`, `status`, `unlink`. | [CLI contract](/reference/realm-wiki#realm-sharing-cli) · [Sharing guide](/guides/realm-sharing) |
 | `atomic bus` | Message between concurrent agent sessions over named rooms, and operate a room from outside it. | [Bus](/reference/bus) |
 | `atomic repl` | Drive a named Python or Node interpreter session that survives across separate Bash calls. | [REPL](/reference/repl) |
 | `atomic retro` | `atomic retro extract` writes session history since a date as one numbered markdown file for `/retrospective-learning`. | [Retro](/reference/retro) |

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -39,6 +40,12 @@ var wantCobraSubcommandMeta = []struct {
 	{[]string{"profile", "refresh"}, "", "Refresh ## Environment in profile.md"},
 	{[]string{"prompt", "git-cleanup"}, "", "Emit the git-cleanup cold-op brief"},
 	{[]string{"prompt", "claude-merge"}, "", "Emit the CLAUDE.md merge cold-op brief"},
+	{[]string{"realm", "share"}, "[<path>...]", "Publish selected realm paths"},
+	{[]string{"realm", "sync"}, "", "Exchange changes with the shared realm remote"},
+	{[]string{"realm", "join"}, "<git-url>", "Download and review a shared realm without linking"},
+	{[]string{"realm", "link"}, "[<path>...]", "Review and link selected shared realm paths"},
+	{[]string{"realm", "status"}, "", "Inspect local sharing state and cached remote status"},
+	{[]string{"realm", "unlink"}, "", "Remove owned realm links and restore originals"},
 }
 
 // A silent Short/args_hint mismatch makes the A1 linter false-positive or
@@ -100,7 +107,6 @@ var wantDelegatedSubcommandMeta = []struct {
 	{[]string{"wiki", "bucket", "list"}, "", "List registered buckets as name<TAB>path"},
 	{[]string{"wiki", "bucket", "doc"}, "<bucket> <slug>", "Scaffold <bucket>/<slug>/index.md and its 01_raw/ stage, then rebuild the bucket's indexes"},
 	{[]string{"wiki", "bucket", "skill"}, "<bucket>", "Scaffold the realm per-bucket SKILL.md for <bucket> (no-op if present)"},
-	{[]string{"wiki", "bucket", "index"}, "[<bucket>]", "Rebuild the <bucket-docs> region in every directory of one bucket (or all when omitted) plus the realm bucket list"},
 	// followups subcommands
 	{[]string{"followups", "list"}, "", "List open follow-up entries"},
 	{[]string{"followups", "add"}, "", "Create entry"},
@@ -137,6 +143,14 @@ func TestDelegatedSubcommandMetadata(t *testing.T) {
 // map from them anyway.
 func TestDeriveCommandsGolden(t *testing.T) {
 	golden := cliusage.Commands()
+	for _, entry := range golden {
+		if len(entry.Path) != 2 || entry.Path[0] != "realm" {
+			continue
+		}
+		if want, ok := realmReviewFlags[entry.Path[1]]; ok && !slices.Equal(slices.Sorted(slices.Values(entry.Flags)), want) {
+			t.Errorf("realm %s golden flags = %v, want %v", entry.Path[1], entry.Flags, want)
+		}
+	}
 
 	var repo string
 	root := buildRootCmd(&repo)
@@ -221,7 +235,7 @@ func TestRootCmdExactVerbs(t *testing.T) {
 	want := []string{
 		"bus", "claude", "code", "config", "docker", "docs", "doctor",
 		"followups", "harness", "hooks", "install", "migrate", "profile", "prompt",
-		"repl", "repo", "retro", "scratchpad", "serve", "signals", "state", "template", "update", "validate", "where", "wiki", "workflow",
+		"realm", "repl", "repo", "retro", "scratchpad", "serve", "signals", "state", "template", "update", "validate", "where", "wiki", "workflow",
 	}
 
 	var visible []string

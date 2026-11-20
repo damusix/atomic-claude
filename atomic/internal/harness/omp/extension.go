@@ -28,6 +28,7 @@ const extensionModule = `// Atomic's OMP runtime delivery. Generated from the pr
 // Registered events: /*atomic-events*/
 import { execFile } from "node:child_process";
 import { appendFileSync, realpathSync } from "node:fs";
+import { isAbsolute } from "node:path";
 
 type IndexPattern = { glob: string; regex: string };
 type IndexEntry = { id: string; digest: string; patterns: IndexPattern[]; order: number };
@@ -48,7 +49,20 @@ const DATA: Delivery = /*atomic-delivery*/{ marker: "", events: [], bound: 0, in
 type ToolCallEvent = { toolName?: unknown; input?: unknown };
 type AgentStartEvent = { systemPrompt?: unknown };
 type ProviderRequestEvent = { payload?: unknown };
-type SessionContext = { cwd?: unknown };
+type SessionManager = {
+	getSessionFile?(): unknown;
+	getSessionId?(): unknown;
+	getHeader?(): unknown;
+	getEntries?(): unknown;
+	isSessionOnDisk?(): unknown;
+};
+type SessionContext = {
+	cwd?: unknown;
+	mode?: unknown;
+	sessionManager?: SessionManager;
+	hasUI?: boolean;
+	ui?: { notify?(message: string, kind: "info"): void };
+};
 type ToolInfo = { name?: unknown };
 type ExtensionApi = {
 	on(event: "session_start", handler: (event: unknown, ctx: SessionContext) => unknown): void;
@@ -157,21 +171,58 @@ function sessionBaseline(matched: string[], uncovered: string[]): string | null 
 
 const CONTEXT_MARKER = "atomic-omp-session-context";
 const CONTEXT_TIMEOUT_MS = 5000;
+const SYNC_REMINDER_PREFIX = "atomic-realm-sync-reminder: ";
+
+const SESSION_SOURCE_FLAG = /^(?:--(?:continue|resume|session|fork|from-claude|from-codex|join)|-[cr])(?:=|$)/;
+const STARTUP_ENTRY_TYPES = new Set([
+	"session_init", "model_change", "thinking_level_change", "service_tier_change", "mode_change", "credential_pin",
+]);
+
+function primarySessionFile(event: unknown, ctx: SessionContext, cwd: string): string {
+	if (field(event, "type") !== "session_start" || !isAbsolute(cwd)) return "";
+	if (ctx.mode !== "tui" && ctx.mode !== "print" && ctx.mode !== "json") return "";
+	if (process.argv.slice(2).some((arg) => SESSION_SOURCE_FLAG.test(arg))) return "";
+	try {
+		const manager = ctx.sessionManager;
+		const file = text(manager?.getSessionFile?.());
+		// OMP allocates the path at creation but writes the transcript lazily.
+		// Even a header-only resume already has an on-disk transcript.
+		if (!isAbsolute(file) || manager?.isSessionOnDisk?.() !== false) return "";
+		const header = manager.getHeader?.();
+		const id = text(field(header, "id"));
+		if (field(header, "type") !== "session" || id === "" || id !== manager.getSessionId?.()) return "";
+		if (field(header, "parentSession") !== undefined || field(header, "previousSessionFiles") !== undefined) return "";
+		const recordedCwd = text(field(header, "cwd"));
+		if (!isAbsolute(recordedCwd) || !sameDirectory(recordedCwd, cwd)) return "";
+		const entries = manager.getEntries?.();
+		return Array.isArray(entries) && entries.every((entry) => STARTUP_ENTRY_TYPES.has(text(field(entry, "type")))) ? file : "";
+	} catch {
+		return "";
+	}
+}
 
 // loadSessionContext resolves to the verb's text, or to "" on any failure: a
 // missing binary, a non-zero exit, or the timeout must never break a session.
-function loadSessionContext(cwd: string): Promise<string> {
+function loadSessionContext(cwd: string, showReminder?: (notice: string) => void): Promise<string> {
 	if (cwd === "") return Promise.resolve("");
 	const args = ["hooks", "session-start", "--format", "text", "--harness", "omp", "--cwd", cwd];
+	if (showReminder) args.push("--realm-primary");
 	return new Promise((resolve) => {
 		const done = (text: string, reason: string) => {
 			emit({ kind: "session_context", units: text.length, reason });
 			resolve(text);
 		};
 		try {
-			execFile("atomic", args, { cwd, timeout: CONTEXT_TIMEOUT_MS }, (error, stdout) => {
-				if (error) done("", String(error.code ?? error.signal ?? error.message));
-				else done(String(stdout).trim(), "");
+			execFile("atomic", args, { cwd, timeout: CONTEXT_TIMEOUT_MS }, (error, stdout, stderr) => {
+				if (error) {
+					done("", String(error.code ?? error.signal ?? error.message));
+					return;
+				}
+				if (showReminder) {
+					const line = String(stderr).split(/\r?\n/).find((line) => line.startsWith(SYNC_REMINDER_PREFIX));
+					if (line && line.length > SYNC_REMINDER_PREFIX.length) showReminder(line.slice(SYNC_REMINDER_PREFIX.length));
+				}
+				done(String(stdout).trim(), "");
 			});
 		} catch (error) {
 			done("", String(error));
@@ -198,12 +249,16 @@ export default function atomic(pi: ExtensionApi): void {
 	// The workspace root OMP reports at session start; until then every operation
 	// is uncovered, since no path is provably contained in an unknown base.
 	let base = "";
+	let primaryFile = "";
+	let pendingReminder = "";
 	let sessionContext: Promise<string> | null = null;
 	let deliveries = 0;
 	let operations = 0;
 	let denials = 0;
 	function restart(cwd: string): void {
 		base = cwd;
+		primaryFile = "";
+		pendingReminder = "";
 		sessionContext = loadSessionContext(cwd);
 		matched.length = 0;
 		uncovered.length = 0;
@@ -218,9 +273,22 @@ export default function atomic(pi: ExtensionApi): void {
 
 // handlerSessionStart observes the tool inventory, the delivered index, and the
 // workspace root the runtime matcher rebases operation paths onto.
-const handlerSessionStart = `	pi.on("session_start", (_event, ctx) => {
+const handlerSessionStart = `	pi.on("session_start", (event, ctx) => {
 		base = text(ctx?.cwd);
-		sessionContext ??= loadSessionContext(base);
+		if (sessionContext === null) {
+			const file = primarySessionFile(event, ctx, base);
+			primaryFile = file;
+			sessionContext = loadSessionContext(base, file === "" ? undefined : (notice) => {
+				if (primaryFile !== file) return;
+				try {
+					if (ctx?.hasUI && ctx.ui?.notify) {
+						ctx.ui.notify(notice, "info");
+						return;
+					}
+				} catch {}
+				pendingReminder = notice;
+			});
+		}
 		const tools = (pi.getAllTools?.() ?? []).map((tool) => text(tool.name)).filter((name) => name !== "");
 		const covered = tools.filter((name) => DATA.tools.some((input) => input.tool === name));
 		const uncoveredTools = tools.filter((name) => !DATA.tools.some((input) => input.tool === name));
@@ -247,9 +315,19 @@ const handlerSessionSwitch = `	pi.on("session_switch", (_event, ctx) => {
 // so a ctx.cwd that differs from the loaded directory restarts the session state.
 const handlerBeforeAgentStart = `	pi.on("before_agent_start", async (event, ctx) => {
 		const cwd = text(ctx?.cwd);
-		if (base !== "" && cwd !== "" && !sameDirectory(cwd, base)) restart(cwd);
+		const manager = ctx?.sessionManager;
+		const leftPrimary = primaryFile !== "" && (
+			cwd === "" || manager?.getSessionFile?.() !== primaryFile ||
+			field(manager?.getHeader?.(), "previousSessionFiles") !== undefined
+		);
+		if (leftPrimary || (base !== "" && cwd !== "" && !sameDirectory(cwd, base))) restart(cwd);
 		const prompt = strings(event?.systemPrompt);
-		const context = (await sessionContext) ?? "";
+		let context = (await sessionContext) ?? "";
+		if (pendingReminder !== "") {
+			context += (context === "" ? "" : "\n\n") +
+				"In your next response, display this startup reminder once without asking a question or running the command:\n" + pendingReminder;
+			pendingReminder = "";
+		}
 		const added: string[] = [];
 		const block = sessionBaseline(matched, uncovered);
 		if (block === null) {
@@ -260,10 +338,10 @@ const handlerBeforeAgentStart = `	pi.on("before_agent_start", async (event, ctx)
 			added.push(block);
 		}
 		if (context !== "") added.push(sessionContextBlock(context));
-		if (added.length === 0) return;
 		// A block already in the array is replaced: before_agent_start runs every
 		// turn, and the session keeps the block only while each turn re-supplies it.
 		const kept = prompt.filter((part) => !ownsBlock(part, "atomic-rules", DATA.marker) && !ownsBlock(part, "atomic-session-context", CONTEXT_MARKER));
+		if (added.length === 0 && kept.length === prompt.length) return;
 		return { systemPrompt: [...kept, ...added] };
 	});
 `

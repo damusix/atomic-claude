@@ -236,6 +236,13 @@ func RenderMarkdownWithGraph(src []byte, root, pageRelPath string, g *Graph) (st
 	return renderMarkdown(src, rewrite, wikilinkResolverFromGraph(g, pageRelPath))
 }
 
+func (scope documentScope) renderPage(src []byte, pageRelPath string, g *Graph) (string, bool, error) {
+	rewrite := func(raw string) (string, bool, bool) {
+		return scope.resolvePageHref(pageRelPath, raw)
+	}
+	return renderMarkdown(src, rewrite, wikilinkResolverFromGraph(g, pageRelPath))
+}
+
 // markdownLinkRewriter rewrites one link destination. A nil rewriter leaves
 // hrefs verbatim.
 type markdownLinkRewriter func(rawHref string) (href string, htmxPage bool, external bool)

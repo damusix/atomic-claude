@@ -72,6 +72,12 @@ const (
 	// RoleWikiCardDelivery is the surface that puts a repository wiki card in
 	// front of the model for the files it is about to edit.
 	RoleWikiCardDelivery Role = "wiki-card-delivery"
+	// RoleRealmSkill is native discovery and selection of a realm-root skill.
+	RoleRealmSkill Role = "realm-skill"
+	// RoleRealmCommand is native expansion of a realm-root slash workflow.
+	RoleRealmCommand Role = "realm-command"
+	// RoleRealmAgent is native selection of a realm-root agent.
+	RoleRealmAgent Role = "realm-agent"
 )
 
 // Capability is one capability row. Evidence holds the claim IDs and replay
@@ -152,6 +158,30 @@ func ClaudeCapabilities() CapabilityMatrix {
 			Evidence:   "claude.native-global-root; replay target claude-primary",
 		},
 		rows: map[Role]Capability{
+			RoleRealmSkill: {
+				Role:       RoleRealmSkill,
+				Status:     StatusSupported,
+				Native:     ".claude/skills/<name>",
+				Limitation: "the named slash skill supplied its body in a fresh realm-root launch; not across a member Git boundary",
+				Evidence:   "runtimeproof TestClaudeRealmArtifactsReviewedLink/skill",
+				Version:    "2.1.328",
+			},
+			RoleRealmCommand: {
+				Role:       RoleRealmCommand,
+				Status:     StatusSupported,
+				Native:     ".claude/commands/<name>.md",
+				Limitation: "the named slash workflow supplied its body in a fresh realm-root launch; not across a member Git boundary",
+				Evidence:   "runtimeproof TestClaudeRealmArtifactsReviewedLink/command",
+				Version:    "2.1.328",
+			},
+			RoleRealmAgent: {
+				Role:       RoleRealmAgent,
+				Status:     StatusSupported,
+				Native:     ".claude/agents/<name>.md",
+				Limitation: "verified for named primary selection with --agent, not child delegation or across a member Git boundary",
+				Evidence:   "runtimeproof TestClaudeRealmArtifactsReviewedLink/agent",
+				Version:    "2.1.328",
+			},
 			RoleStaticScope: {
 				Role:       RoleStaticScope,
 				Status:     StatusPartial,
@@ -200,6 +230,22 @@ func OMPCapabilities() CapabilityMatrix {
 			Evidence:   "omp.native-global-root; replay target omp-config-path",
 		},
 		rows: map[Role]Capability{
+			RoleRealmSkill: {
+				Role:       RoleRealmSkill,
+				Status:     StatusPartial,
+				Native:     ".agents/skills/<name>",
+				Limitation: "a fresh realm-root launch listed the skill with Read available, but the explicit /skill: prompt remained literal",
+				Evidence:   "runtimeproof TestOMPRealmArtifactCandidates",
+				Version:    "18.22.2",
+			},
+			RoleRealmCommand: {
+				Role:       RoleRealmCommand,
+				Status:     StatusSupported,
+				Native:     ".agents/commands/<name>.md",
+				Limitation: "a fresh realm-root print-mode slash workflow supplied its body and arguments; not across a member Git boundary",
+				Evidence:   "runtimeproof TestOMPRealmArtifactCandidates",
+				Version:    "18.22.2",
+			},
 			RoleStaticScope: {
 				Role:       RoleStaticScope,
 				Status:     StatusUnsupported,
@@ -295,6 +341,14 @@ func CodexCapabilities() CapabilityMatrix {
 			Evidence: "codex.registration; replay target codex-registration",
 		},
 		rows: map[Role]Capability{
+			RoleRealmSkill: {
+				Role:       RoleRealmSkill,
+				Status:     StatusSupported,
+				Native:     ".agents/skills/<name>",
+				Limitation: "app-server listed the skill and explicit selection supplied its body at the realm root; not across a member Git boundary",
+				Evidence:   "runtimeproof TestCodexRealmArtifactSkillReviewedLink",
+				Version:    "0.147.0",
+			},
 			RoleStaticScope: {
 				Role:       RoleStaticScope,
 				Status:     StatusUnsupported,

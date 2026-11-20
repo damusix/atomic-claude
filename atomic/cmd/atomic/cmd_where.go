@@ -6,12 +6,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/damusix/atomic-claude/atomic/internal/cliutil"
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/harness"
+	"github.com/damusix/atomic-claude/atomic/internal/realmshare"
 	"github.com/damusix/atomic-claude/atomic/internal/scratchpad"
 	"github.com/damusix/atomic-claude/atomic/internal/where"
+	"github.com/damusix/atomic-claude/atomic/internal/wiki"
 	"github.com/damusix/atomic-claude/atomic/internal/workflow"
 	"github.com/spf13/cobra"
 )
@@ -55,24 +58,10 @@ func runWhere(args []string, repoOverride string) {
 		os.Exit(2)
 	}
 
-	cwd, err := os.Getwd()
+	cwd, err := scopeCommandDir(repoOverride)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "atomic where: get cwd: %v\n", err)
+		fmt.Fprintf(os.Stderr, "atomic where: %v\n", err)
 		os.Exit(2)
-	}
-	// --repo relocates the whole report, not only the repo_root line: branch
-	// and reports are both derived from wherever resolution starts.
-	if repoOverride != "" {
-		abs, aerr := filepath.Abs(repoOverride)
-		if aerr != nil {
-			fmt.Fprintf(os.Stderr, "atomic where: --repo %q: %v\n", repoOverride, aerr)
-			os.Exit(2)
-		}
-		if st, serr := os.Stat(abs); serr != nil || !st.IsDir() {
-			fmt.Fprintf(os.Stderr, "atomic where: --repo %q is not a directory\n", repoOverride)
-			os.Exit(2)
-		}
-		cwd = abs
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -80,6 +69,19 @@ func runWhere(args []string, repoOverride string) {
 		os.Exit(2)
 	}
 	claudeMDPath := filepath.Join(home, ".claude", "CLAUDE.md")
+	root, insideLink, err := localRealmFromLink(cwd, claudeMDPath)
+	if err == nil {
+		switch {
+		case root != "":
+			cwd = root
+		case insideLink:
+			cwd, err = filepath.EvalSymlinks(cwd)
+		}
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic where: %v\n", err)
+		os.Exit(2)
+	}
 
 	report, err := where.Resolve(cwd, claudeMDPath)
 	if err != nil {
@@ -99,6 +101,91 @@ func runWhere(args []string, repoOverride string) {
 
 	fmt.Print(where.FormatHuman(report))
 	os.Exit(0)
+}
+
+func scopeCommandDir(repoOverride string) (string, error) {
+	if repoOverride != "" && filepath.IsAbs(repoOverride) {
+		return scopeRepoDir(repoOverride, repoOverride)
+	}
+	// On Unix Getwd uses PWD only if it names the actual working directory.
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("get working directory: %w", err)
+	}
+	if filepath.Clean(cwd) != cwd {
+		cwd, err = filepath.EvalSymlinks(cwd)
+		if err != nil {
+			return "", fmt.Errorf("resolve working directory: %w", err)
+		}
+	}
+	if repoOverride == "" {
+		return cwd, nil
+	}
+	if filepath.Clean(repoOverride) == repoOverride && filepath.IsLocal(repoOverride) {
+		return scopeRepoDir(filepath.Join(cwd, repoOverride), repoOverride)
+	}
+	return scopeRepoDir(cwd+string(filepath.Separator)+repoOverride, repoOverride)
+}
+
+func scopeRepoDir(dir, repoOverride string) (string, error) {
+	if filepath.Clean(dir) != dir {
+		physical, err := filepath.EvalSymlinks(dir)
+		if err != nil {
+			return "", fmt.Errorf("--repo %q: %w", repoOverride, err)
+		}
+		dir = physical
+	}
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		return "", fmt.Errorf("--repo %q is not a directory", repoOverride)
+	}
+	return dir, nil
+}
+
+func localRealmFromLink(cwd, claudeMDPath string) (string, bool, error) {
+	if !filepath.IsAbs(cwd) || filepath.Clean(cwd) != cwd {
+		return "", false, nil
+	}
+	var links []string
+	for dir := cwd; dir != filepath.Dir(dir); dir = filepath.Dir(dir) {
+		if info, err := os.Lstat(dir); err == nil && info.Mode()&os.ModeSymlink != 0 {
+			links = append(links, dir)
+		}
+	}
+	for i, link := range slices.Backward(links) {
+		loc, found, err := wiki.FindRealm(filepath.Dir(link), claudeMDPath)
+		if err != nil {
+			return "", false, err
+		}
+		if !found {
+			continue
+		}
+		roots, err := realmshare.LinkedRoots(loc.Root)
+		if os.IsNotExist(err) {
+			return "", true, nil
+		}
+		if err != nil {
+			return "", true, err
+		}
+		if !slices.Contains(roots, link) {
+			return "", true, nil
+		}
+		if i > 0 {
+			target, err := filepath.EvalSymlinks(link)
+			if err != nil {
+				return "", true, err
+			}
+			physical, err := filepath.EvalSymlinks(cwd)
+			if err != nil {
+				return "", true, err
+			}
+			rel, err := filepath.Rel(target, physical)
+			if err != nil || !filepath.IsLocal(rel) {
+				return "", true, nil
+			}
+		}
+		return loc.Root, true, nil
+	}
+	return "", false, nil
 }
 
 // whereJSON extends where.FormatJSON's output with project-keyed state paths

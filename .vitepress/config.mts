@@ -208,6 +208,7 @@ export default withMermaid(defineConfig({
                     { text: 'Upgrade from 6.10 to 7.0', link: '/guides/upgrade-7' },
                     { text: 'Getting Started', link: '/guides/getting-started' },
                     { text: 'Knowledge Base', link: '/guides/knowledge-base' },
+                    { text: 'Share a Realm', link: '/guides/realm-sharing' },
                     { text: 'Code-intel MCP', link: '/guides/code-intel-mcp' },
                     { text: 'Contributing', link: '/guides/contributing' },
                     { text: 'Evaluations', link: '/guides/evaluations' },

@@ -602,3 +602,213 @@ func TestRunWhere_RepoOverrideRelocatesTheWholeReport(t *testing.T) {
 		t.Errorf("repo_root.path = %v, want %v", rr["path"], fixture)
 	}
 }
+
+func TestWhereJSON_ReceivedDirectoryKeepsLocalRealmIdentity(t *testing.T) {
+	t.Setenv(config.StateDirEnvVar, ".atomic")
+	publisher, publisherHome, remote := newRealmShareCLIFixture(t)
+	const shared = "notes"
+	const nested = "procedures"
+	const contents = "# Received runbook\n"
+	const other = "checklist.md"
+	const otherContents = "# Shared checklist\n"
+	writeSteeringTestFile(t, filepath.Join(publisher, shared, nested, "runbook.md"), contents)
+	writeSteeringTestFile(t, filepath.Join(publisher, other), otherContents)
+	args := []string{shared + "/", other, "--remote", remote, "--branch", shareBranch}
+	review := previewRealmReview(t, publisherHome, "share", args...)
+	mustRunRealmCLI(t, publisherHome, "share", append(args, "--yes", "--review", review)...)
+	runGit(t, remote, "symbolic-ref", "HEAD", "refs/heads/"+shareBranch)
+
+	joiner, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	writeSteeringTestFile(t, config.RepoConfigPath(joiner), "scope = \"realm\"\n")
+	t.Chdir(joiner)
+	mustRunRealmCLI(t, home, "join", remote)
+	assertRealmCLIPathAbsent(t, joiner, shared)
+	review = previewRealmReview(t, home, "link", shared+"/", other)
+	mustRunRealmCLI(t, home, "link", shared+"/", other, "--yes", "--review", review)
+
+	link := filepath.Join(joiner, shared)
+	if info, err := os.Lstat(link); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("received directory %q is not a symlink: %v (%v)", link, info, err)
+	}
+	clone, err := filepath.EvalSymlinks(realmCLIManagedClone(t, home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	logical := filepath.Join(link, nested)
+	physical := filepath.Join(clone, shared, nested)
+	assertRealmShareCLIFile(t, clone, filepath.Join(shared, nested, "runbook.md"), contents, false)
+
+	run := func(t *testing.T, cwd, pwd string, dst any, args ...string) {
+		t.Helper()
+		t.Chdir(cwd)
+		actual, cwdErr := os.Stat(".")
+		named, pwdErr := os.Stat(pwd)
+		if cwdErr != nil || pwdErr != nil || !os.SameFile(actual, named) {
+			t.Fatalf("PWD %q does not name actual cwd %q: cwd error %v, PWD error %v", pwd, cwd, cwdErr, pwdErr)
+		}
+		env := []string{"PWD=" + pwd, "PATH=" + os.Getenv("PATH")}
+		out, diag, code := runAtomicCLIFull(t, home, env, append([]string{"root"}, args...)...)
+		if code != 0 {
+			t.Fatalf("%v from %q: exit %d\nstdout: %s\nstderr: %s", args, pwd, code, out, diag)
+		}
+		if err := json.Unmarshal([]byte(out), dst); err != nil {
+			t.Fatalf("%v from %q returned invalid JSON: %v\n%s", args, pwd, err, out)
+		}
+	}
+
+	type identity struct {
+		RepoRoot struct {
+			Path string `json:"path"`
+		} `json:"repo_root"`
+		RealmScope struct {
+			Root string `json:"realm_root"`
+		} `json:"realm_scope"`
+		StateRoot   string `json:"state_root"`
+		Branch      string `json:"branch"`
+		Reports     string `json:"reports"`
+		ReportsRoot string `json:"reports_root"`
+		Archive     string `json:"archive"`
+	}
+	var root identity
+	run(t, joiner, joiner, &root, "where", "--json")
+	if root.RepoRoot.Path != joiner || root.RealmScope.Root != joiner || root.StateRoot != filepath.Join(joiner, ".atomic") ||
+		root.ReportsRoot == "" || root.Archive == "" {
+		t.Fatalf("realm root did not report its local project identity: %+v", root)
+	}
+
+	t.Run("owned logical descendant", func(t *testing.T) {
+		var got identity
+		run(t, physical, logical, &got, "where", "--json")
+		if got != root {
+			t.Errorf("where identity from %q = %+v, want realm root identity %+v", logical, got, root)
+		}
+	})
+
+	for _, tc := range []struct {
+		name, pwd string
+		args      []string
+	}{
+		{"physical cwd", physical, []string{"where", "--json"}},
+		{"explicit clone override", logical, []string{"--repo", clone, "where", "--json"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var got identity
+			run(t, physical, tc.pwd, &got, tc.args...)
+			if got.RepoRoot.Path != clone || got.RealmScope.Root != "" || got.StateRoot != filepath.Join(clone, ".atomic") ||
+				got.Branch != shareBranch || got.Reports == "" || got.Reports == root.Reports ||
+				got.ReportsRoot == "" || got.ReportsRoot == root.ReportsRoot || got.Archive == "" || got.Archive == root.Archive {
+				t.Errorf("where did not retain clone-scoped recovery for %q: %+v", clone, got)
+			}
+		})
+	}
+
+	for _, tc := range []struct {
+		name, parent string
+		foreign      bool
+	}{
+		{"unowned alias within realm", joiner, false},
+		{"foreign alias outside realm", t.TempDir(), true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			alias := filepath.Join(tc.parent, "shortcut")
+			if err := os.Symlink(filepath.Dir(physical), alias); err != nil {
+				t.Fatal(err)
+			}
+			var got identity
+			run(t, physical, filepath.Join(alias, nested), &got, "where", "--json")
+			if got.RepoRoot.Path == joiner || got.StateRoot == root.StateRoot || got.ReportsRoot == root.ReportsRoot || got.Archive == root.Archive {
+				t.Errorf("where assigned the local realm's project identity to an unowned symlink: %+v", got)
+			}
+			if tc.foreign && got.RealmScope.Root != "" {
+				t.Errorf("where inferred realm scope from a foreign symlink: %+v", got.RealmScope)
+			}
+		})
+	}
+
+	type bindingIdentity struct {
+		RealmRoot string `json:"realm_root"`
+		StateRoot string `json:"state_root"`
+		RealmID   string `json:"realm_id"`
+		ClonePath string `json:"clone_path"`
+	}
+	t.Run("status uses local binding", func(t *testing.T) {
+		var want, got bindingIdentity
+		run(t, joiner, joiner, &want, "realm", "status", "--json")
+		if want.RealmRoot != joiner || want.StateRoot != root.StateRoot || want.RealmID == "" || want.ClonePath != clone {
+			t.Fatalf("status from realm root did not identify its binding: %+v", want)
+		}
+		run(t, physical, logical, &got, "realm", "status", "--json")
+		if got != want {
+			t.Errorf("status from %q identified binding %+v, want %+v", logical, got, want)
+		}
+	})
+
+	assertLogicalStatus := func(t *testing.T, path, state string, drift bool) {
+		t.Helper()
+		unchanged := unchangedRealmCLITrees(t, joiner, home, remote)
+		t.Cleanup(func() { unchanged(t) })
+		var got identity
+		run(t, physical, logical, &got, "where", "--json")
+		if got != root {
+			t.Errorf("where identity from %q = %+v, want realm root identity %+v", logical, got, root)
+		}
+
+		var status struct {
+			bindingIdentity
+			Paths []struct {
+				Path, Source, State string
+				Drift               bool
+			}
+		}
+		run(t, physical, logical, &status, "realm", "status", "--json")
+		if status.RealmRoot != joiner || status.StateRoot != root.StateRoot || status.RealmID == "" || status.ClonePath != clone {
+			t.Errorf("status from %q did not identify the local binding: %+v", logical, status.bindingIdentity)
+		}
+		for _, item := range status.Paths {
+			if item.Path == path && item.Source == path && item.State == state && item.Drift == drift {
+				return
+			}
+		}
+		t.Errorf("status from %q did not report %q as %s (drift=%t): %+v", logical, path, state, drift, status.Paths)
+	}
+
+	t.Run("owned mapping survives unrelated missing source", func(t *testing.T) {
+		assertRealmShareCLIFile(t, joiner, other, otherContents, true)
+		source := filepath.Join(clone, other)
+		if err := os.Remove(source); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { writeSteeringTestFile(t, source, otherContents) })
+		assertLogicalStatus(t, other, "conflicting", true)
+	})
+
+	t.Run("owned mapping survives pending publication", func(t *testing.T) {
+		t.Chdir(joiner)
+		const pending = "draft.md"
+		const draft = "# Awaiting publication\n"
+		writeSteeringTestFile(t, filepath.Join(joiner, pending), draft)
+		review := previewRealmReview(t, home, "share", pending)
+		const rejection = "where-fixture-rejected-publication"
+		hook := filepath.Join(remote, "hooks", "pre-receive")
+		if err := os.MkdirAll(filepath.Dir(hook), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(hook, []byte("#!/bin/sh\necho "+rejection+" >&2\nexit 1\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		out, diag, code := runRealmShareCLI(t, home, pending, "--yes", "--review", review)
+		if code == 0 || !strings.Contains(diag, rejection) {
+			t.Fatalf("fixture remote did not reject publication: exit %d\nstdout: %s\nstderr: %s", code, out, diag)
+		}
+		assertRealmShareCLIFile(t, joiner, pending, draft, false)
+		t.Cleanup(func() { assertRealmShareCLIFile(t, joiner, pending, draft, false) })
+		assertLogicalStatus(t, pending, "pending", false)
+	})
+
+	assertRealmCLIPathAbsent(t, filepath.Dir(physical), ".atomic")
+	assertRealmCLIPathAbsent(t, physical, ".atomic")
+}

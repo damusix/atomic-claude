@@ -69,7 +69,11 @@ func InitRepoScope(root string) ([]string, error) {
 // InitRealmScope writes the realm wiki's steering pair at <root>/wiki in the
 // root's Claude steering mode, reporting the paths it created or changed.
 func InitRealmScope(root string) ([]string, error) {
-	return initScopePair(root, filepath.Join(root, "wiki"), realmSteeringScaffold)
+	dir := filepath.Join(root, "wiki")
+	if _, err := checkRealmWiki(dir, nil); err != nil {
+		return nil, err
+	}
+	return initScopePair(root, dir, realmSteeringScaffold)
 }
 
 // initScopePair resolves root's steering mode, so an unknown or unreadable
@@ -85,13 +89,27 @@ func initScopePair(root, dir, scaffold string) ([]string, error) {
 
 // ConvertSteeringPair reshapes the wiki and root pairs to mode. claude.ConvertScope
 // reshapes only pairs with an <atomic> block, so the root pair covers a block-less AGENTS.md.
-func ConvertSteeringPair(root, scope string, mode bundlespec.SteeringMode) (changed, notes []string, err error) {
+func ConvertSteeringPair(root, scope string, mode bundlespec.SteeringMode, options ...ActionOptions) (changed, notes []string, err error) {
 	type pair struct{ dir, scaffold string }
-	wikiPair := pair{filepath.Join(root, "docs", "wiki"), repoSteeringScaffold}
+	var wikiPair pair
+	var sharedWiki bool
 	if scope == "realm" {
 		wikiPair = pair{filepath.Join(root, "wiki"), realmSteeringScaffold}
+		var buckets func(string) (BucketView, error)
+		if len(options) > 0 {
+			buckets = options[0].Buckets
+		}
+		sharedWiki, err = checkRealmWiki(wikiPair.dir, buckets)
+		if err != nil {
+			return nil, nil, err
+		}
+	} else {
+		wikiPair = pair{filepath.Join(root, "docs", "wiki"), repoSteeringScaffold}
 	}
 	pairs := []pair{wikiPair, {root, ""}}
+	if sharedWiki {
+		pairs = pairs[1:]
+	}
 	steering := bundlespec.ScopeSteering
 	for _, p := range pairs {
 		_, _, agentsExists, err := readSteeringFile(p.dir, steering.Source)
@@ -203,6 +221,9 @@ func initSteeringPair(dir, scaffold string, mode bundlespec.SteeringMode) (chang
 		return nil
 	}
 	remove := func(path string) error {
+		if _, err := regularWikiFile(path); err != nil {
+			return err
+		}
 		if err := os.Remove(path); err != nil {
 			return err
 		}

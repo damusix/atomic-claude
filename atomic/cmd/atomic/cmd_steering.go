@@ -8,6 +8,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/realm"
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/harness/claude"
+	"github.com/damusix/atomic-claude/atomic/internal/realmshare"
 	"github.com/damusix/atomic-claude/atomic/internal/wiki"
 )
 
@@ -42,7 +43,7 @@ func convergeSteeringMode(home, root string, out io.Writer) error {
 		}
 		touched = append(touched, scoped...)
 	}
-	wikiTouched, wikiNotes, err := wiki.ConvertSteeringPair(root, scope, mode)
+	wikiTouched, wikiNotes, err := wiki.ConvertSteeringPair(root, scope, mode, wiki.ActionOptions{Buckets: realmshare.WikiBuckets})
 	touched, notes = append(touched, wikiTouched...), append(notes, wikiNotes...)
 	for _, path := range touched {
 		fmt.Fprintf(out, "steering (%s): updated %s\n", mode, path)

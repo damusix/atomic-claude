@@ -27,13 +27,7 @@ func isHTTPURL(s string) bool {
 	return strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://")
 }
 
-// railProperties degrades to nil rather than erroring: the caller already
-// confirmed the page exists via graph membership.
-func railProperties(abs string) []propKV {
-	fileData, readErr := readFile(abs)
-	if readErr != nil {
-		return nil
-	}
+func railProperties(fileData []byte) []propKV {
 	kvs, _, fmErr := frontmatter.ParseOrdered(string(fileData))
 	if fmErr != nil {
 		return nil

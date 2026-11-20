@@ -123,7 +123,9 @@ Wikis are how Claude learns a codebase once instead of every session. Two scopes
 
 The scopes compose. A realm summarizes the repos under it without writing into them, and a member repo that keeps its own wiki is linked rather than re-summarized. Claude loads whichever scope the session sits in: a realm session sees the cross-repo picture, a repo session sees that repo's map. `atomic code index` layers a symbol graph onto either scope; at a realm root it indexes every member, and queries fan out across them.
 
-Two commands drive it. `/setup-wiki` audits a repo's conventions (ignore rules, docs layout, CLAUDE.md wiring) and proposes only what's missing. `/refresh-wiki` builds or refreshes the wiki at either scope: a deterministic scan captures the facts, and an inference pass writes the summaries. A repo wiki refreshes itself when an implementation loop or a commit changes the source tree; a realm wiki's summaries and concerns change only when you run `/refresh-wiki` on it. → [realm wiki](docs/reference/realm-wiki.md) · [knowledge base](docs/guides/knowledge-base.md) · [repo wiki](docs/reference/repo-wiki.md)
+`/setup-wiki` audits a repo's conventions and proposes only what's missing. `/refresh-wiki` scans sources and writes summaries. A repo wiki also refreshes when an implementation loop or commit changes the source tree. At realm scope, `/refresh-wiki` requires an independent wiki repository. For a linked realm wiki, exchange edits explicitly with `atomic realm sync`. → [realm wiki](docs/reference/realm-wiki.md) · [knowledge base](docs/guides/knowledge-base.md) · [repo wiki](docs/reference/repo-wiki.md)
+
+To share selected wiki content, capture buckets, or team guidance, see the [realm sharing guide](docs/guides/realm-sharing.md).
 
 
 ## 💭 Contributing & feedback

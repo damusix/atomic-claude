@@ -7,8 +7,6 @@ package serve
 import (
 	"fmt"
 	"io/fs"
-	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -43,33 +41,14 @@ func (h *mdSearchHandler) search(query string) ([]mdMatch, bool) {
 	var matches []mdMatch
 	truncated := false
 
-	ignores := newGitIgnores(h.navRoot)
-
+	scope := loadDocumentScope(h.navRoot)
 	// The walk's error return is the cap sentinel, not a failure.
-	_ = filepath.WalkDir(h.navRoot, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil // skip unreadable entries
-		}
-		if d.IsDir() {
-			if path == h.navRoot {
-				return nil // never skip the root itself
-			}
-			if ignores.skipWalkDir(path) {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !strings.HasSuffix(d.Name(), ".md") || hiddenFile(d.Name()) || ignores.skipFile(path) {
+	_ = scope.walk(".", func(relPath, _ string, d fs.DirEntry) error {
+		if d.IsDir() || !strings.HasSuffix(d.Name(), ".md") || hiddenFile(d.Name()) {
 			return nil
 		}
 
-		relPath, relErr := filepath.Rel(h.navRoot, path)
-		if relErr != nil {
-			return nil
-		}
-		relPath = filepath.ToSlash(relPath)
-
-		data, readErr := os.ReadFile(path)
+		data, readErr := scope.readFile(relPath)
 		if readErr != nil {
 			return nil
 		}

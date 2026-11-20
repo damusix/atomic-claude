@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/harness"
@@ -11,6 +12,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/harness/codex"
 	"github.com/damusix/atomic-claude/atomic/internal/harness/omp"
 	"github.com/damusix/atomic-claude/atomic/internal/installstate"
+	"github.com/damusix/atomic-claude/atomic/internal/realmshare"
 	"github.com/damusix/atomic-claude/atomic/internal/wiki"
 	"github.com/spf13/cobra"
 )
@@ -85,7 +87,7 @@ func buildWikiCmd() *cobra.Command {
 	addBucketSub("list", "List registered buckets as name<TAB>path", "", nil)
 	addBucketSub("doc", "Scaffold <bucket>/<slug>/index.md and its 01_raw/ stage, then rebuild the bucket's indexes", "<bucket> <slug>", nil)
 	addBucketSub("skill", "Scaffold the realm per-bucket SKILL.md for <bucket> (no-op if present)", "<bucket>", nil)
-	addBucketSub("index", "Rebuild the <bucket-docs> region in every directory of one bucket (or all when omitted) plus the realm bucket list", "[<bucket>]", nil)
+	addBucketSub("index", "Rebuild the <bucket-docs> region in one bucket (or all when omitted); unbound realms also refresh their bucket list", "[<bucket>]", nil)
 	parent.AddCommand(bucketParent)
 
 	return parent
@@ -104,7 +106,64 @@ func runWiki(args []string) {
 	}
 
 	steering := func() ([]string, error) { return wikiSteeringPaths(home) }
-	os.Exit(wiki.WikiAction(args, home, steering, cwd, os.Stdout))
+	claudeMDPath := filepath.Join(home, ".claude", "CLAUDE.md")
+	options := wiki.ActionOptions{
+		ResolveImplicitRoot: func(cwd string) (string, error) {
+			root, linked, err := localRealmFromLink(cwd, claudeMDPath)
+			if err != nil {
+				return "", err
+			}
+			if !linked {
+				return cwd, nil
+			}
+			if root == "" {
+				return "", fmt.Errorf("%q is inside a symlink not owned by the local realm; specify the realm with --root", cwd)
+			}
+			return root, nil
+		},
+		ResolveRealmScaffoldRoot: func(root string, explicit bool) (string, error) {
+			return resolveRealmScaffoldRoot(root, explicit, claudeMDPath)
+		},
+		Buckets:   realmshare.WikiBuckets,
+		AddBucket: realmshare.AddWikiBucket,
+	}
+	os.Exit(wiki.WikiAction(args, home, steering, cwd, os.Stdout, options))
+}
+
+func resolveRealmScaffoldRoot(root string, explicit bool, claudeMDPath string) (string, error) {
+	for dir := root; dir != filepath.Dir(dir); dir = filepath.Dir(dir) {
+		info, err := os.Lstat(dir)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		if info.Mode()&os.ModeSymlink == 0 {
+			continue
+		}
+		if runtime.GOOS == "darwin" && (dir == "/var" || dir == "/tmp") {
+			target, err := os.Readlink(dir)
+			if err != nil {
+				return "", err
+			}
+			if target == "private"+dir || target == "/private"+dir {
+				continue
+			}
+		}
+		realmRoot, _, err := localRealmFromLink(root, claudeMDPath)
+		if err != nil {
+			return "", err
+		}
+		if realmRoot != "" {
+			if !explicit {
+				return realmRoot, nil
+			}
+			return "", fmt.Errorf("%q is inside a shared content symlink; use --root %q", root, realmRoot)
+		}
+		return "", fmt.Errorf("%q is inside a symlink not owned by the local realm; specify the realm with --root", root)
+	}
+	return root, nil
 }
 
 // wikiSteeringPaths lists each enrolled target's global steering. With no

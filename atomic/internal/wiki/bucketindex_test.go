@@ -995,3 +995,136 @@ func TestIndexDir_MissingDirErrors(t *testing.T) {
 		t.Errorf("a missing directory must not be created: %v", err)
 	}
 }
+
+func TestRebuildAllBucketIndexes_ResolvesPortableRegistrationsPerRealm(t *testing.T) {
+	const portableEntry = `<bucket name="research" path="buckets/research"/>`
+	first, second := t.TempDir(), t.TempDir()
+	privateDir := filepath.Join(t.TempDir(), "private")
+	privateEntry := fmt.Sprintf(`<bucket name="private" path=%q/>`, filepath.ToSlash(privateDir))
+	ambient := t.TempDir()
+	t.Chdir(ambient)
+	ambientBucket := filepath.Join(ambient, "buckets", "research")
+	writeTopicFile(t, filepath.Join(ambientBucket, "ambient.md"), "# Ambient decoy\n")
+
+	firstBucket := filepath.Join(first, "buckets", "research")
+	secondBucket := filepath.Join(second, "buckets", "research")
+	writeTopicFile(t, filepath.Join(firstBucket, "first.md"), "# First realm topic\n")
+	writeTopicFile(t, filepath.Join(secondBucket, "second.md"), "# Second realm topic\n")
+	writeTopicFile(t, filepath.Join(privateDir, "local.md"), "# Private topic\n")
+	writeTopicFile(t, filepath.Join(first, "wiki", "index.md"),
+		"# Wiki\n\n<wiki-buckets>\n"+portableEntry+"\n"+privateEntry+"\n</wiki-buckets>\n")
+	writeTopicFile(t, filepath.Join(second, "wiki", "index.md"),
+		"# Wiki\n\n<wiki-buckets>\n"+portableEntry+"\n</wiki-buckets>\n")
+
+	for _, tc := range []struct {
+		root, bucket, topic, other string
+	}{
+		{first, firstBucket, "[First realm topic](first.md)", "second.md"},
+		{second, secondBucket, "[Second realm topic](second.md)", "first.md"},
+	} {
+		wikiDir := filepath.Join(tc.root, "wiki")
+		results, errs := RebuildAllBucketIndexes(tc.root, wikiDir)
+		if len(errs) != 0 {
+			t.Errorf("rebuild %s: %v", tc.root, errs)
+		}
+		if got, ok := results["research"]; !ok || got.Unindexed != 1 {
+			t.Errorf("%s: research counts = %+v (present: %v), want one unindexed topic", tc.root, got, ok)
+		}
+		index := readIndex(t, wikiDir)
+		if !strings.Contains(index, portableEntry) || !strings.Contains(index, "[research](../buckets/research/index.md)") {
+			t.Errorf("%s: portable registration or logical link missing:\n%s", tc.root, index)
+		}
+		if tc.root == first {
+			if !strings.Contains(index, privateEntry) || !strings.Contains(index, "[private](") {
+				t.Errorf("first realm lost its absolute local registration or listing:\n%s", index)
+			}
+		} else if _, ok := results["private"]; ok || strings.Contains(index, "[private](") || strings.Contains(index, privateEntry) {
+			t.Errorf("second realm inherited private registration:\n%s", index)
+		}
+		data, err := os.ReadFile(filepath.Join(tc.bucket, "index.md"))
+		if err != nil {
+			t.Errorf("read rebuilt research index in %s: %v", tc.root, err)
+		} else if !strings.Contains(string(data), tc.topic) || strings.Contains(string(data), tc.other) {
+			t.Errorf("%s: research index did not stay local:\n%s", tc.root, data)
+		}
+	}
+
+	if index := readIndex(t, privateDir); !strings.Contains(index, "[Private topic](local.md)") {
+		t.Errorf("absolute local bucket was not indexed:\n%s", index)
+	}
+	if _, err := os.Lstat(filepath.Join(ambientBucket, "index.md")); !os.IsNotExist(err) {
+		t.Errorf("rebuild wrote an index under the process working directory: %v", err)
+	}
+}
+
+func TestBucketIndexes_ExcludeNestedSymlinks(t *testing.T) {
+	root := t.TempDir()
+	bucket := filepath.Join(root, "research")
+	outside := filepath.Join(root, "outside")
+	const outsideDoc = "---\ntitle: Outside title\ndescription: Outside description\ntags: [outside]\n---\n"
+	writeTopicFile(t, filepath.Join(outside, "document.md"), outsideDoc)
+	writeTopicFile(t, filepath.Join(outside, "folder", "outside.md"), outsideDoc)
+	writeTopicFile(t, filepath.Join(bucket, "topic", "local.md"), "# Local topic\n")
+	writeTopicFile(t, filepath.Join(bucket, "walkable", "ordinary.md"), "# Ordinary topic\n")
+
+	for _, link := range []struct{ target, path string }{
+		{filepath.Join(outside, "document.md"), filepath.Join(bucket, "linked.md")},
+		{filepath.Join(outside, "folder"), filepath.Join(bucket, "linked-dir")},
+		{filepath.Join(outside, "document.md"), filepath.Join(bucket, "topic", "alias.md")},
+		{filepath.Join(outside, "document.md"), filepath.Join(bucket, "topic", "index.md")},
+	} {
+		if err := os.Symlink(link.target, link.path); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	t.Run("docs discovery", func(t *testing.T) {
+		topics, err := walkBucketTopics(bucket)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(topics) != 2 || topics[0].Path != "topic" || topics[0].ChildCount != 1 || topics[1].Path != "walkable" {
+			t.Errorf("docs discovery included linked entries or counted linked descendants: %+v", topics)
+		}
+	})
+
+	t.Run("bucket metadata", func(t *testing.T) {
+		children, err := walkDirChildren(bucket)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(children) != 2 || children[0].Path != "topic" || children[1].Path != "walkable" {
+			t.Errorf("bucket listing included linked entries: %+v", children)
+		}
+		for _, child := range children {
+			if child.Path == "topic" && (child.Title != "topic" || child.Description != "" || len(child.Tags) != 0 || child.Indexed) {
+				t.Errorf("directory metadata came from linked index.md: %+v", child)
+			}
+		}
+	})
+
+	t.Run("rebuild", func(t *testing.T) {
+		RebuildBucketTree(bucket)
+		index := readIndex(t, bucket)
+		if !strings.Contains(index, "[walkable](walkable/index.md)") {
+			t.Errorf("rebuild lost the ordinary directory:\n%s", index)
+		}
+		for _, unwanted := range []string{"linked.md", "linked-dir", "Outside title", "Outside description"} {
+			if strings.Contains(index, unwanted) {
+				t.Errorf("rebuild included %q from a nested link:\n%s", unwanted, index)
+			}
+		}
+		if index := readIndex(t, filepath.Join(bucket, "walkable")); !strings.Contains(index, "[Ordinary topic](ordinary.md)") {
+			t.Errorf("rebuild did not index ordinary directory:\n%s", index)
+		}
+		if target, err := os.Readlink(filepath.Join(bucket, "topic", "index.md")); err != nil || target != filepath.Join(outside, "document.md") {
+			t.Errorf("rebuild replaced the linked index.md: target = %q, error = %v", target, err)
+		}
+		if data, err := os.ReadFile(filepath.Join(outside, "document.md")); err != nil || string(data) != outsideDoc {
+			t.Errorf("rebuild changed the linked index target: data = %q, error = %v", data, err)
+		}
+		if _, err := os.Lstat(filepath.Join(outside, "folder", "index.md")); !os.IsNotExist(err) {
+			t.Errorf("rebuild must not create an index inside a linked directory: %v", err)
+		}
+	})
+}

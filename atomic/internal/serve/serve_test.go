@@ -2,17 +2,22 @@ package serve_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/damusix/atomic-claude/atomic/internal/config"
+	"github.com/damusix/atomic-claude/atomic/internal/realmshare"
 	"github.com/damusix/atomic-claude/atomic/internal/serve"
 )
 
@@ -482,4 +487,476 @@ func TestOpenFlagCalledWithURLOnSuccess(t *testing.T) {
 	if strings.HasSuffix(openerURL, ":0") {
 		t.Errorf("BrowserOpener received unresolved port-0 URL: %q", openerURL)
 	}
+}
+
+func TestRunWithContext_LinkedRealmContent(t *testing.T) {
+	const (
+		wikiIndex = "wiki/index.md"
+		concern   = "wiki/concerns/outline.md"
+		bucket    = "buckets/research"
+		note      = bucket + "/sessions/note.md"
+		draft     = "buckets/drafts/draft.md"
+		quiet     = bucket + "/sessions/quiet.md"
+		loose     = "welcome.md"
+		query     = "orchardtoken"
+		private   = "AGENTS.local.md"
+		stateNote = ".atomic/private-note.md"
+
+		member        = "repos/notebook"
+		memberState   = "member-state"
+		memberDoc     = member + "/docs/field-notes.md"
+		memberPrivate = member + "/" + memberState + "/internal.md"
+		memberQuery   = "notebooktoken"
+		memberVisible = memberQuery + " field notes"
+
+		otherMember  = "repos/almanac"
+		otherState   = "repos/almanac-state"
+		otherDoc     = otherMember + "/docs/field-notes.md"
+		otherPrivate = otherState + "/internal.md"
+
+		relocatedMember  = "repos/seasonal"
+		relocatedState   = "archive-state"
+		relocatedDoc     = relocatedMember + "/docs/field-notes.md"
+		relocatedPrivate = relocatedState + "/internal.md"
+	)
+
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("Git unavailable: %v", err)
+	}
+	workspace := t.TempDir()
+	home := filepath.Join(workspace, "home")
+	publisher := filepath.Join(workspace, "publisher")
+	consumer := filepath.Join(workspace, "consumer")
+	remote := filepath.Join(workspace, "team.git")
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv(config.StateDirEnvVar, "")
+	t.Cleanup(config.SetHomeDirForTest(home))
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(home, ".gitconfig"))
+	t.Setenv("GIT_CONFIG_COUNT", "0")
+	t.Setenv("GIT_TEMPLATE_DIR", "")
+	t.Setenv("GIT_AUTHOR_NAME", "Realm fixture")
+	t.Setenv("GIT_AUTHOR_EMAIL", "realm@example.test")
+	t.Setenv("GIT_COMMITTER_NAME", "Realm fixture")
+	t.Setenv("GIT_COMMITTER_EMAIL", "realm@example.test")
+
+	link := func(target, path string) {
+		t.Helper()
+		if err := os.Symlink(target, path); err != nil {
+			if runtime.GOOS == "windows" {
+				t.Skipf("native symlinks unavailable: %v", err)
+			}
+			t.Fatalf("symlink %s: %v", path, err)
+		}
+	}
+	writeFile(t, filepath.Join(home, "fixture.txt"), "Fixture\n")
+	link("fixture.txt", filepath.Join(home, "fixture-link"))
+
+	if out, err := exec.CommandContext(t.Context(), "git", "init", "--quiet", "--bare", "--initial-branch=main", remote).CombinedOutput(); err != nil {
+		t.Fatalf("initialize fixture remote: %v\n%s", err, out)
+	}
+	writeFile(t, filepath.Join(publisher, wikiIndex), `# Team wiki
+
+<wiki-buckets>
+<bucket name="research" path="buckets/research"/>
+<bucket name="drafts" path="buckets/drafts"/>
+</wiki-buckets>
+
+[Outline](concerns/outline)
+`)
+	snippet := func(label string) string { return query + " " + label }
+	sharedDocs := map[string]string{
+		concern: "outline",
+		note:    "observation",
+		loose:   "welcome",
+	}
+	for path, label := range sharedDocs {
+		writeFile(t, filepath.Join(publisher, path), "# "+label+"\n\n"+snippet(label)+"\n")
+	}
+	writeFile(t, filepath.Join(publisher, draft), "# Draft\n\n"+snippet("draft")+"\n")
+	share, err := realmshare.PreviewShare(t.Context(), publisher, realmshare.ShareOptions{
+		Remote: remote,
+		Paths:  []string{"wiki", bucket, "buckets/drafts", loose},
+	})
+	if err != nil {
+		t.Fatalf("preview fixture publication: %v", err)
+	}
+	if err := realmshare.ApplyShare(t.Context(), share); err != nil {
+		t.Fatalf("publish fixture: %v", err)
+	}
+
+	for _, path := range []string{private, stateNote} {
+		abs := filepath.Join(consumer, path)
+		writeFile(t, abs, "# Personal notes\n\n"+snippet("personal")+"\n")
+		backdateFile(t, abs)
+	}
+	joined, err := realmshare.Join(t.Context(), consumer, remote)
+	if err != nil {
+		t.Fatalf("join fixture realm: %v", err)
+	}
+	review, err := realmshare.PreviewLink(t.Context(), consumer, []string{"wiki", bucket, loose})
+	if err != nil {
+		t.Fatalf("preview selected fixture links: %v", err)
+	}
+	if err := realmshare.ApplyLink(t.Context(), review); err != nil {
+		t.Fatalf("install selected fixture links: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(joined.Binding.ClonePath, draft)); err != nil {
+		t.Fatalf("check unlinked draft is present in the shared checkout: %v", err)
+	}
+	buckets, err := realmshare.WikiBuckets(consumer)
+	if err != nil {
+		t.Fatalf("check fixture bucket registration: %v", err)
+	}
+	if !buckets.SharedWiki || len(buckets.Shared) != 1 || buckets.Shared[0].Name != "research" {
+		t.Fatalf("fixture registrations = %+v, want owned wiki and research only", buckets)
+	}
+
+	bucketRoot, err := filepath.EvalSymlinks(filepath.Join(consumer, bucket))
+	if err != nil {
+		t.Fatalf("resolve fixture bucket: %v", err)
+	}
+	link("sessions", filepath.Join(bucketRoot, "archive"))
+	link(filepath.Join("sessions", "note.md"), filepath.Join(bucketRoot, "copy.md"))
+	for path := range sharedDocs {
+		backdateFile(t, filepath.Join(consumer, path))
+	}
+	backdateFile(t, filepath.Join(consumer, wikiIndex))
+	quietPath := filepath.Join(consumer, quiet)
+	writeFile(t, quietPath, "# Quiet notes\n\nA recent field observation.\n")
+	future := time.Now().Add(time.Hour)
+	if err := os.Chtimes(quietPath, future, future); err != nil {
+		t.Fatalf("set quiet fixture mtime: %v", err)
+	}
+
+	for _, fixture := range []struct{ repo, state, doc, private string }{
+		{member, memberState, memberDoc, memberPrivate},
+		{otherMember, filepath.Join(consumer, otherState), otherDoc, otherPrivate},
+		{relocatedMember, memberState, relocatedDoc, relocatedPrivate},
+	} {
+		memberRoot := filepath.Join(consumer, fixture.repo)
+		memberDocPath := filepath.Join(consumer, fixture.doc)
+		memberPrivatePath := filepath.Join(consumer, fixture.private)
+		writeFile(t, memberDocPath, "# Field notes\n\n"+memberVisible+"\n")
+		if out, err := exec.CommandContext(t.Context(), "git", "-C", memberRoot, "init", "--quiet").CombinedOutput(); err != nil {
+			t.Fatalf("initialize fixture member %q: %v\n%s", fixture.repo, err, out)
+		}
+		if _, err := config.PersistStateSelection(memberRoot, fixture.state); err != nil {
+			t.Fatalf("select fixture member %q state: %v", fixture.repo, err)
+		}
+		writeFile(t, memberPrivatePath, "# Internal notes\n\n"+memberQuery+" internal notes\n")
+		backdateFile(t, memberDocPath)
+		backdateFile(t, memberPrivatePath)
+	}
+	link(filepath.Join("..", "..", relocatedState), filepath.Join(consumer, relocatedMember, memberState))
+
+	claudeMD := filepath.Join(home, "CLAUDE.md")
+	buildClaudeMD(t, claudeMD, []string{filepath.Join(consumer, wikiIndex)})
+	baseURL, shutdown := startTestServer(t, serve.Options{
+		TargetDir: consumer, ClaudeMDPath: claudeMD, Home: home,
+	})
+	defer shutdown()
+	waitReady(t, baseURL+"/healthz", 3*time.Second)
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	get := func(t *testing.T, route string, status int) (string, http.Header) {
+		t.Helper()
+		resp, err := client.Get(baseURL + route)
+		if err != nil {
+			t.Fatalf("GET %s: %v", route, err)
+		}
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("read %s: %v", route, err)
+		}
+		if resp.StatusCode != status {
+			t.Fatalf("GET %s = %d, want %d: %s", route, resp.StatusCode, status, body)
+		}
+		return string(body), resp.Header
+	}
+	decode := func(t *testing.T, body string, dst any) {
+		t.Helper()
+		if err := json.Unmarshal([]byte(body), dst); err != nil {
+			t.Fatalf("decode response: %v\n%s", err, body)
+		}
+	}
+
+	omittedDocs := []string{
+		relocatedPrivate, draft, bucket + "/archive/note.md", bucket + "/copy.md",
+		private, stateNote, memberPrivate, otherPrivate,
+	}
+	t.Run("unlinked and private paths", func(t *testing.T) {
+		for _, path := range omittedDocs {
+			for _, route := range []string{"/api/page/", "/api/file/"} {
+				t.Run(route+path, func(t *testing.T) {
+					get(t, route+path, http.StatusNotFound)
+				})
+			}
+		}
+	})
+
+	t.Run("navigation", func(t *testing.T) {
+		body, _ := get(t, "/api/nav", http.StatusOK)
+		var nav navResponseWire
+		decode(t, body, &nav)
+		if nav.Scope != "realm" {
+			t.Errorf("nav scope = %q, want realm", nav.Scope)
+		}
+		for _, want := range []struct{ group, path string }{
+			{"Realm", wikiIndex}, {"Concerns", concern}, {"Buckets", note},
+		} {
+			var hasPath func([]navNodeWire) bool
+			hasPath = func(items []navNodeWire) bool {
+				return slices.ContainsFunc(items, func(item navNodeWire) bool {
+					return item.RelPath == want.path || hasPath(item.Children)
+				})
+			}
+			if !slices.ContainsFunc(nav.Groups, func(group navGroupWire) bool {
+				return group.Name == want.group && hasPath(group.Items)
+			}) {
+				t.Errorf("nav group %q missing %q: %s", want.group, want.path, body)
+			}
+		}
+		for _, omitted := range []string{"drafts", "archive", "copy.md", ".atomic", private} {
+			if strings.Contains(body, omitted) {
+				t.Errorf("nav includes %q: %s", omitted, body)
+			}
+		}
+	})
+
+	t.Run("content", func(t *testing.T) {
+		t.Run("landing", func(t *testing.T) {
+			body, _ := get(t, "/api/page/", http.StatusOK)
+			var page struct{ HTML, RelPath string }
+			decode(t, body, &page)
+			if page.RelPath != wikiIndex || !strings.Contains(page.HTML, "Team wiki") {
+				t.Errorf("landing page = %+v, want %q and Team wiki", page, wikiIndex)
+			}
+			if want := `href="/page/` + concern + `"`; !strings.Contains(page.HTML, want) {
+				t.Errorf("landing page link missing %q: %s", want, page.HTML)
+			}
+
+			body, _ = get(t, "/graph/data", http.StatusOK)
+			var graph cytoscapeElements
+			decode(t, body, &graph)
+			for _, edge := range graph.Edges {
+				if edge.Data.Source == wikiIndex && edge.Data.Target == concern {
+					return
+				}
+			}
+			t.Errorf("graph missing landing link %q → %q: %+v", wikiIndex, concern, graph.Edges)
+		})
+		for path, label := range sharedDocs {
+			t.Run(path, func(t *testing.T) {
+				body, _ := get(t, "/api/page/"+path, http.StatusOK)
+				var page struct {
+					HTML       string
+					RelPath    string
+					Breadcrumb []struct{ Label, Path string }
+				}
+				decode(t, body, &page)
+				if page.RelPath != path || !strings.Contains(page.HTML, snippet(label)) {
+					t.Errorf("page = %+v, want %q and %q", page, path, snippet(label))
+				}
+				parent, filename := filepath.ToSlash(filepath.Dir(path)), filepath.Base(path)
+				if n := len(page.Breadcrumb); n == 0 || page.Breadcrumb[n-1].Label != filename ||
+					(parent != "." && (n < 2 || page.Breadcrumb[n-2].Path != parent)) {
+					t.Errorf("breadcrumb for %q = %+v", path, page.Breadcrumb)
+				}
+
+				body, _ = get(t, "/api/file/"+path, http.StatusOK)
+				var source struct{ HTML, Path string }
+				decode(t, body, &source)
+				if source.Path != path || !strings.Contains(source.HTML, snippet(label)) {
+					t.Errorf("source = %+v, want %q and %q", source, path, snippet(label))
+				}
+			})
+		}
+	})
+
+	t.Run("markdown search", func(t *testing.T) {
+		assertMatches := func(body string) {
+			var got struct {
+				Query   string
+				Results []struct {
+					RelPath string
+					Line    int
+					Snippet string
+				}
+			}
+			decode(t, body, &got)
+			if got.Query != query || len(got.Results) != len(sharedDocs) {
+				t.Errorf("search = %+v, want %q matches only in %v", got, query, sharedDocs)
+			}
+			seen := make(map[string]bool)
+			for _, hit := range got.Results {
+				if label, ok := sharedDocs[hit.RelPath]; !ok || seen[hit.RelPath] || hit.Line != 3 || hit.Snippet != snippet(label) {
+					t.Errorf("unexpected search hit: %+v", hit)
+				}
+				seen[hit.RelPath] = true
+			}
+		}
+		body, _ := get(t, "/api/search/md?q="+query, http.StatusOK)
+		assertMatches(body)
+		body, hdr := get(t, "/api/search/stream?src=md&q="+query, http.StatusOK)
+		if got := hdr.Get("Content-Type"); got != "text/event-stream" {
+			t.Errorf("stream Content-Type = %q, want text/event-stream", got)
+		}
+		events := parseSSE(t, body)
+		if len(events) != 2 || events[0].Name != "md" || events[1] != (sseEvent{Name: "end", Data: "{}"}) {
+			t.Fatalf("search stream = %+v, want md then end", events)
+		}
+		assertMatches(events[0].Data)
+	})
+
+	t.Run("nested member document", func(t *testing.T) {
+		for _, path := range []string{memberDoc, otherDoc, relocatedDoc} {
+			t.Run(path, func(t *testing.T) {
+				body, _ := get(t, "/api/page/"+path, http.StatusOK)
+				var page struct{ HTML, RelPath string }
+				decode(t, body, &page)
+				if page.RelPath != path || !strings.Contains(page.HTML, memberVisible) {
+					t.Errorf("member page = %+v, want %q and %q", page, path, memberVisible)
+				}
+				body, _ = get(t, "/api/file/"+path, http.StatusOK)
+				var source struct{ HTML, Path string }
+				decode(t, body, &source)
+				if source.Path != path || !strings.Contains(source.HTML, memberVisible) {
+					t.Errorf("member source = %+v, want %q and %q", source, path, memberVisible)
+				}
+			})
+		}
+		body, _ := get(t, "/api/search/md?q="+memberQuery, http.StatusOK)
+		var search struct{ Results []struct{ RelPath string } }
+		decode(t, body, &search)
+		var paths []string
+		for _, result := range search.Results {
+			paths = append(paths, result.RelPath)
+		}
+		slices.Sort(paths)
+		if want := []string{otherDoc, memberDoc, relocatedDoc}; !slices.Equal(paths, want) {
+			t.Errorf("member search paths = %v, want %v", paths, want)
+		}
+	})
+
+	readGraph := func(t *testing.T) (map[string]string, string) {
+		t.Helper()
+		body, hdr := get(t, "/graph/data", http.StatusOK)
+		var graph struct {
+			Nodes []struct {
+				Data struct{ ID, Snippet string }
+			}
+		}
+		decode(t, body, &graph)
+		nodes := make(map[string]string, len(graph.Nodes))
+		for _, node := range graph.Nodes {
+			nodes[node.Data.ID] = node.Data.Snippet
+		}
+		return nodes, hdr.Get("X-Graph-Fingerprint")
+	}
+
+	t.Run("graph refresh", func(t *testing.T) {
+		nodes, before := readGraph(t)
+		for path, label := range sharedDocs {
+			if got := nodes[path]; got != snippet(label) {
+				t.Errorf("graph node %q snippet = %q, want %q", path, got, snippet(label))
+			}
+		}
+		for _, path := range []string{memberDoc, otherDoc, relocatedDoc} {
+			if got := nodes[path]; got != memberVisible {
+				t.Errorf("graph node %q snippet = %q, want %q", path, got, memberVisible)
+			}
+		}
+		for _, path := range omittedDocs {
+			if _, ok := nodes[path]; ok {
+				t.Errorf("graph includes excluded node %q", path)
+			}
+		}
+		edited := filepath.Join(consumer, note)
+		writeFile(t, edited, "# observation\n\n"+snippet("revised observation")+"\n")
+		backdateFile(t, edited)
+
+		nodes, after := readGraph(t)
+		if before == "" || after == "" || before == after {
+			t.Errorf("fingerprint after shared edit = %q, want nonempty and different from %q", after, before)
+		}
+		if got := nodes[note]; got != snippet("revised observation") {
+			t.Errorf("updated graph node %q snippet = %q", note, got)
+		}
+	})
+
+	t.Run("quiet document deletion", func(t *testing.T) {
+		nodes, before := readGraph(t)
+		if got := nodes[quiet]; got != "A recent field observation." {
+			t.Fatalf("quiet document %q missing from graph before deletion: %q", quiet, got)
+		}
+		if err := os.Remove(quietPath); err != nil {
+			t.Fatalf("delete quiet document: %v", err)
+		}
+
+		nodes, after := readGraph(t)
+		if _, ok := nodes[quiet]; ok {
+			t.Errorf("graph retained deleted quiet document %q", quiet)
+		}
+		if before == "" || after == "" || before == after {
+			t.Errorf("fingerprint after quiet document deletion = %q, want nonempty and different from %q", after, before)
+		}
+	})
+
+	t.Run("unlink", func(t *testing.T) {
+		paths := []string{wikiIndex, concern, note, loose}
+		nodes, before := readGraph(t)
+		for _, path := range paths {
+			if _, ok := nodes[path]; !ok {
+				t.Errorf("graph missing linked node %q before unlink", path)
+			}
+		}
+		if err := realmshare.Unlink(t.Context(), consumer); err != nil {
+			t.Fatalf("unlink fixture realm: %v", err)
+		}
+
+		nodes, after := readGraph(t)
+		if before == "" || after == "" || before == after {
+			t.Errorf("fingerprint after unlink = %q, want nonempty and different from %q", after, before)
+		}
+		for _, path := range paths {
+			if _, ok := nodes[path]; ok {
+				t.Errorf("graph retained unlinked node %q", path)
+			}
+		}
+
+		body, _ := get(t, "/api/nav", http.StatusOK)
+		for _, path := range []string{concern, note} {
+			if strings.Contains(body, `"`+path+`"`) {
+				t.Errorf("nav retained unlinked document %q: %s", path, body)
+			}
+		}
+
+		assertNoMatches := func(body string) {
+			var got struct{ Results []json.RawMessage }
+			decode(t, body, &got)
+			if len(got.Results) != 0 {
+				t.Errorf("search retained matches after unlink: %s", body)
+			}
+		}
+		body, _ = get(t, "/api/search/md?q="+query, http.StatusOK)
+		assertNoMatches(body)
+		body, _ = get(t, "/api/search/stream?src=md&q="+query, http.StatusOK)
+		events := parseSSE(t, body)
+		if len(events) != 2 || events[0].Name != "md" || events[1].Name != "end" {
+			t.Errorf("search stream after unlink = %+v, want md then end", events)
+		} else {
+			assertNoMatches(events[0].Data)
+		}
+
+		for _, path := range paths {
+			for _, route := range []string{"/api/page/", "/api/file/"} {
+				t.Run(route+path, func(t *testing.T) {
+					get(t, route+path, http.StatusNotFound)
+				})
+			}
+		}
+	})
 }

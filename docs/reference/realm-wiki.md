@@ -2,10 +2,12 @@
 
 A wiki is a generated knowledge graph for a tree of code, and it comes at two scopes. This page is the **realm** scope: a folder of repositories, mapped into a `wiki/` beside them. The [repo wiki](/reference/repo-wiki) is the other scope, one level down, mapping a single repository into its own `docs/wiki/`. Same command, same inferrer; `/refresh-wiki` reads a `<wiki-type>` marker to tell which one it is looking at.
 
+Use `atomic wiki scan` to map a local realm and `atomic realm status --json` to inspect a realm bound to a shared Git checkout. For the full team workflow, see [Share a realm](/guides/realm-sharing).
+
 You work out of a folder. Call it a realm: a client engagement, a team's set of services, an open-source org you contribute to. It accumulates two kinds of things. Repositories, some yours and some vendored. And the loose material that collects around real work: a ticket you are halfway through, an email thread with the one detail that explains a bug, a PDF someone sent you, the notes you took chasing a problem across three systems. You keep that loose material by hand, in a `research/` folder.
 
 ```
-~/work/acme/                the realm
+~/work/acme/            the independent realm
 ├─ AGENTS.md           realm rules · ## Capture surfaces written by bucket add
 ├─ CLAUDE.md           thin loader importing AGENTS.md (loader mode)
 ├─ billing-api/        repo · has its own wiki → indexed
@@ -28,11 +30,11 @@ Holding all of that in your head is what makes a context-switch expensive. A wik
 
 Two layers fill a wiki, and they differ by who drives them.
 
-**Atomic drives the repo layer.** `/refresh-wiki` walks the realm, finds the repositories, and documents them. A repo that already has its own wiki is documented in place; the realm references it and cites the path, never copying them. A repo without one is opt-in, the kind that needs a deeper dive: you pick which ones get promoted to their own wiki, and the rest Claude summarizes into `repos/` from a read-only pass that never writes back to the source. `concerns/` holds what cuts across them.
+**Atomic drives the repo layer.** For an independent wiki, `/refresh-wiki` maps the realm's repositories. It links to existing repo wikis and asks which other members should get their own wiki. It summarizes the rest in `wiki/repos/` without writing to those source repositories. `wiki/concerns/` holds topics that span members.
 
-**You drive the capture layer through buckets.** Atomic never touches `research/` or any other user-maintained folder until you register it as a capture bucket. The realm steering file lists each bucket folder, and every folder in a bucket has an `index.md` listing what it holds.
+**You drive the capture layer through buckets.** Register a folder before Atomic indexes it. Each eligible folder in a bucket gets an `index.md` listing what it holds. The unbound and bound realms store registrations differently; see [Capture buckets](#capture-buckets).
 
-**You manage the realm from a steering pair.** Keep `AGENTS.md` at the realm root, holding your rules for the realm and a pointer to the wiki, with the thin `CLAUDE.md` loader beside it for Claude Code. The `[steering] claude` key ([`atomic-toml`](/reference/atomic-toml)) can drop the loader (`agents-md`) or keep only `CLAUDE.md` (`claude-md`). The harness walks up the directory tree loading steering, and the walk crosses repo boundaries, so a realm-root file stays in context from anywhere inside the realm, including a session you start in a member repo. The realm level is where that earns its place: cross-cutting concerns, or a feature or bug you are tracing across several services, work that spans repos instead of sitting in one. Start there to organize `research/`, manage `experiments/`, or reason across the repos at once.
+**Steering depends on how the realm is set up.** An independent realm can keep its guidance in `AGENTS.md` with a thin local `CLAUDE.md` loader. The [`[steering] claude` setting](/reference/atomic-toml) also supports `agents-md` and `claude-md`. A shared realm separates the selected team source, `.agents/realm.md`, from `AGENTS.local.md` and any local loaders or settings. A linked source does not prove a harness loads it. Start a fresh session at the realm root and check the supported activation in the [sharing guide](/guides/realm-sharing).
 
 This draws the boundary. Atomic stays on the code side: it documents repos, keeps their wikis current, runs the plan-implement-ship lifecycle, and indexes the capture folders you register. The non-code work is yours to direct from the realm steering file, and the wiki is the assistant layer for it, a Karpathy-style knowledge base you build with Claude instead of by hand.
 
@@ -42,8 +44,8 @@ Deterministic CLI verbs and one command do the work:
 - **`atomic wiki init --scope repo|realm [--root=<path>]`** — writes the fixed-content steering scaffold for the given scope (`AGENTS.md`, shaped by the `[steering] claude` mode: a `CLAUDE.md` loader beside it by default), and declares that root's identity: it writes `scope = "repo"` or `scope = "realm"` into `.atomic/atomic.toml`, the same marker `atomic repo init` writes on the repo side. `atomic where`'s realm axis prefers this marker over the `<wikis>` registry below; `repoctx` prefers the repo marker over git detection. Idempotent; a root whose marker already names a different scope is left untouched and reported as a conflict. At realm scope the only files it writes under `wiki/` are the steering pair (`wiki/AGENTS.md` and its `CLAUDE.md` loader); run `atomic wiki scan` afterwards to complete the scaffold. Scan accepts a `wiki/` that holds only that unedited pair, and refuses any other `wiki/` that has no `index.md`.
 - **`atomic wiki stale [--root=<path>]`** — a read-only membership check. Reports `DRIFT added`, `DRIFT removed`, and `DRIFT status` lines for repos that differ from the last scan. Exits `0` no drift, `1` drift, `2` error. See [Membership drift](#membership-drift).
 - **`atomic wiki linkify --root=<path>`** — renders the path citations in summaries, concerns, and the index into file-relative markdown links. Deterministic, idempotent, no model.
-- **`atomic wiki bucket add|list|doc|skill|index`** — manage capture buckets. `add` registers a folder and splices the `<wiki-buckets>` block; `list` prints each registered bucket's name and path. See [Capture buckets](#capture-buckets) below.
-- **`/refresh-wiki [root]`** — the LLM pass. Runs the scan, writes summaries for repos without their own wiki, re-authors the existing summaries and concerns you pick from a numbered list, re-runs the scan, runs `atomic wiki linkify`, and commits the wiki repo.
+- **`atomic wiki bucket add|list|doc|skill|index`** registers, lists, scaffolds, and indexes capture buckets. See [Capture buckets](#capture-buckets).
+- **`/refresh-wiki [root]`** runs the model pass for an independent wiki: it scans, writes or re-authors summaries and concerns, linkifies citations, and commits in the wiki's own repository.
 
 The split is the same one the repo scope uses. The CLI does the deterministic work: walking the tree, classifying, registering, indexing buckets. The command does the judgment: summarizing repos and re-authoring the existing concerns that cut across them.
 
@@ -55,22 +57,22 @@ The split is the same one the repo scope uses. The CLI does the deterministic wo
 
 ## Setting one up
 
-From a folder that contains repositories:
+From a folder of repositories with no linked `wiki/`:
 
 ```
 /refresh-wiki
 ```
 
-It runs `atomic wiki scan` — scaffolding `./wiki/` on the first run, re-scanning if it already exists — then drives the refresh. You can also run the scan directly to scaffold without the LLM pass:
+This scaffolds or scans `wiki/` and runs the refresh. To scaffold without the model pass, run the scan directly:
 
 ```
 atomic wiki scan                      # scaffold ./wiki from the current directory
 atomic wiki scan --root ~/work/acme   # scaffold <path>/wiki
 ```
 
-`--root` is a flag; the positional slot is reserved for the verb (`scan`, `stale`). With no flag, the root is the current directory.
+Use `--root` to name the realm explicitly. Without it, `scan` uses the current directory, or the local realm root when started inside a verified realm link.
 
-The scan is idempotent. Re-running regenerates only the managed regions — the `<wiki-scan>` block and `<wiki-member-list>` section in `index.md`, plus the bucket listing regions — every summary, concern doc, and the narrative you or the LLM wrote is left untouched. It is init and refresh in one command, exactly like `/refresh-wiki`.
+For an independent wiki, the scan regenerates managed membership and bucket regions and preserves authored summaries, concerns, and prose. For a linked wiki, the scan reports local members without rewriting the shared membership blocks or initializing Git under `wiki/`. It rebuilds eligible bucket indexes from the local bucket view.
 
 ### Choosing which repos are members
 
@@ -101,7 +103,7 @@ The scan and `atomic wiki stale` then walk only those paths. Entries accept glob
 
 The scan writes `index.md`, `README.md`, the steering pair (`AGENTS.md` and its `CLAUDE.md` loader), and the empty `repos/` and `concerns/` folders. `/refresh-wiki` writes the summaries and re-authors existing concerns. You write a new concern by hand.
 
-The wiki is its own git repository: `atomic wiki scan` runs `git init` for you. There is no in-file change log; the wiki's git history is the change log. `/refresh-wiki` ends by committing the wiki repo without asking.
+An independent `wiki/` has its own Git repository. `atomic wiki scan` initializes it and `/refresh-wiki` commits there. Sharing snapshots the current selected wiki files without `.git`; Atomic retains the original wiki and its history in local recovery storage. A linked `wiki/` belongs to the managed realm checkout, whose Git history starts with the published snapshot. Edit linked wiki files and run `atomic realm sync` to publish them. Do not run `/refresh-wiki` against linked `wiki/`: its automatic commit assumes an independent wiki repository.
 
 **OKF-aligned frontmatter.** The producer writes typed frontmatter on concept pages so `atomic serve` (and any OKF consumer) can color and filter by type:
 
@@ -127,6 +129,8 @@ The wiki is a navigable markdown graph. The scan writes a managed `## Members` s
 "No wiki" is a fork, not a defect. A repo you own can carry a committed wiki; an open-source dependency should not — the wiki summarizes it instead, never writing into it.
 
 When the refresh pass meets a `pending` repo, it presents the repos without one as a numbered list and asks which to run `/refresh-wiki` on, promoting those to `indexed`. The rest are summarized into the wiki by `atomic-wiki-inferrer` in its wiki-output mode: it scans the repo with the substrate redirected outside it (`atomic signals scan --out`), infers, and writes the summary only into the wiki. The source repo is never modified.
+
+When running `atomic signals scan` directly for a member, scope it to that member repository, not to the realm's logical root or its backing checkout. The realm `wiki/` is the destination for summaries, not the source of repo signals.
 
 
 ## The registry
@@ -155,12 +159,67 @@ DRIFT status legacy-cron pending→indexed
 
 Paths are relative to the realm root. When [`[realm] repos`](/reference/atomic-toml#realm-repos) is set to a non-empty list, the walk covers only those paths, and a recorded repo outside them prints as `DRIFT removed <path>`, the same as a deleted one. It exits `0` when the recorded members match the disk, `1` when it prints a `DRIFT` line, and `2` on a hard error such as a missing `wiki/index.md`. It reads no frontmatter, hashes no files, and runs no git.
 
-No hook or ship verb runs it; `atomic serve` shows its result as nav badges and on `/status`. Run it between scans to see whether repos were added, removed, or reclassified since the last one. The next `atomic wiki scan` records the new membership, so `stale` run right after a scan prints nothing. `/refresh-wiki` scans at the start and again after it writes summaries.
+`atomic serve` shows this result as navigation badges and on `/status`. A scan records fresh membership for an independent wiki. For a linked wiki, the comparison uses the published `<wiki-scan>` block, which a local scan does not replace.
+
+## Realm sharing CLI
+
+Run `atomic realm --help` to list the verbs and `atomic realm <verb> --help` for flags. Run from a local realm directory or pass `atomic --repo <realm-root> realm <verb>`. Use realm-relative selections, not paths in the managed checkout. For `share` and `link`, use `--` before path arguments that start with `-`.
+
+| Invocation | Effect |
+|------------|--------|
+| `share [<path>...] [--remote <git-url>] [--branch <name>]` | Publish the reviewed snapshot before replacing originals with symlinks. The first share uses an existing empty remote and defaults to `main`. Later shares reuse the bound remote and branch; conflicting overrides fail. The preview shows sizes, exclusions, registrations, and symlink destinations. |
+| `join <git-url>` | Prefer the remote's advertised default branch if it contains `realm.toml`. Otherwise require exactly one branch containing that file; if several qualify, set the remote's default to the shared branch. Atomic validates the selected definition before binding and previews mappings and occupied destinations. Installs no links and grants no trust. |
+| `link [<path>...]` | Review and trust selected destinations before installing their links. Keeps unchanged owned links; refuses unowned destinations and changed restored originals. Previews shared instructions, native artifact activation where relevant, and local write-access guidance for editable selections. |
+| `sync` | Commit only declared content and the shared definition, then exchange commits with the bound remote, even with no links installed. Never installs links for received paths or finishes a pending share cutover. |
+| `status [--json]` | Inspect the local binding, checkout, path states, and cached remote information. Does not fetch or write. |
+| `unlink` | Remove only owned, unchanged links and restore retained originals without overwriting replacements. The binding, managed checkout, and unpublished edits remain. |
+
+The managed checkout, normally `~/.atomic/realms/<name>/`, contains the portable `realm.toml` and selected content. `<state-root>/realm-share.toml` belongs to the local realm and records the binding, trust, private buckets, and recovery state. New files inside an ordinary selected directory follow its mapping, subject to exclusions and Git ignore rules. Selecting one file does not select its siblings. Share a skill, slash command, or agent as an individual `.agents/` unit; a new sibling unit needs its own selection. The terminal wizard can expand a collection into named units, but noninteractive approval must name the units.
+
+### Review flags
+
+Without approval flags, `share` and `link` prompt for confirmation in a terminal. Path arguments preselect paths; omit them to use the checklist. For scripts, preview explicit paths with `--dry-run` and supply `--remote` for the first share. The preview changes neither local paths nor remote content and prints one `Review digest: sha256:<hex>` line.
+
+```bash
+atomic realm link --dry-run wiki/ sops/
+# Review the plan, then set digest to the exact sha256:<hex> shown.
+atomic realm link --yes --review "$digest" wiki/ sops/
+```
+
+Pass `--yes --review <digest>` with the same explicit paths and the exact token. For the first share, repeat the remote and any branch override. `--review` requires `--yes`; neither flag can accompany `--dry-run`. The digest binds the operation, realm, destination, selection, and reviewed effects. It includes the snapshot bytes and Git base for `share`, or the definition, selected behavior content, and collision or restoration evidence for `link`. Atomic revalidates the plan under a lock. If the plan changed, preview it again before approval.
+
+### Native activation and write access
+
+Link trust covers the reviewed selection and updates to selected artifact units from the same remote. It does not accept new units, activate hooks or MCP settings supplied by the clone, or grant tool permissions. Atomic can install its own local Claude `SessionStart` hook only for trusted `.agents/realm.md` when Claude is enrolled and `claude` is on `PATH`. A wiki-only link does not install that hook. Supported native activation applies to fresh realm-root sessions, not existing sessions, member repositories, or global profiles.
+
+If the harness blocks edits through a link, use the resolved managed checkout from the preview in saved local settings. Set `permissions.additionalDirectories` in [Claude Code](https://code.claude.com/docs/en/permissions#working-directories), or `sandbox_workspace_write.writable_roots` in trusted [Codex configuration](https://developers.openai.com/codex/config-reference) with `sandbox_mode = "workspace-write"`. Start a fresh session after saving. Atomic does not change these permissions. See the [sharing guide](/guides/realm-sharing) for the two setups.
+
+### Status fields
+
+| JSON field | Meaning |
+|------------|---------|
+| `realm_root`, `realm_id`, `state_root` | Logical realm directory, shared identity, and local state directory. |
+| `clone_path`, `remote`, `branch`, `head` | Managed checkout, bound remote and branch, and local HEAD. |
+| `paths` | Each destination `path`, clone `source`, `kind`, `state`, and `drift` flag. State is `linked`, `available` (unlinked), `conflicting`, or `pending`. Artifact rows can also carry source availability and native activation details. |
+| `changes` | Clone-relative paths with Git `index` and `worktree` codes. An empty code means unchanged; untracked files have `?` in `worktree`. |
+| `conflicts` | Unmerged `source` paths in the clone and their logical `path` where mapped. |
+| `cached_remote` | Absent before the first remote observation. Includes observed `head`, `ahead`, `behind`, `divergence_known`, and `last_success` when recorded. Treat ahead and behind counts as unknown unless `divergence_known` is true. |
+
+### Exit and recovery behavior
+
+| Condition | Result and next action |
+|-----------|------------------------|
+| Success, help, or successful preview | Exit `0`. A status report can include drift and conflicts while still exiting `0`. |
+| Interactive `share` declined | Exit `0`. `Publication cancelled.` means this run did not publish. `Local cutover cancelled.` means the snapshot was already published, but this run did not replace the remaining local paths. Inspect `atomic realm status` for pending work. |
+| `link` declined, invalid arguments, stale review, operation failure | Exit `1`; read the diagnostic. To approve a changed plan, run a new `--dry-run`. |
+| `sync` reports a conflict | Resolve, stage, and complete the merge with `git -C <clone>`, then run `atomic realm sync` again. A network or authentication failure leaves local commits in the clone. |
+| `share` published but local cutover is pending | Rerun `share` with the same paths and remote or branch flags if supplied. Get a fresh digest for unattended approval; `sync` does not replace originals. |
+| A bound clone has unrelated edits, staged changes, or unpublished commits | A new selection cannot be added until the checkout is clean and existing work is published. Atomic does not include that work in the new selection's snapshot. |
 
 
 ## Keeping summaries and concerns current
 
-Nothing records whether a summary or concern still matches the repos it describes, and nothing nudges you to refresh. A realm wiki stays as you last wrote it until you run `/refresh-wiki` on the realm. The artifact pass of that run summarizes pending repos first, then re-authors only the existing artifacts you pick:
+Nothing tracks whether summaries or concerns still match their source repos. For an independent wiki, `/refresh-wiki` summarizes pending repos and preserves existing artifacts you do not select:
 
 ```mermaid
 flowchart TD
@@ -168,7 +227,7 @@ flowchart TD
     accDescr: The scan runs first, pending repos are summarized, then only the summaries and concerns you pick are re-authored before a closing scan, linkify, and the wiki commit.
     A["atomic wiki scan"] --> C{"pending repos?"}
     C -->|yes| D["summarize into repos/"]
-    C -->|no| E["numbered list of repos/ and concerns/"]
+    C -->|no| E["list repos/ and<br/>concerns/"]
     D --> E
     E --> F["re-author the picked ones"]
     F --> S["atomic wiki scan"]
@@ -197,21 +256,28 @@ atomic wiki bucket add research    # register ~/work/acme/research/
 atomic wiki bucket list            # research<TAB>/Users/you/work/acme/research
 ```
 
-`bucket add` creates the folder if it is missing, writes an `index.md` stub inside it unless one exists, adds a `<bucket>` entry to the `<wiki-buckets>` block in `wiki/index.md`, and writes a `## Capture surfaces` bullet naming `<bucket>/index.md`, with a `<!-- describe what this bucket is for -->` placeholder.
+`bucket add` creates missing directories and index stubs, then builds the `<bucket-docs>` listings. What it registers depends on the local realm:
 
-The bullet goes into the first realm-root file that fits:
+| Realm | Registration | What `bucket list` shows |
+|-------|--------------|--------------------------|
+| Unbound | A `<bucket>` entry in the `<wiki-buckets>` block in `wiki/index.md` and a `## Capture surfaces` bullet in the local steering file. | Registered buckets from the wiki. |
+| Bound | A private entry in `<state-root>/realm-share.toml`. Neither shared wiki registries nor shared instructions change. | Usable private buckets and verified linked shared buckets, with paths in the local realm. Received but unlinked buckets are omitted. |
 
-1. The `AGENTS.md` or `CLAUDE.md` that already holds `## Capture surfaces`, `AGENTS.md` first. When that is `AGENTS.md` and a `CLAUDE.md` beside it does not import it, `bucket add` prints a warning naming that `CLAUDE.md`: it needs an `@AGENTS.md` line before Claude loads the section.
+`bucket list` exits `0` and prints one `<name>\t<path>` line per visible bucket. Use `atomic realm status` to find received paths that still need review. `bucket add` rejects duplicate names; in a bound realm it also rejects names declared by the shared realm or paths overlapping its mappings.
+
+In an unbound realm, Atomic writes the `## Capture surfaces` bullet, with its `<!-- describe what this bucket is for -->` placeholder, to the first matching file:
+
+1. An `AGENTS.md` or `CLAUDE.md` that already has the heading, checking `AGENTS.md` first. If its Claude loader does not import `AGENTS.md`, Atomic warns that it needs `@AGENTS.md`.
 2. A `CLAUDE.md` that does not import `@AGENTS.md`.
-3. The mode's guidance file: `AGENTS.md` under `loader` (with the thin `CLAUDE.md` loader written beside it when the realm has none) and `agents-md`, `CLAUDE.md` under `claude-md`.
+3. The mode's guidance file: `AGENTS.md` for `loader` or `agents-md`, `CLAUDE.md` for `claude-md`. In `loader` mode, Atomic writes a thin loader if one is missing.
 
-It edits no existing text outside that section. It then adds a `<bucket-docs>` region to each folder's `index.md`, the bucket root included, creating the file when absent. Files other than `index.md` are not touched. Skipped folders, listed under the bucket index rules below, get no `index.md`. Registering a name that is already in the `<wiki-buckets>` block exits `1`. `bucket list` prints one `<name>\t<path>` line per registered bucket and exits `0`.
+Fill in the purpose and conventions in the bucket's root `index.md`. For a bound private bucket, any additional hint belongs in existing local private notes, not in the shared wiki or team instructions. To promote the bucket, review `atomic realm share <bucket>/` and approve publication of the folder and its relative registration together. On another machine, `sync` receives it, and a separate reviewed `link` makes it visible to bucket commands. A private collision keeps the local directory and registration.
 
-**Bucket names.** `atomic wiki bucket add <name>` rejects an empty or whitespace-only name, a name that starts with `-`, a name containing `/` or `\`, the names `.` and `..`, and the reserved name `wiki`. Any other name registers: hyphenated, underscored, digits, and mixed case all work.
+**Bucket names.** Use a single directory name such as `research`, `team-notes`, or `ops_logs`. Empty names, `.` and `..`, names starting with `-`, path separators, and the reserved name `wiki` are refused.
 
 **Help.** `-h`, `-help`, and `--help` work on every bucket sub-verb (`add`, `list`, `doc`, `skill`, `index`). Each prints usage and exits 0 without creating or modifying anything.
 
-**Bucket index.** Each bucket has an `index.md` at its root describing what the bucket is for and what conventions its content follows. `atomic wiki bucket add` creates a stub whose `## Conventions` section prompts for the stage folders the bucket's items use and what each stage's output looks like. Fill it in, or let the `/refresh-wiki` bucket offer ask you on first use. Below your description, the index carries a code-generated `<bucket-docs>` listing of the bucket's direct children: its markdown files and its subfolders. Every subfolder that is not skipped gets its own `index.md` with the same kind of listing, created if absent. An agent reads the root index and descends one `index.md` at a time, loading only the layers it needs. The buckets get no model pass: the per-folder indexes are the only output the wiki derives from them.
+**Bucket index.** The root `index.md` describes the bucket and its conventions. Below the description, Atomic writes the `<bucket-docs>` listing of direct markdown files and subfolders. Each eligible subfolder gets its own index. Start at the bucket root and follow those indexes as needed.
 
 | Listing rule | Behavior |
 |--------------|----------|
@@ -251,9 +317,9 @@ atomic wiki bucket index [research]          # rebuild every folder's listing (s
 
 `atomic wiki bucket doc <bucket> <slug>` accepts a slug of `[a-z0-9-]+` and refuses a slug that names a skipped folder (`build`, `dist`, `target`, `tmp`, `vendor`), since the index would never list it. It also refuses if `<bucket>/<slug>` already exists as a file or folder. It writes `<slug>/index.md` (six-key frontmatter, `created` pre-stamped, a comment describing the stage layout) and `<slug>/01_raw/index.md`, prints the path of `<slug>/index.md`, then rebuilds the bucket's indexes. Add later stages as numbered folders by hand; the next rebuild indexes them.
 
-`atomic wiki bucket skill <bucket>` writes `<realm-root>/.claude/skills/<bucket>-management/SKILL.md`, pre-filled with the bucket's purpose line, the frontmatter contract above, and a `## Stages` placeholder for the stage folders the bucket's items use. The bucket's authoring conventions then travel with it as a skill that loads in sessions started at the realm root. A member-repo session reaches `<bucket>/index.md` instead, through the bucket's bullet under `## Capture surfaces` in the realm steering file. `bucket skill` is a no-op if the file already exists.
+`atomic wiki bucket skill <bucket>` writes `<realm-root>/.claude/skills/<bucket>-management/SKILL.md`, pre-filled with the bucket's purpose, frontmatter contract, and a `## Stages` placeholder. This is a local scaffold for Claude Code sessions started at the realm root. It does not share or publish the skill. An existing file is left unchanged.
 
-`atomic wiki bucket index [<bucket>]` walks every folder of the named bucket (or every registered bucket, when no name is given) and rebuilds the `<bucket-docs>` region in each folder's `index.md`, then the `<wiki-bucket-list>` region in `wiki/index.md`, which links each bucket's root `index.md`. It prints one `<name>: N indexed, M unindexed` line per bucket, counting entries across the bucket's whole tree. An `index.md` with an unpaired `<bucket-docs>` tag is reported and left alone; the walk continues with the rest. `atomic wiki scan` runs this rebuild as part of its own pass, so you rarely need to call `bucket index` directly.
+`atomic wiki bucket index [<bucket>]` rebuilds `<bucket-docs>` for that bucket, or for the visible registrations if no name is given. It prints one `<name>: N indexed, M unindexed` line per bucket. An unpaired `<bucket-docs>` tag is reported and left alone. For an unbound realm, the command also rebuilds `<wiki-bucket-list>` in `wiki/index.md`. In a bound realm it does not use the local bucket view to rewrite the wiki's list.
 
 
 ## Relationship to the repo scope
