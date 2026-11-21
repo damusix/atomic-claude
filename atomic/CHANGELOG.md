@@ -22,6 +22,44 @@
 
 - Add the 6.10 to 7.0 upgrade guide, including custom state locations, staged repository moves, and recovery limits.
 
+## [7.0.0](https://github.com/damusix/atomic-claude/compare/v6.10.0...v7.0.0) (2026-11-18)
+
+
+### ⚠ BREAKING CHANGES
+
+* move repository state from .claude to .atomic and retire legacy harness settings, Pi overrides, and reminder commands. Run atomic update; custom-root and recovery steps are documented in docs/guides/upgrade-7.md.
+* **followups:** extra positional arguments to followups, serve, migrate, and validate config|bundle now exit 2 instead of being ignored.
+* **wiki:** `bucket doc` drops `--router` (exit 2) and scaffolds <slug>/index.md + <slug>/01_raw/; the next scan writes an index.md into every non-skipped bucket folder, with no router or orphan entries.
+* **wiki:** `wiki stamp`, `wiki mark-dirty`, `wiki bucket diff` and `bucket promote` are gone, along with the session-start nudge, `reflects_*` fingerprints, and `wiki/knowledge/` synthesis. `wiki stale` reports membership drift only; `bucket list` prints name/path.
+
+### Features
+
+* **docs:** restyle Mermaid diagrams ([#316](https://github.com/damusix/atomic-claude/issues/316)) ([f91a218](https://github.com/damusix/atomic-claude/commit/f91a2184e8bd011c74d0e7a5ec314c87983e7668))
+* draw branching artifact flows as Mermaid ([33ae2fc](https://github.com/damusix/atomic-claude/commit/33ae2fccc9de67e87b72614c1758ff1fc7a865b2))
+* draw branching artifact flows as Mermaid ([a0ba4e9](https://github.com/damusix/atomic-claude/commit/a0ba4e95ca1cfbc3fa3c9c8b0c565e835c81342b)), closes [#298](https://github.com/damusix/atomic-claude/issues/298)
+* install Atomic across Claude Code, OMP, and Codex ([6f00ce8](https://github.com/damusix/atomic-claude/commit/6f00ce86a757cc9ed39b30463739cc6386f937cc))
+* **serve:** restyle diagrams, open them in a zoom viewer ([#318](https://github.com/damusix/atomic-claude/issues/318)) ([fc41ae2](https://github.com/damusix/atomic-claude/commit/fc41ae2ff93ede5c74cbd01dc1adb8f36023f464))
+* **style:** keep grammar in human-facing output ([#323](https://github.com/damusix/atomic-claude/issues/323)) ([fa05717](https://github.com/damusix/atomic-claude/commit/fa0571762d40a60fb7cf5490b67e036fb9315ed4))
+* **wiki:** index every bucket folder, scaffold items as stages ([4832510](https://github.com/damusix/atomic-claude/commit/48325106a80b4ca4bb24811ace0e124a37356b56)), closes [#299](https://github.com/damusix/atomic-claude/issues/299)
+* **wiki:** prompt for bucket stages in index stub and skill ([eae5297](https://github.com/damusix/atomic-claude/commit/eae529725d274f2407df841561c64f0df2728b9e))
+* **wiki:** prompt for bucket stages in index stub and skill ([64c4186](https://github.com/damusix/atomic-claude/commit/64c4186292c532875a10b90ee00d506ee3ea9d1b))
+* **wiki:** scope realm discovery with [realm] repos ([dcf4b4b](https://github.com/damusix/atomic-claude/commit/dcf4b4bd6ed14ac769eda83c24cf8fb0180f3d5e))
+* **wiki:** scope realm discovery with [realm] repos ([8ee744d](https://github.com/damusix/atomic-claude/commit/8ee744de11d48104569c38b799c0dadd348b792a)), closes [#300](https://github.com/damusix/atomic-claude/issues/300)
+
+
+### Bug Fixes
+
+* batch non-blocking checkpoint findings ([#332](https://github.com/damusix/atomic-claude/issues/332)) ([c2c11c7](https://github.com/damusix/atomic-claude/commit/c2c11c798dd491bcac56724487b9100f0e4ed8a4))
+* **commit:** let pr and squash merge run past a no-op step ([#313](https://github.com/damusix/atomic-claude/issues/313)) ([1d9ee74](https://github.com/damusix/atomic-claude/commit/1d9ee740fb4a6bc8b9e84a067524de8c2105a75e))
+* **doctor:** skip refs without a repo wiki ([#336](https://github.com/damusix/atomic-claude/issues/336)) ([e1d38df](https://github.com/damusix/atomic-claude/commit/e1d38dfbb3be1a49ecf229b4332a39aa0bb064f7))
+* **followups:** honor or reject flags after positionals ([#312](https://github.com/damusix/atomic-claude/issues/312)) ([b138062](https://github.com/damusix/atomic-claude/commit/b1380629e1d57170ad44882fb4f183f2d859b6bd))
+* require exact case for wiki path links ([e09897c](https://github.com/damusix/atomic-claude/commit/e09897cbf9086d0095518d3da70028014ef6a6f9)), closes [#329](https://github.com/damusix/atomic-claude/issues/329)
+* **signals:** keep stale fresh after a wiki refresh ([#326](https://github.com/damusix/atomic-claude/issues/326)) ([eb134bb](https://github.com/damusix/atomic-claude/commit/eb134bb812bc2910562a1e033e3c0fd492297b87)), closes [#325](https://github.com/damusix/atomic-claude/issues/325)
+* **validate:** count clean files as PASS ([#307](https://github.com/damusix/atomic-claude/issues/307)) ([2617d17](https://github.com/damusix/atomic-claude/commit/2617d17ce861db169a6f4edb8d63d43f9edce7da))
+* **validate:** fail unknown verb paths, scan indented fences ([#311](https://github.com/damusix/atomic-claude/issues/311)) ([5a2607d](https://github.com/damusix/atomic-claude/commit/5a2607d94638745f154e579577a6b9cfd7a93419))
+* **wiki:** drop the realm wiki refresh requirement ([378cbe4](https://github.com/damusix/atomic-claude/commit/378cbe4eb5e2d6a5087b2e4e62a8fb58e278a532)), closes [#301](https://github.com/damusix/atomic-claude/issues/301)
+* **wiki:** let scan accept the wiki/ that init --scope realm wrote ([#310](https://github.com/damusix/atomic-claude/issues/310)) ([5783148](https://github.com/damusix/atomic-claude/commit/5783148a6a078893c9d03af0cd3582e0984b1b73))
+
 ## [6.10.0](https://github.com/damusix/atomic-claude/compare/v6.9.0...v6.10.0) (2026-10-01)
 
 
