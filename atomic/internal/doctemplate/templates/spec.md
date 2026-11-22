@@ -6,6 +6,7 @@ The implementation contract written by /atomic-plan
 one under ## Change log, which stays until the first post-approval amendment.
 The body is forward-only current truth: no decision history, no prior-version references,
 no rejected-fork enumeration (see rules/specs/spec-currency.md).
+Use all sections for new specs and scope rewrites; do not backfill them for unrelated edits.
 -->
 # <title>
 
@@ -135,4 +136,13 @@ no rejected-fork enumeration (see rules/specs/spec-currency.md).
 
 ## Change log
 
-<!-- Populated on first amendment after the spec is approved. Do not log drafting/refinement turns. -->
+<!-- Append one entry per amendment after approval. Keep prior entries.
+
+### YYYY-MM-DD — <short title>
+
+**What changed:** <the change>
+
+**Why:** <the reason or evidence>
+
+**Superseded:** <prior contract, if applicable>
+-->

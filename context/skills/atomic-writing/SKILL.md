@@ -285,7 +285,7 @@ Read the page twice. The first read covers the first five checks. The second cov
 
 - **Scope: file contents.** The assistant's TUI replies follow the atomic output style, not this skill. Everything the repo writes to a file follows this skill.
 - **Structure passes through unchanged.** Frontmatter, fenced code, command examples, file paths, identifier names, error strings, and Mermaid node labels: never reformat or rephrase. This skill governs prose and chooses between prose and picture. It does not restyle a contract.
-- **Spec checkpoint tables, `## Change tree`, `## Outline`, and `## Flows` keep their defined formats.** Those formats are specified in `rules/specs/spec-currency.md` and are the contract itself. This skill governs the prose around them and encourages a diagram alongside them, never a replacement for them.
+- **Spec checkpoint tables, `## Change tree`, `## Outline`, and `## Flows` keep the formats shown by `atomic template spec`.** This skill governs the surrounding prose; a diagram may accompany those sections but does not replace them.
 - **Do not rewrite a file's voice as a side effect of an unrelated edit.** Voice work is its own change. Editing one section of a spec does not license rewriting the other twelve.
 - **CHANGELOG entries follow the project's existing tone.** This skill nudges new entries toward plainness but does not rewrite older entries on sight.
 - **Comments in source code follow the comment rules in `AGENTS.md`, not this skill.** This skill is for markdown files, not inline code comments.
