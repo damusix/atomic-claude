@@ -37,6 +37,12 @@ Run `atomic where --json` to locate the realm. The global `<wikis>` block projec
 - **Inside a realm**: run bucket commands with `--root <realm-root>`. Check `atomic --repo <realm-root> realm status --json` for a binding and received paths. A status error other than an unbound realm needs diagnosis, not a fallback to unbound writes.
 - **No registered realm + setup intent**: run `atomic wiki scan --root <realm-root>`. Ask which folder to use only if the intended root is ambiguous.
 
+### Realm instruction ownership
+
+- Keep the realm root's `AGENTS.md`, `AGENTS.local.md`, and local Claude loaders and settings private. Preserve any existing root `AGENTS.md` as a regular local file. If it is a symlink, report it and leave it alone.
+- `.agents/realm.md` is the only shared realm instruction source. Put only reviewed team text there. Do not copy the root `AGENTS.md` or use it as a template for publication.
+- Publish a new team instruction selection only with reviewed `atomic realm share .agents/realm.md`. Use `atomic realm link .agents/realm.md` to review and activate received instructions, and `atomic realm sync` only when the user asks to exchange selected edits. Never use `git add` or `git commit` in the managed checkout to publish instructions or local loaders.
+
 ## Pipeline routing
 
 Use the `<wiki-type>` tag to pick the inference pipeline. `<wiki-type>repo</wiki-type>` in `docs/wiki/index.md` routes `/refresh-wiki` to `references/repo.md`. `<wiki-type>realm</wiki-type>` in an independent `wiki/index.md` routes `/refresh-wiki [root]` to `references/realm.md`. Both dispatch `atomic-wiki-inferrer`. For a linked `wiki/`, edit the selected files directly and use `atomic realm sync` only when the user requests publication. `/refresh-wiki` assumes the wiki has its own Git repository.
@@ -107,7 +113,7 @@ Commit an independent wiki inside its own `wiki/` repository. A linked wiki belo
 ## Boundaries
 
 - **Complements /refresh-wiki**: `/refresh-wiki` is the synthesis engine (repo signals refresh, realm repo summaries, concern re-auth, linkify). This skill is the conversational entry point — it registers and describes; `/refresh-wiki` synthesizes.
-- **Not invoked by other commands.**
+- **Repo setup handoff**: `/setup-wiki` sends realm setup to this skill rather than using its repo steering survey.
 - **Never bare mkdir** for capture intent in a registered realm. `atomic wiki bucket add` is the only correct path — it writes the index stub and the registry entry.
 
 </constraints>

@@ -116,7 +116,9 @@ For an independent wiki with a real `.git` directory, Atomic publishes a snapsho
 
 ## Choose what a fresh agent session loads
 
-Write team guidance in `.agents/realm.md` and private guidance in `AGENTS.local.md` at the local realm root. Move only reviewed team text into the shared source. Atomic does not separate mixed prose for you. To share the instructions and individual authored units, run the following with sources you have created and reviewed:
+Write team guidance in `.agents/realm.md`, the only shareable realm instruction file. Keep the realm root's `AGENTS.md` local and regular. `AGENTS.local.md` holds private startup guidance, and native loaders and settings also stay local. Review the team text before publishing; Atomic does not separate mixed prose for you.
+
+Use `atomic realm share` to publish the reviewed selection. Never stage or commit personal instructions or native loaders in the managed checkout. A direct Git commit bypasses Atomic's selection checks.
 
 ```sh
 atomic realm share .agents/realm.md .agents/skills/review/ .agents/commands/triage.md .agents/agents/reviewer.md
