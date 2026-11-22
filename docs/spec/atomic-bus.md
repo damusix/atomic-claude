@@ -87,10 +87,9 @@ can stop the exchange with `atomic bus halt`.
 - [ ] `resume` publishes an envelope with a body, not an empty string.
 - [ ] `--session` is accepted by every verb that resolves a session identity, not only `join` and
       `chat`.
-- [ ] Without `--session`, the session identity follows harness detection
-      (`docs/spec/omp-plugin-compatibility.md`): `CLAUDE_CODE_SESSION_ID` under a strong Claude
-      detection, `CODEX_THREAD_ID` under a strong Codex detection. Any other detection, an
-      ambiguous one included, reports that no session identity is available and exits 2.
+- [ ] Without `--session`, the bus uses `CLAUDE_CODE_SESSION_ID` under a strong Claude detection
+      or `CODEX_THREAD_ID` under a strong Codex detection. If neither supplies an ID, it uses
+      OMP's `PI_SESSION_ID`. With no ID from these sources, it reports the missing identity and exits 2.
 - [ ] `Member` carries `last_seen`, refreshed on any operation from that session and on an open
       subscription. `who` shows it and marks members with neither as stale.
 - [ ] `atomic bus prune [<room>]` removes stale members explicitly. Nothing reaps a member
@@ -284,8 +283,8 @@ skills/atomic-bus/SKILL.md
 
 ```
 Flow: join
-1. client takes --session, else CLAUDE_CODE_SESSION_ID under Claude or CODEX_THREAD_ID under
-   Codex; none -> exit 2
+1. client takes --session, else the ID from a strong Claude or Codex detection, else PI_SESSION_ID
+   (OMP); none -> exit 2
 2. client takes an exclusive flock on ~/.atomic/bus.lock
 3. client dials the socket; on success it pings and compares versions
 4. no socket, or connection refused -> unlink any stale socket, spawn `atomic bus serve`
@@ -349,11 +348,15 @@ Flow: daemon lifecycle
 | Notification cap silently truncates a long message | med | Envelopes over the threshold carry `truncated` and `log`; the full body is always in the room log, and the skill documents how to fetch it. |
 | Daemon spawn fork-bombs the developer's machine under `go test` | **occurred** | `spawnServe` locates the binary with `os.Executable`, which under `go test` is `<pkg>.test` — it ignores the `bus serve` arguments, re-runs the whole suite, and each generation spawns more. Triggered once by a single call site using the package-level `EnsureDaemon` instead of the `recoveryEnsurer` seam. `spawnServe` now refuses to spawn from a test binary (`.test` suffix or `-test.*` in argv), pinned by `spawn_guard_test.go`. The seam remains the mechanism; the guard exists because forgetting it costs a machine, not a test. |
 | `chat` TUI scope creeps into a terminal-emulator rewrite | med | CP6 is last and deliberately minimal — line-oriented redraw, not a full-screen widget tree. Slipping it does not block CP1-5 or the skill. |
-| Session id absent outside Claude Code and Codex breaks scripted use | low | `--session` override on every identity-resolving verb, exercised by tests. |
+| Session ID absent outside a supported harness breaks scripted use | low | `--session` override on every identity-resolving verb, exercised by tests. |
 | Unix-only build breaks a release target | none | `.goreleaser.yaml` builds `linux` and `darwin` only — there is no Windows target to break. `syscall.Flock` and `SysProcAttr.Setsid` are used unguarded, matching the existing precedent in `atomic/internal/codeintel/mcp/proxy.go:66,113`. No build tag and no platform stub. |
 
 
 ## Change log
+
+### 2026-11-22 — accept OMP session IDs
+
+The bus accepts `PI_SESSION_ID` when neither `--session` nor a Claude Code or Codex session ID is available. OMP sessions can join and reuse their membership without supplying `--session`.
 
 ### 2026-11-10 — session identity follows harness detection
 

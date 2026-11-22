@@ -37,6 +37,10 @@ Two steps, in order. `join` registers the identity; the listener is what actuall
 atomic bus join <room> [--as <name>] [--kind agent|human]
 ```
 
+The bus reads the session ID from the harness environment, including `PI_SESSION_ID` in OMP.
+If no session ID is available, use `--session <id>` for scripted use and reuse that ID on later
+`send`, `recv`, `status`, and `leave` commands.
+
 Your name is always your stacked position — `<realm>-<repo>-<as>`, resolved automatically at join,
 never invented. `--as` is optional and supplies only a role suffix on top of it: joining in
 `taxgentic/gui` with no `--as` names you `taxgentic-gui`; adding `--as fe-main` names you

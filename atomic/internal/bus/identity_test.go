@@ -23,6 +23,7 @@ func TestSessionID_ReadsEnvVar(t *testing.T) {
 }
 
 func TestSessionID_OverrideWinsOverEnv(t *testing.T) {
+	t.Setenv("PI_SESSION_ID", "omp-from-env")
 	t.Setenv(sessionEnvVar, "from-env")
 
 	id, err := SessionID("from-flag")
@@ -38,11 +39,9 @@ func TestSessionID_OverrideWinsOverEnv(t *testing.T) {
 // sessions in one directory are two distinct agents; deriving an identity from
 // anything else would collapse that distinction.
 func TestSessionID_AbsentIsAClearErrorNeverAFallback(t *testing.T) {
-	t.Setenv(sessionEnvVar, "") // os.Getenv treats set-to-empty same as unset
-
 	_, err := SessionID("")
 	if err == nil {
-		t.Fatal("expected an error when CLAUDE_CODE_SESSION_ID is unset and no override is given")
+		t.Fatal("expected an error when no session identity or override is available")
 	}
 
 	busErr, ok := err.(*Error)
@@ -52,12 +51,14 @@ func TestSessionID_AbsentIsAClearErrorNeverAFallback(t *testing.T) {
 	if busErr.Code != ExitHard {
 		t.Fatalf("Code = %d, want ExitHard (%d)", busErr.Code, ExitHard)
 	}
-	if !strings.Contains(busErr.Msg, sessionEnvVar) {
-		t.Fatalf("error message should name %s so the user knows what to set; got: %s", sessionEnvVar, busErr.Msg)
+	for _, want := range []string{sessionEnvVar, codexThreadEnvVar, "PI_SESSION_ID", "--session"} {
+		if !strings.Contains(busErr.Msg, want) {
+			t.Errorf("error message should name %s; got: %s", want, busErr.Msg)
+		}
 	}
 }
 
-func TestSessionID_FollowsTheDetectedHarness(t *testing.T) {
+func TestSessionID_ResolvesHarnessEnvironment(t *testing.T) {
 	tests := []struct {
 		name   string
 		env    map[string]string
@@ -66,7 +67,11 @@ func TestSessionID_FollowsTheDetectedHarness(t *testing.T) {
 		{"claude session", map[string]string{"CLAUDE_CODE_SESSION_ID": "claude-1"}, "claude-1"},
 		{"codex thread", map[string]string{"CODEX_THREAD_ID": "thread-1"}, "thread-1"},
 		{"nested claude and codex", map[string]string{"CLAUDE_CODE_SESSION_ID": "claude-1", "CODEX_THREAD_ID": "thread-1"}, ""},
-		{"omp has no identity", map[string]string{"AGENT": "1", "CI": "true"}, ""},
+		{"omp session", map[string]string{"PI_SESSION_ID": "omp-1"}, "omp-1"},
+		{"claude inside omp", map[string]string{"CLAUDE_CODE_SESSION_ID": "claude-1", "PI_SESSION_ID": "omp-1"}, "claude-1"},
+		{"codex inside omp", map[string]string{"CODEX_THREAD_ID": "thread-1", "PI_SESSION_ID": "omp-1"}, "thread-1"},
+		{"omp with claude marker but no claude id", map[string]string{"CLAUDECODE": "1", "PI_SESSION_ID": "omp-1"}, "omp-1"},
+		{"omp markers without a session id", map[string]string{"AGENT": "1", "CI": "true"}, ""},
 		{"claude marker without a session id", map[string]string{"CLAUDECODE": "1"}, ""},
 	}
 	for _, tt := range tests {

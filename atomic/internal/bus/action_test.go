@@ -131,6 +131,48 @@ func TestJoinLeavePruneActions_NeverWriteRosterPath(t *testing.T) {
 	}
 }
 
+func TestBusAction_OMPSessionLifecycle(t *testing.T) {
+	t.Setenv("PI_SESSION_ID", "omp-session")
+	home, cwd := testBusHome(t), testCwd(t)
+	mustStartTestDaemon(t, home)
+	const room = "omp-identity"
+
+	run := func(args ...string) []byte {
+		t.Helper()
+		var out bytes.Buffer
+		if code := BusAction(args, home, cwd, &out); code != int(ExitOK) {
+			t.Fatalf("bus %v: exit %d, want %d; output: %s", args, code, ExitOK, out.String())
+		}
+		return out.Bytes()
+	}
+	status := func() busStatus {
+		t.Helper()
+		var status busStatus
+		if err := json.Unmarshal(run("status", "--json"), &status); err != nil {
+			t.Fatalf("decode status: %v", err)
+		}
+		return status
+	}
+
+	run("join", room)
+	joined := status()
+	if joined.Session != "omp-session" || len(joined.Rooms) != 1 || joined.Rooms[0].Room != room {
+		t.Fatalf("status after join = %+v, want OMP session in %s", joined, room)
+	}
+	run("who")
+	var sent Envelope
+	if err := json.Unmarshal(run("send", room, "hello", "--json"), &sent); err != nil {
+		t.Fatalf("decode send: %v", err)
+	}
+	if sent.From != joined.Rooms[0].Name || sent.Text != "hello" {
+		t.Fatalf("send envelope = %+v, want hello from %s", sent, joined.Rooms[0].Name)
+	}
+	run("leave")
+	if left := status(); len(left.Rooms) != 0 {
+		t.Fatalf("status after leave = %+v, want no joined rooms", left)
+	}
+}
+
 // --- join ---
 
 func TestJoinAction_Success_AssignsRequestedName(t *testing.T) {
@@ -1127,7 +1169,7 @@ func TestRecvAction_NoSessionNoOverride_ExitHard(t *testing.T) {
 // recvStream always subscribes with SkipSelf, so a message this session
 // publishes must never come back on its own recv while another session's still
 // arrives normally.
-func TestRecvStream_SkipsOwnSessionPublish_ButDeliversOthers(t *testing.T) {
+func TestRecvAction_OMPSessionSkipsOwnPublish(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
 	addr := SocketPath(home)
@@ -1138,28 +1180,49 @@ func TestRecvStream_SkipsOwnSessionPublish_ButDeliversOthers(t *testing.T) {
 		t.Fatalf("seed join frontend: %s", resp.Error)
 	}
 
-	client, err := dialDaemon(home)
-	if err != nil {
-		t.Fatalf("dialDaemon: %v", err)
-	}
+	t.Setenv("PI_SESSION_ID", "sess-me")
 
 	pr, pw := io.Pipe()
 	t.Cleanup(func() { pr.Close(); pw.Close() })
 
 	recvDone := make(chan int, 1)
-	go func() { recvDone <- recvStream(client, home, "potato", "sess-me", pw) }()
+	go func() { recvDone <- recvAction([]string{"potato"}, home, pw) }()
 
-	delivered := make(chan Envelope, 4)
-	go decodeEnvelopesInto(pr, delivered)
+	const readyText, peerText = "ready", "from someone else"
+	ready := make(chan Envelope, 1)
+	delivered := make(chan Envelope, 2)
+	go func() {
+		decoder := json.NewDecoder(pr)
+		for {
+			var env Envelope
+			if err := decoder.Decode(&env); err != nil {
+				return
+			}
+			if env.Text == readyText {
+				select {
+				case ready <- env:
+				default:
+				}
+				continue
+			}
+			delivered <- env
+		}
+	}()
 
-	// Sent first: if self-echo suppression were broken, this would be the first
-	// thing read back below.
+	publishUntilDelivered(t, addr, "potato", "sess-other", readyText, ready, wireTimeout)
 	if resp := dialAndDo(t, addr, Request{Op: OpSend, Room: "potato", Session: "sess-me", Text: "my own — must not arrive"}); !resp.OK {
 		t.Fatalf("self send: %s", resp.Error)
 	}
-	env := publishUntilDelivered(t, addr, "potato", "sess-other", "from someone else", delivered, wireTimeout)
-	if env.Text != "from someone else" {
-		t.Fatalf("first delivered Text = %q, want %q — the same-session send should have been skipped entirely, not merely arrived first", env.Text, "from someone else")
+	if resp := dialAndDo(t, addr, Request{Op: OpSend, Room: "potato", Session: "sess-other", Text: peerText}); !resp.OK {
+		t.Fatalf("peer send: %s", resp.Error)
+	}
+	select {
+	case env := <-delivered:
+		if env.Text != peerText {
+			t.Fatalf("delivered Text = %q, want only %q", env.Text, peerText)
+		}
+	case <-time.After(wireTimeout):
+		t.Fatal("peer message not delivered")
 	}
 
 	// SIGTERM, not client.Close(): a dropped connection reconnects now, and the
@@ -1170,10 +1233,10 @@ func TestRecvStream_SkipsOwnSessionPublish_ButDeliversOthers(t *testing.T) {
 	select {
 	case code := <-recvDone:
 		if code != int(ExitOK) {
-			t.Fatalf("recvStream exit code = %d, want %d", code, ExitOK)
+			t.Fatalf("recvAction exit code = %d, want %d (ExitOK)", code, ExitOK)
 		}
 	case <-time.After(wireTimeout):
-		t.Fatal("recvStream did not exit after SIGTERM")
+		t.Fatal("recvAction did not exit after SIGTERM")
 	}
 }
 
