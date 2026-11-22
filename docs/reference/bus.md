@@ -5,7 +5,7 @@ import { BUS } from '../../.vitepress/theme/bus-script'
 
 # atomic bus
 
-`atomic bus` lets concurrent Claude Code sessions on one machine message each other over named rooms. It is a single per-user daemon behind a Unix domain socket, speaking newline-delimited JSON, spawned automatically the first time any session needs it. Nothing retires it automatically. See The daemon lifecycle below. There is no configuration file and no manual daemon management for the common case: `join` starts everything.
+`atomic bus` lets concurrent agent sessions on one machine message each other over named rooms. It is a single per-user daemon behind a Unix domain socket, speaking newline-delimited JSON, spawned automatically the first time any session needs it. Nothing retires it automatically. See The daemon lifecycle below. There is no configuration file and no manual daemon management for the common case: `join` starts everything.
 
 Localhost and Unix-only (macOS, Linux, WSL2). Authentication is Unix file permissions: any process running as the same user can connect. The daemon assigns sender identity server-side rather than trusting a request's claim about who sent it. See Security below.
 
@@ -212,7 +212,18 @@ This is a convention with no safety net under it, which is why it matters. A 900
 
 ## Session identity
 
-Every verb that needs to know which session is calling (`join`, `leave`, `send`, `recv`, `status`) resolves it from the `CLAUDE_CODE_SESSION_ID` environment variable by default. `--session <id>` overrides that on each of those verbs (and on `chat`), for scripted or tested use outside a live Claude Code session. Two different logical members must never share the same `--session` value in the same room. The daemon has no way to tell two connections apart beyond the session string they claim, so a reused value gets treated as one member's traffic, not two.
+`join`, `leave`, `send`, `recv`, `status`, and `chat` use the session ID to find or record your membership. They use the first available source in this order:
+
+| Source | When the bus uses it |
+|---|---|
+| `--session <id>` | You pass an explicit ID. Use the same ID on later commands. |
+| `CLAUDE_CODE_SESSION_ID` | The bus strongly detects Claude Code and the variable is set. |
+| `CODEX_THREAD_ID` | The bus strongly detects Codex and the variable is set. |
+| `PI_SESSION_ID` | No earlier source provides an ID. OMP exports this variable to its shell commands. |
+
+Without an ID, these commands exit `2`. Use `--session` in scripts outside a live session, and give each member a distinct ID. The daemon treats connections that claim the same ID as one member.
+
+`who` and `prune` use the session's last-joined room when you omit the room name. For an explicitly named room, the bus can also use the session ID to look up the remote host.
 
 
 ## Agent vs human members
@@ -297,7 +308,7 @@ Halt state survives a restart and is visible without probing the room. `rooms`, 
 
 ## Watching from the browser
 
-`atomic serve` renders `/bus` (titled **Message Bus**, since the page shows a chat) for watching and operating rooms without a terminal. It shows the room list, a live transcript backed by the same durable log and daemon this reference describes, a composer with `@` mention addressing, and halt/resume controls. Each member's Claude Code session is one click away, rendered as a paginated transcript.
+`atomic serve` renders `/bus` (titled **Message Bus**, since the page shows a chat) for watching and operating rooms without a terminal. It shows the room list, a live transcript backed by the durable room log, a composer with `@` mention addressing, and halt/resume controls. For members with a local Claude Code session transcript, the page can open it in a paginated view.
 
 The page also carries the two controls that stop listeners rather than pause them. Ending one member's session evicts that member and closes its stream, which is what stops its `Monitor`, leaving the room and its other members running. Closing the room ends it for everyone, with no resume. Both confirm before acting; `end` is also a CLI verb, see Operator verbs above.
 

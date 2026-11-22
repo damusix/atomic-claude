@@ -17,10 +17,10 @@ const sessionEnvVar = "CLAUDE_CODE_SESSION_ID"
 
 const codexThreadEnvVar = "CODEX_THREAD_ID"
 
-// SessionID identifies the current agent. Identity is keyed by session id, never
-// cwd or pid: two Claude Code sessions can run in the same directory and are
-// still two distinct agents. override is the --session flag, for scripted use
-// and tests outside a live session.
+const ompSessionEnvVar = "PI_SESSION_ID"
+
+// SessionID identifies the current agent. An explicit --session wins over the
+// environment. Identity never falls back to cwd or pid.
 func SessionID(override string) (string, error) {
 	if override != "" {
 		return override, nil
@@ -35,9 +35,12 @@ func SessionID(override string) (string, error) {
 		}
 	}
 	if id == "" {
+		id = os.Getenv(ompSessionEnvVar)
+	}
+	if id == "" {
 		return "", &Error{
 			Code: ExitHard,
-			Msg:  fmt.Sprintf("bus: no session identity available (%s under Claude Code, %s under Codex); pass --session to identify this agent", sessionEnvVar, codexThreadEnvVar),
+			Msg:  fmt.Sprintf("bus: no session identity available (%s under Claude Code, %s under Codex, %s under OMP); pass --session to identify this agent", sessionEnvVar, codexThreadEnvVar, ompSessionEnvVar),
 		}
 	}
 	return id, nil

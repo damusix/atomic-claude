@@ -134,7 +134,7 @@ Atomic installs one authored policy and workflow corpus into Claude Code and OMP
     | `atomic config agents` | `--harness` wins; otherwise a `strong` detection; otherwise the single enrolled harness when exactly one is enrolled; otherwise an interactive choice, or a refusal listing the enrolled kinds when non-interactive |
     | `atomic retro extract` | Reads the detected harness's session history: Claude from its projects directory; OMP and Codex report `unsupported` naming the harness until a reader for that history format is proven against real session files, instead of failing on a missing Claude directory |
     | `atomic where --json` | Adds `state_root` (the resolved absolute repository state root) and `worktrees` (defined below) |
-    | `atomic bus` | Session identity from `CLAUDE_CODE_SESSION_ID` under Claude and `CODEX_THREAD_ID` under Codex; any other orientation reports that no session identity is available |
+    | `atomic bus` | Uses strong Claude Code or Codex detection to read their IDs and accepts OMP's `PI_SESSION_ID` when neither supplies an ID. See the [bus identity contract](atomic-bus.md). |
     | `atomic doctor` | Runs the active-harness leg for the detected harness in addition to every enrolled target's checks |
     | `atomic hooks session-start` | Refreshes `~/.atomic/profile.md` on every harness, because the profile and the workflow-preference autodetect are harness-neutral; seeds the output style, which writes Claude's `settings.json`, only under `--harness claude` |
 
@@ -277,7 +277,7 @@ atomic/internal/
 ├── signals/tree.go .......................... M  (skip prefixes from the resolved root)
 ├── serve/walk.go ............................ M  (resolved state root exempt from the dot-directory skip)
 ├── retro/ ................................... M  (per-harness session history readers)
-├── bus/identity.go .......................... M  (Claude and Codex session identity)
+├── bus/identity.go .......................... M  (Claude Code, Codex, and OMP session identity)
 ├── doctor/checks_config.go .................. M  (no warning for retired harness.dir or [pi])
 ├── doctor/checks_repo_config.go ............. M  (.pi/atomic.toml comment dropped)
 ├── doctor/ .................................. M  (target, resource, journal, capability checks; active-harness leg; override, trust, and steering-mode warnings; mode-aware router-reference check and refs repair)
@@ -540,7 +540,7 @@ atomic/internal/retro/
   History readers — Claude projects directory; OMP and Codex unsupported until proven
 
 atomic/internal/bus/identity.go
-  Session identity — CLAUDE_CODE_SESSION_ID or CODEX_THREAD_ID by orientation
+  Session identity — Claude Code, Codex, and OMP; see docs/spec/atomic-bus.md for precedence
 
 atomic/internal/install/
   Report exit — JSON mode exits non-zero on blocked or conflicted targets
@@ -1073,6 +1073,10 @@ atomic/internal/**/*_test.go and serve/frontend fixtures
 
 
 ## Change log
+
+### 2026-11-22 — Bus identity in OMP
+
+`atomic bus` accepts OMP's `PI_SESSION_ID` when neither an explicit `--session` nor a Claude Code or Codex ID is available. OMP sessions can join and use the same membership across commands without an override. The [bus spec](atomic-bus.md) owns the precedence rules.
 
 ### 2026-11-14 — Managed artifact replacement and review corrections
 

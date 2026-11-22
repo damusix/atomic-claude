@@ -9,6 +9,7 @@
 
 ### Bug Fixes
 
+- Let OMP sessions join and use `atomic bus` without passing `--session`.
 - Back up edited managed artifacts before updates and retire removed artifacts without leaving obsolete commands installed.
 - Recover transactions whose first staging operation fails.
 - Preserve canonical wiki cards when an OMP card changes from a symlink to a copy.
