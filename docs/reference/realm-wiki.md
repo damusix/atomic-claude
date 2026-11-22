@@ -34,7 +34,7 @@ Two layers fill a wiki, and they differ by who drives them.
 
 **You drive the capture layer through buckets.** Register a folder before Atomic indexes it. Each eligible folder in a bucket gets an `index.md` listing what it holds. The unbound and bound realms store registrations differently; see [Capture buckets](#capture-buckets).
 
-**Steering depends on how the realm is set up.** An independent realm can keep its guidance in `AGENTS.md` with a thin local `CLAUDE.md` loader. The [`[steering] claude` setting](/reference/atomic-toml) also supports `agents-md` and `claude-md`. A shared realm separates the selected team source, `.agents/realm.md`, from `AGENTS.local.md` and any local loaders or settings. A linked source does not prove a harness loads it. Start a fresh session at the realm root and check the supported activation in the [sharing guide](/guides/realm-sharing).
+**Steering depends on how the realm is set up.** An independent realm can keep its guidance in `AGENTS.md` with a thin local `CLAUDE.md` loader. The [`[steering] claude` setting](/reference/atomic-toml) also supports `agents-md` and `claude-md`. A shared realm keeps root `AGENTS.md`, `AGENTS.local.md`, and native loaders local. Publish only reviewed team guidance in `.agents/realm.md` through `atomic realm share`. See the [sharing guide](/guides/realm-sharing) for startup behavior.
 
 This draws the boundary. Atomic stays on the code side: it documents repos, keeps their wikis current, runs the plan-implement-ship lifecycle, and indexes the capture folders you register. The non-code work is yours to direct from the realm steering file, and the wiki is the assistant layer for it, a Karpathy-style knowledge base you build with Claude instead of by hand.
 

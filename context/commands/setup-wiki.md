@@ -8,7 +8,11 @@ You set up the repo for atomic-claude conventions. Detect first, propose second,
 
 ## Pre-flight and scope detection
 
+If the user asks to set up a realm, or `atomic where --json` reports `realm_scope.position: root`, take the realm route below before offering `git init` or running the repo audit.
+
 A `wiki/` outside a git repo is a realm root, a git repo without one is repo scope, and a git repo holding a `wiki/` is the user's call, defaulting to repo.
+
+The managed Git checkout reported by `atomic realm status` is not a project to bootstrap. If you are in that checkout, stop and direct the user to their logical realm root.
 
 ```mermaid
 flowchart TD
@@ -44,7 +48,8 @@ flowchart TD
     ```
 
     On cancel, an ambiguous answer, or "unsure / cancel", note `"wiki-type defaulted to repo (wiki/ present inside git repo — user did not confirm realm)"` in the Step 5 output.
-- **Scope: realm** / **Scope: repo**: sets `WIKI_SCOPE`. It is surfaced in the Step 5 report only — the wiki pipeline (`/refresh-wiki`) writes the `<wiki-type>` marker itself, into the wiki index it generates.
+- **Scope: realm**: stop the repo workflow here. Use the Karpathy-wiki setup route in the `atomic-wiki` skill. Keep the realm root's `AGENTS.md` and Claude loader local. Do not use the repo steering survey or the `/commit` next step for a realm.
+- **Scope: repo**: continue with the audit below. The repo steering survey and commit guidance apply only to this repository.
 
 ## Step 1 — Audit
 
@@ -199,7 +204,7 @@ flowchart TD
 | 5 | **Processes** | `Makefile` targets, `.github/workflows/*.yml` job names, release scripts, `CONTRIBUTING.md` | "No release / rollback / on-call processes detected." |
 | 6 | **External references** | URLs scraped from `README.md` matching Linear/Notion/Slack/Grafana/Sentry/Datadog domains | "No external references detected. Add Linear/Notion/Slack/dashboards as they arise." |
 
-**Render.** Assemble the accepted/edited content into this skeleton and write it to the shared steering file `AGENTS.md`:
+**Render.** Assemble the accepted/edited content into this skeleton and write it to `AGENTS.md` at the repository root, not the realm root:
 
 ````markdown
 # AGENTS.md

@@ -199,6 +199,8 @@ If `[root]` was supplied, use it as the realm root. Otherwise default to the cur
 
 Realm-scope `/refresh-wiki` is for an independent wiki repository. Before scanning or authoring, set `resolved_root` to the resolved realm root and run `test -L "$resolved_root/wiki"` (no trailing slash). If it succeeds, stop, even if the link target is missing. Tell the user to edit the declared wiki links explicitly with the required write access and to run `atomic realm sync` only when they intend to publish those changes.
 
+Keep the realm root's `AGENTS.md` and local loaders private. Follow the `atomic-wiki` skill's realm instruction ownership rules. If root `AGENTS.md` is a symlink, report it and stop before editing the capture section.
+
 ### Step 2 — Scan (deterministic)
 
 Run the scan step to scaffold any missing structure, classify repos, and register the wiki:
@@ -252,7 +254,7 @@ flowchart TD
 
 If new buckets were just created in Step 3, ask the user what each bucket is for (or infer from their Step 3 answers if they described purpose while naming). Then:
 
-1. Replace the `<!-- describe what this bucket is for -->` placeholder in the `## Capture surfaces` section for each bucket, in whichever realm steering file holds it (`AGENTS.md` or `CLAUDE.md`).
+1. Replace the `<!-- describe what this bucket is for -->` placeholder in whichever local realm steering file holds it (`AGENTS.md` or `CLAUDE.md`). Keep local capture paths and preferences out of `.agents/realm.md`.
 2. Write the bucket's `index.md` purpose line and update the `## Conventions` block to describe naming and content conventions for that bucket.
 
 Code writes structure; the model writes meaning. A bucket whose placeholder survives this step (user declined to describe it) is flagged in the Step 9 disposition output as `PLACEHOLDER (unfilled)` — it is not a blocker for the rest of the run.
@@ -396,9 +398,9 @@ Wiki refresh — disposition:
 
 ### Step 10 — Commit the wiki
 
-Commit the wiki repository automatically — do not ask. The wiki is its own git repo under `<resolved-root>/wiki/`, and its git history *is* the wiki's changelog; prompting only adds friction to an additive operation that loses nothing.
+Commit only in the independent `wiki/` repository. Before staging, check that `<resolved-root>/wiki` is not a symlink and that `git -C <resolved-root>/wiki rev-parse --show-toplevel` resolves to that exact directory. If either check fails, stop. Never stage realm-root files or commit into the managed shared checkout.
 
-Stage all changes under `<resolved-root>/wiki/`, invoke the `atomic-git-discipline` skill for the commit message format, and commit inside the wiki repo (not the parent repo). No AI byline. If there is nothing staged to commit, print `wiki already current — nothing to commit.` and stop.
+In the independent wiki repo, stage the files this refresh changed by path and use `atomic-git-discipline` for the commit message. Scope the commit to those paths so it cannot include unrelated staged content. If there are no refresh changes to commit, print `wiki already current — nothing to commit.` and stop.
 
 </workflow>
 
@@ -408,7 +410,7 @@ Stage all changes under `<resolved-root>/wiki/`, invoke the `atomic-git-discipli
 
 - Re-author only what the user selects in Step 7b. **Why:** unrequested rewrites thrash the wiki's git history.
 - The bucket offer fires once per realm. The `<wiki-buckets>` block records both the populated state and the `declined="true"` state. Once the block exists, skip Step 3 entirely. **Why:** re-prompting on every run would be disruptive; the block is the durable opt-in/opt-out record.
-- Commit the wiki automatically; never ask. The wiki repo's git history is its changelog, so an additive commit loses nothing. **Why:** axiom 3 governs *destructive* shared-state ops (delete, force-push, history rewrite); a plain additive commit to the wiki's own repo is not one, and the user has standing consent for it — the wiki is an audit trail, and prompting defeats its purpose.
+- Step 10's automatic commit applies only to an independent wiki repository.
 - Pass both `target_repo` and `wiki_dir` to `atomic-wiki-inferrer` (wiki-output mode). If the inferrer reports a partial-args error, surface it verbatim and stop that repo's pass.
 - Surface all `atomic wiki scan` errors verbatim. Do not paraphrase exit-code 2 output. **Why:** paraphrased errors drop the exact token needed to diagnose the root cause.
 
