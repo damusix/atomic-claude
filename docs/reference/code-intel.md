@@ -110,7 +110,7 @@ A newly ignored file is pruned from an already-built index on the next `index` o
 
 ## Wiki realm federation
 
-When you work from a wiki realm — a folder that contains multiple repositories managed by `/refresh-wiki` — `atomic code` can index and query all of them without writing into any member repo.
+From a registered realm root, `atomic code` can index and query member repositories without writing into those repositories.
 
 **Position-sensing.** The command figures out the right scope from your current directory:
 
@@ -132,63 +132,12 @@ When you work from a wiki realm — a folder that contains multiple repositories
 **Federation, not merger.** Each member's graph is independent — no cross-repo symbol edges or call paths span members. A call from repo A into repo B stays unresolved in A's graph. This is a deliberate scope boundary; merged graphs are a non-goal.
 
 
-## The lifecycle
-
-Indexing is owned by orchestrator commands, never by the agents they dispatch. An agent only ever *queries* the index; keeping it fresh is somebody else's job. That separation keeps the expensive operation (a full index) out of every hot path.
-
-| State | What happens |
-|-------|--------------|
-| Cold — no database | The first `index` can take seconds to minutes. In repo scope, `/refresh-wiki`, `/subagent-implementation`, and `/autopilot` all build it automatically without prompting — indexing is cheap and idempotent, so there is nothing to ask. In a wiki realm, cold member indexes stay user-initiated (`atomic --repo <member> code index`); realm refresh never auto-indexes members. Nothing auto-indexes at session start. |
-| Warm — database exists | Orchestrators run `atomic code sync` before dispatching work. Incremental and cheap. |
-| Per iteration | The implementation loop runs `sync` after each committed change so the next review queries current state. |
-
-`atomic doctor` check 11 (`code-index`) reports health without mutating anything: no index → PASS (informational, since indexing is opt-in); index present but stale → WARN; index present and fresh → PASS. It never fails — a missing index is not an error.
+## Index maintenance
 
 
-## How it powers the workflow
+Build or sync the graph explicitly using `atomic code index` or `atomic code sync`. Planning, implementation, and wiki prompts do not maintain the graph or require one. For unfamiliar source, they can ask an inexpensive read-only scout for file locations and evidence.
 
-The organizing rule is **subagents query, parents delegate.** Query output can be large, and the main agent's context is precious. So disposable subagents — which are thrown away after they report — query the index directly and return a compact digest. Context-precious parent agents never query inline; they dispatch a subagent and consume its summary.
-
-The diagram below shows who queries the index directly and who reaches it through a delegated subagent.
-
-```mermaid
-flowchart TD
-    subgraph parents["Parents — delegate, never query inline"]
-        plan["/atomic-plan"]
-        doc["/documentation"]
-    end
-    subgraph subs["Subagents — query directly"]
-        inv["atomic-investigator"]
-        gp["general-purpose (model: haiku)"]
-        impl["atomic-implementer"]
-        rev["atomic-reviewer"]
-        sig["atomic-wiki-inferrer"]
-    end
-    db[("index<br/>.atomic/.atomic-index/atomic.db")]
-    grep["sg / grep / heuristics"]
-
-    plan -->|dispatch, get digest| inv
-    doc -->|dispatch impact sweep| gp
-    inv --> db
-    gp --> db
-    impl -->|impact before edit| db
-    rev -->|blast-radius check| db
-    sig -->|real import/call edges| db
-    db -.->|absent / failed| grep
-```
-
-What each consumer does with the graph:
-
-| Consumer | Uses the index to |
-|----------|-------------------|
-| `atomic-investigator` | Answer "where is X / what calls Y / map this area" from real edges instead of grep. The keystone — parents that delegate exploration to it inherit code-intel for free. |
-| `atomic-implementer` | Run a bounded `impact`/`callers` on a symbol before editing it, so the change accounts for every call site. |
-| `atomic-reviewer` | Check that a diff's blast radius matches what actually changed — catch callers the diff missed. |
-| `atomic-wiki-inferrer` | Cluster domains from actual dependency edges, not directory names. Used by `/refresh-wiki` and per-repo in `/refresh-wiki`. |
-| `/atomic-plan`, `/documentation` | Delegate structural exploration to a subagent — never query inline. |
-| `/gather-evidence` | Treat `atomic code callers`/`impact` as a Tier-1 (primary-source) answer to "X is called from N places" / "changing X affects Y". |
-
-Every consumer degrades the same way: if the database does not exist or a query fails, it falls back to `sg`/`grep`/heuristics and never blocks.
+`atomic doctor` reports whether an existing index is stale. A missing index is informational.
 
 
 ## MCP for the interactive session

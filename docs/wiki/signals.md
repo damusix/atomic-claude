@@ -22,40 +22,18 @@ The kinds of file it writes, and the difference between them, are the whole desi
 
 Only the router is `@-ref`'d, so the router alone is what every turn pays for. It points; detail lives one hop away in a domain file — this page is one. `scan.md` is the raw substrate underneath both: committed, read on demand by the inferrer, never loaded into a session. The pointer card never carries wiki content, only a link to the domain page and the domain's related docs, delivered by the harness's native `paths:` glob match rather than an `@`-ref.
 
-**The name does not match the paths.** The domain, the Go package, and the CLI verb are all called `signals`, but nothing lands in a path containing that word — output goes to [`docs/wiki/`](.) and [`.atomic/rules/wiki/`](../../.atomic/rules/wiki), and the command that drives it is `/refresh-wiki`. There is also a separate `wiki` domain: the same inferrer agent, pointed at a whole realm of repos instead of this one. See [`docs/wiki/wiki.md`](wiki.md).
+`atomic signals scan` writes the repo snapshot in `docs/wiki/`. On request, `/refresh-wiki` updates the repo's prose and path-scoped steering. [Realm capture and indexing](wiki.md) use separate commands.
 
 ## How it works
-
-Which side owns a step is the contract: code does every deterministic transform, and the model only writes prose. The repo pipeline in [`context/skills/atomic-wiki/references/repo.md`](../../context/skills/atomic-wiki/references/repo.md) runs these steps in this order, and the last one exists because the steps before it can write files the scan reads.
-
-```mermaid
-flowchart TD
-    %% source: context/skills/atomic-wiki/references/repo.md, atomic/cmd/atomic/cmd_signals.go
-    A["atomic signals scan<br/>(Step 1, code)"] --> B["docs/wiki/scan.md"]
-    B --> C["atomic-wiki-inferrer<br/>+ writers, reviewers"]
-    C --> D["index.md + domain pages<br/>(Steps 4-7)"]
-    D --> E["pointer cards<br/>(Step 7b)"]
-    E --> F["@-ref wiring<br/>(Step 8)"]
-    F --> G["atomic signals linkify<br/>(Step 8b, code)"]
-    G --> H["atomic wiki init<br/>--scope repo (Step 8c)"]
-    H --> I["re-scan, re-stamp<br/>scan-sha (Step 8d)"]
-```
-
-Every scan that changes `scan.md` first copies the prior content to `tmp/.scan.prev.md` (gitignored), the fallback diff source where git is unavailable. Step 8d runs only when Step 7b appended to an ignore file, Step 8 wrote the `@-ref` or its steering pair, or Step 8c printed a `created` line or, on stderr, a `card link:` or `omp cards:` line. It runs `atomic signals scan` again and recomputes `<scan-sha>` with `git hash-object docs/wiki/scan.md`. A failed re-scan leaves `<scan-sha>` as Step 7 wrote it and the run continues to Step 9.
-
-### What a session loads, and when
-
-Only the router costs context on every turn; everything else is pulled by a read or a glob match.
+Manual refresh reviews drafts against source before publishing the new scan.
 
 ```mermaid
 flowchart TD
-    %% source: docs/design/signals-router.md:46; context/skills/atomic-wiki/references/repo.md Steps 7b, 8, 8c
-    S["steering file<br/>@docs/wiki/index.md"] --> R["docs/wiki/index.md"]
-    R -.->|"read on demand"| P["docs/wiki/domain.md"]
-    T["touched source file"] --> M["paths: glob match"]
-    M --> K["pointer card injected"]
-    K -.->|"read on demand"| P
-    N["atomic-wiki-inferrer"] -.->|"reads, never loaded"| SC["docs/wiki/scan.md"]
+    S["Scan into scratch"] --> D["Draft and review affected pages"]
+    D --> R{"Review passes?"}
+    R -->|No| K["Keep accepted scan"]
+    R -->|Yes| P["Publish and linkify"]
+    P --> A["Accept scan and fingerprint"]
 ```
 
 ### Staleness and the gate verbs
@@ -76,9 +54,7 @@ signals: STALE — a fresh scan would change the deterministic snapshot (~N line
 → refresh required; dispatch atomic-wiki-inferrer. do not skip.
 ```
 
-**`<scan-sha>` has exactly one job.** It catches a `scan.md` committed without a matching re-infer, forcing `scope = full`. No other staleness decision consults it; routine scope decisions use `git diff HEAD -- docs/wiki/scan.md` directly.
-
-**`scan.md` is committed; `tmp/.scan.prev.md` is not.** The committed blob is the diff baseline both the scope computation and the `<scan-sha>` tiebreaker read. The `tmp/` copy is a gitignored fallback for environments without git.
+Manual refresh compares the scratch scan with `docs/wiki/scan.md`. A missing or mismatched `<scan-sha>` forces full refresh. A failed domain review leaves the accepted scan intact.
 
 ### What the scan walks
 
@@ -88,29 +64,9 @@ signals: STALE — a fresh scan would change the deterministic snapshot (~N line
 
 **Language stats are extension-only and capped at ten.** No content sniffing, and a language absent from the table is either below the top ten by LOC or has no mapped extension.
 
-### Pointer cards (Step 7b)
+### Pointer cards
 
-After [`docs/wiki/index.md`](index.md) is assembled (Step 7 of the repo pipeline), the inferrer emits one `<state-root>/rules/wiki/<domain>.md` card per domain (Step 7b; the state root is [`.atomic`](../../.atomic) by default), before it checks the `@-ref` wiring (Step 8). Each card is parsed through the `rules` package with identity `wiki:<project-key>:<domain>`. Which domains get a rewritten card, and which cards get deleted, follows a scope decision made once per run; every branch ends by deleting the cards of domains the router no longer lists:
-
-```mermaid
-flowchart TD
-    %% source: context/skills/atomic-wiki/references/repo.md Step 7b
-    C{"Cards exist?"} -->|no| P["Partition every<br/>router domain"]
-    P --> A["Emit every card"]
-    C -->|yes| S{"scope?"}
-    S -->|full| A
-    S -->|incremental| R["Emit re-dispatched<br/>domains' cards"]
-    A --> D["Delete orphan cards"]
-    R --> D
-```
-
-A repo whose wiki predates pointer cards takes the bootstrap branch on its first post-upgrade refresh even if that refresh is otherwise incremental, so it never gets stranded with cards for only the domains that happened to be re-dispatched. The bootstrap branch runs Step 3's domain partition for every domain in the router table before emitting anything (classification only, no writer dispatch), so every domain has a `<source_paths>` block to derive its card's globs from. There is no fallback to the router table's Start-here directory or any other approximation; if `<source_paths>` is still unavailable for a domain after the partition, that is a pipeline error to report, not a guess.
-
-**Card contract.** `paths:` frontmatter globs come from that domain's own Step 4 `<source_paths>` block only, never from the paths a page cites in its own `## Where it lives` table or `## Coupling` section (a directory becomes `dir/**`, a file stays a file). That partition is disjoint: each path belongs to exactly one primary domain, so a `dir/**` glob belongs to at most one card. A path whose behavior spans domains resolves through a tie-break: (1) the domain whose router "Start here" directory is the longest path prefix of the file wins, deterministic; (2) otherwise the domain whose page's `## How it works` section describes the file's behavior; (3) otherwise the domain with the narrower `source_paths` set. The generated-marker comment sits inside the frontmatter block, not the body, because the harness strips frontmatter from injection but re-injects the body on every matching read. Every collection, `paths:` included, is a label on its own line with one `- entry` per line beneath it, never a flow-style array, so an added glob or doc is a one-line diff. The body is a typed pointer index: the router's one-line domain description verbatim, including any inline code spans it carries (for example `~/.claude`), then one labeled block per non-empty category. `Map:` holds exactly one link, to that domain's wiki page. `Contracts:` ([`docs/spec/`](../spec)), `References:` ([`docs/reference/`](../reference)), `Guides:` ([`docs/guides/`](../guides)), `Research:` ([`docs/research/`](../research)), `Designs:` ([`docs/design/`](../design)), and `Related:` (catch-all) follow in that order. Candidates come from the domain page's own doc links plus doc surfaces the project's [`CLAUDE.md`](../../CLAUDE.md) couples to the domain; each is checked to exist on disk and dropped if missing, and links sort by path in `LC_ALL=C` byte order within each category. A fixed literal closing line ends every card. Body length is `5 + categories + links` lines, capped at twelve links. An unchanged domain regenerates byte-identical, so a refresh commit carries no wording churn.
-
-**Ignore-file negation.** Before writing, the step runs `git check-ignore -v <state-root>/rules/wiki`. A match gets `!/rules/wiki/` and `!/rules/wiki/**` appended to the ignore file the probe names; once the negation lands, later probes report "not ignored" and skip the append. In this repo [`.atomic/rules/wiki`](../../.atomic/rules/wiki) matches no ignore rule, so the append step is a no-op. [`.claude/.gitignore`](../../.claude/.gitignore) ignores `/rules/*` and negates `/rules/authoring/` and `/rules/atomic`, which keeps the card link committed.
-
-**Report.** Interactive mode folds cards emitted, cards deleted, and any ignore-file edit onto the same Step 9 summary line as the section counts; silent mode returns nothing, so `signals-gate` (see Coupling) detects the ignore-file edit itself rather than reading it from inferrer output.
+Refresh emits cards for all domains on bootstrap or full refresh, and affected domains on incremental refresh. Derive globs from the disjoint source partition. The [output reference](../../context/skills/atomic-wiki/references/repo-output.md) defines the format and the [refresh workflow](../../context/skills/atomic-wiki/references/repo.md) defines publication.
 
 ### Card projection (Step 8c)
 
@@ -118,7 +74,7 @@ One canonical card directory reaches each harness through committed links, so a 
 
 ```mermaid
 flowchart TD
-    %% source: docs/design/wiki-pointer-rules.md:24; context/skills/atomic-wiki/references/repo.md Step 8c; context/_partials/signals-gate.md; atomic/internal/signals/tree.go
+    %% source: docs/design/wiki-pointer-rules.md; atomic/internal/signals/tree.go
     W[".atomic/rules/wiki/<br/>domain.md"] --> I["atomic wiki init<br/>--scope repo"]
     I --> L[".claude/rules/atomic<br/>link (committed)"]
     I --> Q{"State root<br/>inside repo?"}
@@ -133,7 +89,7 @@ flowchart TD
 
 ### Steering and the `@`-ref target
 
-**Steering is read from the shared `AGENTS.md` first, and the `@`-ref lands in a project-local override before the shared file.** The inferrer reads `docs/wiki/AGENTS.md` as authoritative steering, falling back to the [`CLAUDE.md`](../../CLAUDE.md) beside it when the shared file is absent (here, [`docs/wiki/CLAUDE.md`](CLAUDE.md) is the only steering file: it holds user text, which `initSteeringPair` leaves alone under the default `loader` mode); `/refresh-wiki` R5 and the `signals-gate` silent dispatch both pass that content in a `<steering>` block. Step 8 then wires the router reference only when no file the session loads carries it, and a ref in `AGENTS.md` ends by checking the loader beside it:
+**Steering is read from the shared `AGENTS.md` first, and the `@`-ref lands in a project-local override before the shared file.** The inferrer reads `docs/wiki/AGENTS.md`, falling back to the adjacent `CLAUDE.md`. It wires the router reference only when no file the session loads carries it, and checks the loader beside an `AGENTS.md` ref:
 
 ```mermaid
 flowchart TD
@@ -180,14 +136,14 @@ flowchart TD
 
 | Path | Role |
 |------|------|
-| [`context/commands/refresh-wiki.md`](../../context/commands/refresh-wiki.md) | `/refresh-wiki` — the only entry point, idempotent across first run and refresh. Repo scope runs R1-R8: R3 runs `atomic wiki init --scope repo`, R4 brings the code-intel index current, R5 dispatches the inferrer, and R8 folds the inferrer's card-emission summary onto its `cards:` line. Realm scope runs a separate pipeline. |
-| [`context/agents/atomic-wiki-inferrer.md`](../../context/agents/atomic-wiki-inferrer.md) | The orchestrator. Detects repo vs realm scope, loads the matching pipeline reference from the `atomic-wiki` skill, sub-dispatches `atomic-wiki-writer` per domain and `atomic-reviewer` per domain file, then assembles the router and emits the pointer cards. Reads steering from `docs/wiki/AGENTS.md`, falling back to the [`CLAUDE.md`](../../CLAUDE.md) loader. Writes nothing outside the active wiki root, `<state-root>/rules/wiki/`, an ignore file's rules/wiki negation append, the single `@-ref` target, and the loader beside a shared `AGENTS.md`. Frontmatter declares `skills: [atomic-writing, atomic-wiki]`; its `## Contract` marks scoped writes as instruction-only. |
+| [`context/commands/refresh-wiki.md`](../../context/commands/refresh-wiki.md) | Starts repo prose refresh on request. |
+| [`context/agents/atomic-wiki-inferrer.md`](../../context/agents/atomic-wiki-inferrer.md) | Assigns repo domains, dispatches writers and reviewers, and publishes the router and cards. |
 | [`context/agents/atomic-wiki-writer.md`](../../context/agents/atomic-wiki-writer.md) | Authors one domain page from source. Carries the `atomic-writing` skill in frontmatter rather than being asked to invoke it. Frontmatter declares no `tools:` list, so the single-page and no-fan-out rules are instruction-only, as its `## Contract` states. |
-| [`context/skills/atomic-wiki/references/repo.md`](../../context/skills/atomic-wiki/references/repo.md) | The repo-scope pipeline the inferrer executes: Steps 1-9, including 7b (pointer cards), 8 (`@-ref` and loader wiring), 8b (linkify), 8c (`atomic wiki init --scope repo` and card projection), and 8d (re-scan). Also owns the domain page contract, the router shape, and the scoped-writes rule. |
-| [`docs/spec/signals-workflow.md`](../spec/signals-workflow.md) | End-to-end lifecycle: files produced, the stale gate, inferrer dispatch, `@-ref` wiring rules, the `signals-gate` probe. Canonical for the agent and the command. |
+| [`context/skills/atomic-wiki/references/repo.md`](../../context/skills/atomic-wiki/references/repo.md) | Repo scan, domain assignment, page review, and publication. |
+| [`docs/spec/signals-workflow.md`](../spec/signals-workflow.md) | Historical lifecycle and router wiring contract. |
 | [`docs/spec/signals-router.md`](../spec/signals-router.md) | Router shape, domain file layout, incremental versus full mode, the domain split budget, naming continuity. |
 | [`docs/design/signals-router.md`](../design/signals-router.md) | Why a flat eager-loaded file fails at scale, and the domain-partitioning answer. |
-| [`docs/design/signals-wiki-unification.md`](../design/signals-wiki-unification.md) | Why the repo and realm pipelines share one inferrer and one `atomic-wiki` skill, and the order the unification landed in. |
+| [`docs/design/signals-wiki-unification.md`](../design/signals-wiki-unification.md) | Historical design for the earlier unified pipelines. |
 | [`docs/spec/signals-wiki-linkify.md`](../spec/signals-wiki-linkify.md) | Linkify contract: disk resolution as the filter, the skip-set, gitignore layer, idempotence, fenced blocks untouched. |
 | [`docs/reference/repo-wiki.md`](../reference/repo-wiki.md) | User-facing account of when a refresh fires, and the "Pointer rules" section covering card shape, location, and regeneration. |
 
@@ -208,7 +164,7 @@ flowchart TD
 
 | Path | Role |
 |------|------|
-| [`context/_partials/signals-gate.md`](../../context/_partials/signals-gate.md) | The `signals-gate` partial composed into ship verbs. Owns the docs-only guard: a staged path is documentation when it sits under a [`docs/`](..) directory at any depth or is a top-level `README*` / `CHANGELOG*` / `CONTRIBUTING*` / `CODE_OF_CONDUCT*` / `SECURITY*` / `LICENSE*`; the project steering file (`AGENTS.md` or its [`CLAUDE.md`](../../CLAUDE.md) loader) and any bundled-artifact `.md` under `agents/`, `commands/`, `skills/`, `rules/`, or `output-styles/` count as source, because in a config repo those files are the product; the [`docs/wiki/`](.) steering pair sits under [`docs/`](..) and counts as docs. Also owns the `atomic signals stale` exit-code routing, the silent dispatch with a `<steering>` block, and the staging after a silent refresh: `docs/wiki/*.md`, `<state-root>/rules/wiki/` (guarded on the directory existing), and whichever of [`.gitignore`](../../.gitignore), `<state-root>/.gitignore`, [`.claude/.gitignore`](../../.claude/.gitignore), `.omp/.gitignore`, [`.claude/rules/atomic`](../../.claude/rules/atomic), `AGENTS.md`, [`CLAUDE.md`](../../CLAUDE.md) `git status --short` reports. It stages the `.omp/rules/atomic-wiki-*.md` symlinks (`find ... -type l`) and their pruned deletions (`git ls-files --deleted`), skipping any path `git check-ignore -q` reports, and never stages a regular file there. |
+| [`context/commands/implement.md`](../../context/commands/implement.md) | Uses a scratch scan and task diff for documentation maintenance before audit and baseline acceptance. |
 | [`atomic/internal/doctor/checks_signals.go`](../../atomic/internal/doctor/checks_signals.go) | Doctor category 3 (`signals`). Freshness plus router integrity. All WARN, never FAIL. Does not validate [`.atomic/rules/wiki/`](../../.atomic/rules/wiki) card files; tracked in [`.atomic/project/followups/wiki-rules-doctor-validation.md`](../../.atomic/project/followups/wiki-rules-doctor-validation.md). |
 | [`docs/spec/signals-refresh-timing.md`](../spec/signals-refresh-timing.md) | When the refresh fires and how the inferrer is scoped. C1 `changed_range`, C2 docs-only guard, C3 implementation-loop finalize, C4 autopilot, C5 wiring surfaces. |
 | [`docs/design/signals-refresh-timing.md`](../design/signals-refresh-timing.md) | Why the primary refresh sits at implementation finalize and why `atomic signals stale` is the coordinator instead of a marker file. |
@@ -223,26 +179,26 @@ flowchart TD
 
 **Pointer cards are wholly pipeline-owned.** A hand edit to a `.atomic/rules/wiki/<domain>.md` file survives only until the next refresh, full or incremental, at which point the pipeline rewrites it (if the domain is in scope for that run) or leaves it stale (if not). There is no doctor check yet confirming a card's globs still match its domain's real `source_paths`, or that its links still resolve, between refreshes; that gap is the deferred [`.atomic/project/followups/wiki-rules-doctor-validation.md`](../../.atomic/project/followups/wiki-rules-doctor-validation.md) follow-up.
 
-**The OMP card links are committed; an OMP card copy never is.** `atomic wiki init --scope repo` writes `.omp/rules/atomic-wiki-<domain>.md` as a relative symlink into the state root, and `signals-gate` and `loop-finalize` stage those symlinks, plus the deletion of a link pruned with its card. When the state root lies outside the repository, the file is a generated regular-file copy instead; both partials stage only `-type l` entries, so the copy stays untracked, since it would ship one machine's projection to every clone. The scan skips both forms.
+**OMP projections differ by state-root location.** `atomic wiki init --scope repo` writes `.omp/rules/atomic-wiki-<domain>.md` as a relative symlink when the state root is inside the repository, or a generated copy when it is outside. Commit the symlink, not a machine-specific copy. The scan skips both forms.
 
 **`paths:` frontmatter has no exclusion syntax, so the per-domain partition behind a card's globs has to be disjoint at build time, not enforced by excluding one domain's files from another's card.** Rung 1 of the tie-break (Start-here directory as longest path prefix) is mechanical and reproduces the same assignment on every refresh; rungs 2 and 3 (`## How it works` ownership, then narrower `source_paths`) are judgment calls the inferrer makes fresh each run, so a file resolved only by rung 2 or 3 is not guaranteed to land on the same domain's card across refreshes.
 
 **Under `loader` mode, a ref in `AGENTS.md` is live only through its loader.** The doctor refs check walks `repoRefFiles` (`claude.local.md`, `CLAUDE.local.md`, `AGENTS.md`, [`CLAUDE.md`](../../CLAUDE.md), [`claude.md`](../../claude.md)) and skips an `AGENTS.md` hit when `bundlespec.ScopeSteering.LoaderWithoutImport` finds a [`CLAUDE.md`](../../CLAUDE.md) or [`claude.md`](../../claude.md) beside it without an `@AGENTS.md` import. A repo whose ref lives only in such an `AGENTS.md` gets a FAIL, which is why Step 8 ends with "Ensure loader import".
 
-**A failed scan ends the run before inference, not the commit.** When `atomic signals scan` exits non-zero, the pipeline quotes its error and ends without inferring; the commit that triggered it proceeds.
+**A failed scan cannot establish a new baseline.** Preserve the accepted scan when the scan or review fails.
 
 ## Coupling
 
-**workflow** owns when the refresh fires. The `loop-finalize` partial runs a Signals step in `/implement`, `/subagent-implementation`, and `/autopilot` (`/quick-fix` composes the partial, but its Finalize policy row has no signals step). The step runs `atomic signals stale` and, on exit 1 only, dispatches the inferrer with `mode: silent`, `first_run: false`, and `changed_range: <loop-base>..HEAD`, committed as `chore(signals): refresh after <topic>`. It stages the same paths as the `signals-gate` partial (listed in that partial's row under Where it lives). Change the inferrer's dispatch interface and each of those refresh paths changes with it.
+**workflow** uses a scratch scan and task diff to update affected documentation before accepting the baseline. `/refresh-wiki` also supports an on-demand repo refresh.
 
 **doctor** consumes contracts from `checks_refs.go` and `checks_signals.go`. `checks_refs.go` hardcodes `signalsRef = "@docs/wiki/index.md"` and the `repoRefFiles` search order, which must stay in step with repo.md Step 8. `checks_signals.go` parses the router's Domains table to detect missing and orphan domain files, reading the **last** content column of each row; `excludedWikiFiles` keeps `index.md`, `scan.md`, [`CLAUDE.md`](../../CLAUDE.md), and `AGENTS.md` out of orphan detection. Changing the router's column layout breaks that parser. It does not parse [`.atomic/rules/wiki/`](../../.atomic/rules/wiki) at all.
 
 **config** supplies `output.signals.max_depth` from `~/.atomic/config.toml`; `config.ScanGlobs` reads the `[scan]` globs from the file `config.RepoConfigPath` names (`<state-root>/atomic.toml`); `config.ScratchpadDir` / `config.ProjectDir` feed the scan's skip prefixes; and `config.ResolveSteeringMode` resolves the `[steering] claude` key that picks Step 8's ref target and the wiki steering pair's shape. The state root is `repositoryStateDir`, [`.atomic`](../../.atomic) by default (`stateDirDefault`), so changing `state.dir` changes what the scan walks; see [`docs/wiki/config.md`](config.md). [`docs/spec/signals-project-detection.md`](../spec/signals-project-detection.md), which lists config keys this domain would read, is stale. It specifies framework and dependency annotations on manifest bullets plus `[scan] tree_max_depth` and `exclude_dirs` keys, and none of them is implemented: `manifests.go` has no detection rules, the repo config's `[scan]` table carries only `ignore` and `generated`, and tree depth comes from `output.signals.max_depth` in the user config. The spec also names the substrate `deterministic-signals.md`.
 
-**bundle** ships the inferrer, the command, the pipeline reference, and the `signals-gate` partial as source files directly under [`context/`](../../context) — [`context/agents/atomic-wiki-inferrer.md`](../../context/agents/atomic-wiki-inferrer.md), [`context/commands/refresh-wiki.md`](../../context/commands/refresh-wiki.md), [`context/skills/atomic-wiki/references/repo.md`](../../context/skills/atomic-wiki/references/repo.md), [`context/_partials/signals-gate.md`](../../context/_partials/signals-gate.md). A single `make bundle` expands any `{{ template ... }}` directive into the embedded bundle; nothing is written back into [`context/`](../../context), so editing any of them is editing the shipped source directly.
+**bundle** embeds the inferrer, command, and pipeline reference from [`context/`](../../context).
 
 **harness** reads and projects the pointer cards. [`atomic/internal/rules/parse.go`](../../atomic/internal/rules/parse.go) (`ParseWiki`) parses each card into a `RuleRecord` with identity `wiki:<project-key>:<domain>`, and `atomic wiki init --scope repo` projects the records to the Claude card link and the per-card OMP symlinks. A card with an absolute, parent-escaping, or malformed `paths:` glob is rejected before any target write. See [`docs/wiki/harness.md`](harness.md).
 
-**wiki** shares the inferrer and owns `atomic wiki init`, which writes the steering pair in the `[steering] claude` mode (`initSteeringPair` in [`atomic/internal/wiki/init.go`](../../atomic/internal/wiki/init.go); `ConvertSteeringPair` reshapes an existing one) and runs the card projection in Step 8c. The same agent serves repo scope here and realm scope there, branching on dispatch args. Pointer-card emission (Step 7b) is repo-scope only; realm scope has no equivalent.
+**wiki** owns `atomic wiki init`, which writes the steering pair in the `[steering] claude` mode and projects repo cards. Realm capture and indexing use separate commands.
 
-**code-intel** is an optional input. `/refresh-wiki` R4 syncs a warm index or builds a cold one before dispatch, so domain clustering can use real import and call edges. Neither failure blocks the refresh. A failed warm sync prints a warning and the refresh proceeds on the stale index; a failed cold index prints a warning and the inferrer falls back to filename/path heuristics.
+**code-intel** is an optional source of import and call edges when an index is available. A wiki refresh does not require building or syncing an index.

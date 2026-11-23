@@ -22,7 +22,7 @@ Wire the built `atomic code` engine into the atomic artifact system so disposabl
 - [ ] `/refresh-wiki` ensures the index is fresh before dispatching the inferrer: `code sync` when warm; auto-run `code index` when cold (no prompt — indexing is harmless and idempotent); proceed degraded on index error.
 - [ ] `/refresh-wiki` syncs/indexes each member repo best-effort before summarizing, and degrades to summary-without-graph when a repo has no index.
 - [ ] `/subagent-implementation` and `/autopilot` index/sync once at task start and run `code sync` after each builder commit so the reviewer queries current working-tree state; both degrade when unavailable.
-- [ ] `/atomic-plan` delegates structural exploration to the investigator (which now carries code-intel); the main agent issues no inline `code` queries.
+- [ ] `/atomic-plan` delegates unfamiliar code exploration to a read-only scout on an inexpensive model and does not recommend `atomic code` queries.
 - [ ] `/documentation` delegates the changed-symbol `code impact` sweep to a subagent (investigator/haiku); the parent issues no inline sweep.
 - [ ] `/gather-evidence` adds `atomic code callers` / `atomic code impact` as an example to the Tier-1 source-quality row for codebase claims (alongside ast-grep on the actual repo).
 - [ ] A new doctor check reports index health: no DB → PASS informational; DB present + stale → WARN; DB present + fresh → PASS; never FAIL. Appended to the suite (new stable index, never renumber existing). `go test ./internal/doctor/...` green. The doctor-check count string in `/atomic-help` (currently "10 integrity checks") is incremented to match.
@@ -114,3 +114,12 @@ Removed the cold-start index *offer*. `/refresh-wiki` and `/subagent-implementat
 Clarified CP5: the "cold-start is an explicit offer, never silent" rule applies to `/subagent-implementation` (interactive). `/autopilot` cannot prompt mid-run (its only human decision is the ship gate), so on a cold index it auto-indexes best-effort at task start without prompting, degrading to grep on error. Discovered during implementation — autopilot runs in a fresh worktree (always cold), so a no-prompt path is required for it to use code-intel at all; auto-indexing is non-destructive and the user already granted autonomy. **Superseded:** the prior single rule "cold-start is an explicit offer, never silent auto-index" applied uniformly to both commands.
 
 **Squashed to 84aeb5d — 2026-06-08.** Per-iteration SHAs above are historical (unreachable from any branch).
+
+### 2026-11-22: Remove planner code-intel guidance
+
+
+**What changed:** `/atomic-plan` uses an inexpensive read-only scout without prescribing graph queries.
+
+**Why:** Models were not using the suggested commands.
+
+**Superseded:** `/atomic-plan` required the code-intel-enabled investigator.

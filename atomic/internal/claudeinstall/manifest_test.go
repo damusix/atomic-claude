@@ -1,8 +1,11 @@
 package claudeinstall_test
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/damusix/atomic-claude/atomic/internal/claudeinstall"
@@ -224,13 +227,14 @@ func TestPruneRemovesStaleFile(t *testing.T) {
 	}
 }
 
-func TestPruneSkipsWhenConfirmDeclines(t *testing.T) {
+func TestSkippedPruneRetainsInstalledCommandForNextPrune(t *testing.T) {
 	target := t.TempDir()
 
 	claudeinstall.PruneConfirm = func(stale []string) (bool, error) { return false, nil }
 	t.Cleanup(func() { claudeinstall.PruneConfirm = claudeinstall.DefaultPruneConfirm })
 
-	staleTarget := "agents/old-agent-not-in-bundle.md"
+	staleTarget := "commands/retired-command.md"
+	missingTarget := "commands/missing-retired-command.md"
 	stalePath := filepath.Join(target, staleTarget)
 	if err := os.MkdirAll(filepath.Dir(stalePath), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -240,22 +244,52 @@ func TestPruneSkipsWhenConfirmDeclines(t *testing.T) {
 	}
 
 	cfgPath := config.TOMLPath(target)
-	if err := os.MkdirAll(filepath.Dir(cfgPath), 0o755); err != nil {
-		t.Fatalf("mkdir .atomic: %v", err)
-	}
 	cfg := config.Default()
 	cfg.Install.Version = "0.0.1"
-	cfg.Install.Artifacts.Agents = []string{staleTarget}
+	cfg.Install.Artifacts.Commands = []string{staleTarget, missingTarget}
 	if err := config.WritePersist(cfgPath, cfg); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 
-	if _, err := claudeinstall.Install(target, target, false, fixedClock); err != nil {
-		t.Fatalf("Install: %v", err)
+	var out bytes.Buffer
+	if _, err := claudeinstall.InstallWithOutput(target, target, false, fixedClock, &out); err != nil {
+		t.Fatalf("Install (declined prune): %v", err)
 	}
 
 	if _, err := os.Stat(stalePath); err != nil {
 		t.Errorf("stale file removed despite declined confirm: %v", err)
+	}
+	if !strings.Contains(out.String(), "remain installed") || !strings.Contains(out.String(), staleTarget) || strings.Contains(out.String(), missingTarget) {
+		t.Errorf("expected only the surviving stale command in the notice, got %q", out.String())
+	}
+	cfg, _, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("load manifest after declined prune: %v", err)
+	}
+	if !slices.Contains(cfg.Install.Artifacts.Commands, staleTarget) || slices.Contains(cfg.Install.Artifacts.Commands, missingTarget) {
+		t.Errorf("command manifest = %v; want %q tracked but not %q", cfg.Install.Artifacts.Commands, staleTarget, missingTarget)
+	}
+
+	var nextPrune []string
+	claudeinstall.PruneConfirm = func(stale []string) (bool, error) {
+		nextPrune = slices.Clone(stale)
+		return true, nil
+	}
+	if _, err := claudeinstall.Install(target, target, false, fixedClock); err != nil {
+		t.Fatalf("Install (approved prune): %v", err)
+	}
+	if !slices.Equal(nextPrune, []string{staleTarget}) {
+		t.Errorf("next prune plan = %v, want [%s]", nextPrune, staleTarget)
+	}
+	if _, err := os.Lstat(stalePath); !os.IsNotExist(err) {
+		t.Errorf("stat after approved prune: got %v, want not exist", err)
+	}
+	cfg, _, err = config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("load manifest after approved prune: %v", err)
+	}
+	if slices.Contains(cfg.Install.Artifacts.Commands, staleTarget) {
+		t.Errorf("removed command %q is still tracked", staleTarget)
 	}
 }
 

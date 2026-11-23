@@ -1,7 +1,4 @@
-// Package scratchpad owns creation, lookup, listing, and archival of one
-// slug-keyed bundle per unit of work — the state `atomic-plan`,
-// `subagent-implementation`, `quick-fix`, `subagent-diagnose`, and
-// `challenge-swarm` each carry across their own run.
+// Package scratchpad manages task-local bundles for planning and implementation.
 package scratchpad
 
 import (
@@ -48,7 +45,7 @@ const metaFile = "meta.toml"
 // purposeFiles maps each purpose to the bundle-relative markdown files it
 // seeds, keyed to the doctemplate name that fills them.
 var purposeFiles = map[string]map[string]string{
-	"plan":      {"BRIEF.md": "brief", "STATE.md": "state", "FOLLOWUPS.md": "followups"},
+	"plan":      {"BRIEF.md": "brief", "STATE.md": "state", "FOLLOWUPS.md": "followups", "SPEC.md": "spec"},
 	"implement": {"BRIEF.md": "brief", "STATE.md": "state", "FOLLOWUPS.md": "followups"},
 	"fix":       {"BRIEF.md": "brief", "STATE.md": "state", "FOLLOWUPS.md": "followups"},
 	"diagnose":  {"BRIEF.md": "brief", "STATE.md": "state", "FOLLOWUPS.md": "followups", "CONTEXT.md": "diagnose-context"},
@@ -140,9 +137,8 @@ func BundleRoot(root, slug string) string {
 // New additively creates or extends slug's bundle under root for purpose:
 // missing purpose files/dirs are seeded, existing ones are left untouched,
 // purpose is appended to Meta.Purposes if not already present, and the
-// "plan" purpose also seeds docs/design/<slug>.md and docs/spec/<slug>.md
-// outside the bundle. extended reports whether a bundle already existed for
-// slug before this call.
+// "plan" purpose also seeds docs/design/<slug>.md outside the bundle.
+// extended reports whether a bundle already existed for slug.
 func New(root, slug, purpose string) (b *Bundle, extended bool, err error) {
 	files, dirs, ok := seedFor(purpose)
 	if !ok {
@@ -185,10 +181,7 @@ func New(root, slug, purpose string) (b *Bundle, extended bool, err error) {
 	}
 
 	if purpose == "plan" {
-		if err := seedDoc(root, "design", "design-doc", slug); err != nil {
-			return nil, false, err
-		}
-		if err := seedDoc(root, "spec", "spec", slug); err != nil {
+		if err := seedDesign(root, slug); err != nil {
 			return nil, false, err
 		}
 	}
@@ -203,22 +196,20 @@ func New(root, slug, purpose string) (b *Bundle, extended bool, err error) {
 	return &Bundle{Root: bundleRoot, Meta: meta}, extended, nil
 }
 
-// seedDoc writes docs/<kind>/<slug>.md from the docTemplate template, unless
-// it already exists.
-func seedDoc(root, kind, docTemplate, slug string) error {
-	path := filepath.Join(root, "docs", kind, slug+".md")
+func seedDesign(root, slug string) error {
+	path := filepath.Join(root, "docs", "design", slug+".md")
 	if _, err := os.Stat(path); err == nil {
 		return nil
 	}
-	content, err := doctemplate.Get(docTemplate)
+	content, err := doctemplate.Get("design-doc")
 	if err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("scratchpad: create docs/%s dir: %w", kind, err)
+		return fmt.Errorf("scratchpad: create docs/design dir: %w", err)
 	}
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		return fmt.Errorf("scratchpad: seed docs/%s/%s.md: %w", kind, slug, err)
+		return fmt.Errorf("scratchpad: seed docs/design/%s.md: %w", slug, err)
 	}
 	return nil
 }

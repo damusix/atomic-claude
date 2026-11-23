@@ -170,7 +170,7 @@ func TestOMPAgentOverrideIsProjectedAndTheAgentListed(t *testing.T) {
 	}
 
 	_, payload := o.launch(t, "agent-override", o.repo, DefaultPrompt)
-	if !anyContains(jsonStrings(t, payload), "- `atomic-investigator`: Read-only code locator.") {
+	if !anyContains(jsonStrings(t, payload), "- `atomic-investigator`:") {
 		t.Errorf("the opening request does not list atomic-investigator")
 	}
 	ev.Outcome = o.version + ": frontmatter carries model: openai/gpt-5.1 and thinking: low; atomic-reviewer carries no model; the task tool lists atomic-investigator"

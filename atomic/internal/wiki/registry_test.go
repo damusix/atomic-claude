@@ -460,6 +460,9 @@ func TestWikiAction_ScanWritesRegistryAndHandoff(t *testing.T) {
 	if !strings.Contains(out, "NEXT STEPS") {
 		t.Errorf("missing 'NEXT STEPS' in handoff:\n%s", out)
 	}
+	if !strings.Contains(out, "Optional: run /refresh-wiki from inside the member repo repo-pending") {
+		t.Errorf("handoff must make refresh optional and name the member repo to run it inside:\n%s", out)
+	}
 
 	claudeMD := filepath.Join(home, "CLAUDE.md")
 	if _, err := os.Stat(claudeMD); err != nil {

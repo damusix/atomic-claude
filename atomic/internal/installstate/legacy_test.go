@@ -55,8 +55,8 @@ func TestPlanAdoptionBatchesOlderArtifactsAndHonorsDecisions(t *testing.T) {
 	if len(replace.Batch) != 0 {
 		t.Errorf("replace still awaits decisions: %v", replace.Batch)
 	}
-	if actionFor(replace, "commands/commit.md") != ActionReplace {
-		t.Errorf("commands/commit.md action = %s, want replace", actionFor(replace, "commands/commit.md"))
+	if actionFor(replace, "commands/atomic-help.md") != ActionReplace {
+		t.Errorf("commands/atomic-help.md action = %s, want replace", actionFor(replace, "commands/atomic-help.md"))
 	}
 	if actionFor(replace, "CLAUDE.md") != ActionAdopt {
 		t.Errorf("CLAUDE.md action = %s, want adopt", actionFor(replace, "CLAUDE.md"))
@@ -71,8 +71,8 @@ func TestPlanAdoptionBatchesOlderArtifactsAndHonorsDecisions(t *testing.T) {
 	if preserved.Status != StatusReady {
 		t.Fatalf("leave status = %s (%v), want ready", preserved.Status, preserved.Blockers)
 	}
-	if actionFor(preserved, "commands/commit.md") != ActionLeaveUnowned {
-		t.Errorf("commands/commit.md action = %s, want leave-unowned", actionFor(preserved, "commands/commit.md"))
+	if actionFor(preserved, "commands/atomic-help.md") != ActionLeaveUnowned {
+		t.Errorf("commands/atomic-help.md action = %s, want leave-unowned", actionFor(preserved, "commands/atomic-help.md"))
 	}
 }
 
@@ -125,11 +125,11 @@ func TestAdoptLegacyCompleteEndToEnd(t *testing.T) {
 	if len(ledger.Rows) != len(embedded.Manifest()) {
 		t.Errorf("ledger rows = %d, want %d", len(ledger.Rows), len(embedded.Manifest()))
 	}
-	row, ok := ledger.Find("claude:default", "commands/commit.md")
+	row, ok := ledger.Find("claude:default", "commands/atomic-help.md")
 	if !ok {
-		t.Fatal("no ledger row for commands/commit.md")
+		t.Fatal("no ledger row for commands/atomic-help.md")
 	}
-	want := findArtifact(t, root, "commands/commit.md").Data
+	want := findArtifact(t, root, "commands/atomic-help.md").Data
 	if row.Applied.Digest != managedfile.Digest(want) {
 		t.Errorf("ledger digest = %s, want %s", row.Applied.Digest, managedfile.Digest(want))
 	}
@@ -153,7 +153,7 @@ func TestAdoptLegacyPartialEndToEnd(t *testing.T) {
 	home := newHome(t)
 	root := installLegacy(t, home)
 	ageInstall(t, home, root)
-	deleteListed(t, root, "commands/commit.md")
+	deleteListed(t, root, "commands/atomic-help.md")
 
 	classified, err := Classify(classifyReq(home, root, t))
 	if err != nil {
@@ -167,14 +167,14 @@ func TestAdoptLegacyPartialEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Adopt: %v", err)
 	}
-	if actionFor(res.Plan, "commands/commit.md") != ActionRecreate {
-		t.Fatalf("missing listed file action = %s, want recreate", actionFor(res.Plan, "commands/commit.md"))
+	if actionFor(res.Plan, "commands/atomic-help.md") != ActionRecreate {
+		t.Fatalf("missing listed file action = %s, want recreate", actionFor(res.Plan, "commands/atomic-help.md"))
 	}
-	got, err := os.ReadFile(filepath.Join(root, "commands", "commit.md"))
+	got, err := os.ReadFile(filepath.Join(root, "commands", "atomic-help.md"))
 	if err != nil {
 		t.Fatalf("recreated file: %v", err)
 	}
-	if !bytes.Equal(got, findArtifact(t, root, "commands/commit.md").Data) {
+	if !bytes.Equal(got, findArtifact(t, root, "commands/atomic-help.md").Data) {
 		t.Error("recreated file does not hold the selected generation's bytes")
 	}
 }
@@ -184,7 +184,7 @@ func TestAdoptLeaveUnownedPreservesArtifacts(t *testing.T) {
 	root := installLegacy(t, home)
 	ageInstall(t, home, root)
 
-	preserved := filepath.Join(root, "commands", "commit.md")
+	preserved := filepath.Join(root, "commands", "atomic-help.md")
 	oldBytes, err := os.ReadFile(preserved)
 	if err != nil {
 		t.Fatal(err)
@@ -196,8 +196,8 @@ func TestAdoptLeaveUnownedPreservesArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Adopt: %v", err)
 	}
-	if actionFor(res.Plan, "commands/commit.md") != ActionLeaveUnowned {
-		t.Fatalf("action = %s, want leave-unowned", actionFor(res.Plan, "commands/commit.md"))
+	if actionFor(res.Plan, "commands/atomic-help.md") != ActionLeaveUnowned {
+		t.Fatalf("action = %s, want leave-unowned", actionFor(res.Plan, "commands/atomic-help.md"))
 	}
 	got, err := os.ReadFile(preserved)
 	if err != nil {
@@ -210,7 +210,7 @@ func TestAdoptLeaveUnownedPreservesArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := ledger.Find("claude:default", "commands/commit.md"); ok {
+	if _, ok := ledger.Find("claude:default", "commands/atomic-help.md"); ok {
 		t.Error("leave-unowned artifact recorded an ownership row")
 	}
 	if _, ok := ledger.Find("claude:default", "CLAUDE.md"); !ok {
@@ -251,10 +251,10 @@ func TestAdoptRefusesBlockedStates(t *testing.T) {
 		home := newHome(t)
 		root := installLegacy(t, home)
 		ageInstall(t, home, root)
-		drifted := filepath.Join(root, "commands", "commit.md")
+		drifted := filepath.Join(root, "commands", "atomic-help.md")
 		writeLedgerFixture(t, home, nil, []Row{{
 			Target:   "claude:default",
-			Resource: "commands/commit.md",
+			Resource: "commands/atomic-help.md",
 			Applied:  AppliedValue{Path: drifted, Kind: managedfile.KindFile, Digest: "0000"},
 		}})
 
@@ -266,7 +266,7 @@ func TestAdoptRefusesBlockedStates(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got := actionFor(plan, "commands/commit.md"); got != ActionReplace {
+		if got := actionFor(plan, "commands/atomic-help.md"); got != ActionReplace {
 			t.Fatalf("drifted command action = %s, want replace", got)
 		}
 		if _, err := Adopt(undecided); !errors.Is(err, ErrAdoptionRefused) {
@@ -317,7 +317,7 @@ func TestPlanAdoptionIsFilesystemIdentical(t *testing.T) {
 func TestPlanAdoptionAdvisoryRecoveryOutcomes(t *testing.T) {
 	t.Run("applied but unrecorded", func(t *testing.T) {
 		home := newHome(t)
-		path := filepath.Join(home, ".claude", "commands", "commit.md")
+		path := filepath.Join(home, ".claude", "commands", "atomic-help.md")
 		data := []byte("selected bytes\n")
 		mkfile(t, path, string(data))
 
@@ -365,7 +365,7 @@ func TestPlanAdoptionAdvisoryRecoveryOutcomes(t *testing.T) {
 
 	t.Run("later edit blocks", func(t *testing.T) {
 		home := newHome(t)
-		path := filepath.Join(home, ".claude", "commands", "commit.md")
+		path := filepath.Join(home, ".claude", "commands", "atomic-help.md")
 		mkfile(t, path, "edited after the operation\n")
 
 		m := fileMutationAt(t, "commands.commit.md", path, []byte("intended bytes\n"))
@@ -394,7 +394,7 @@ func TestAdoptResumesInterruptedOperation(t *testing.T) {
 	ageInstall(t, home, root)
 
 	artifacts := selectedArtifacts(t, root)
-	victim := findArtifact(t, root, "commands/commit.md")
+	victim := findArtifact(t, root, "commands/atomic-help.md")
 	digest, err := managedfile.DigestResourceBytes(victim.Data, victim.Kind)
 	if err != nil {
 		t.Fatal(err)
@@ -565,7 +565,7 @@ func TestAdoptSurfacesOldBinaryDrift(t *testing.T) {
 	}
 
 	// An old Claude-only binary rewrites one artifact with its own generation.
-	driftedPath := filepath.Join(root, "commands", "commit.md")
+	driftedPath := filepath.Join(root, "commands", "atomic-help.md")
 	mkfile(t, driftedPath, "old binary wrote this\n")
 
 	drifted, err := Classify(classifyReq(home, root, t))
@@ -590,7 +590,7 @@ func TestAdoptSurfacesOldBinaryDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, a := range selectedArtifacts(t, root) {
-		if a.ID != "commands/commit.md" {
+		if a.ID != "commands/atomic-help.md" {
 			continue
 		}
 		if string(got) != string(a.Data) {

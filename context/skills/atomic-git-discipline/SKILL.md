@@ -1,52 +1,15 @@
 ---
 name: atomic-git-discipline
 description: >
-  Compressed commit message and PR body generator, plus the provider references that say
-  where change requests, issues, follow-ups, and worktrees go. Conventional Commits format.
-  Subject ≤50 chars, body only when "why" isn't obvious; PR bodies state only what the diff
-  can't show, ~120 words max. Use when user says "write a commit", "commit message",
-  "generate commit", "open a PR", "PR description", files an issue, records a follow-up,
-  chooses a tracker, creates a worktree, or invokes /atomic-git-discipline. Auto-triggers
-  when staging changes or authoring a pull request. Invoked by /commit (commit-flow,
-  pr-flow, squash-flow), /implement, /subagent-implementation, /autopilot
-  (implement-loop, worktree-setup), /quick-fix (implement-loop), /deslop (worktree-setup,
-  batch commits),
-  /subagent-diagnose, and /refresh-wiki; preloaded by atomic-implementer, atomic-reviewer,
-  and atomic-auditor.
+  Write commit messages and pull request text. Use for shipping, staging,
+  filing issues, recording follow-ups, choosing trackers, or creating worktrees.
 ---
 
-<trigger>
+Use this skill when drafting or applying a commit or pull request, filing an issue, recording a follow-up, choosing a tracker, or creating a worktree. Tell subagents handling these operations to load it.
 
-- "write a commit", "commit message", "generate commit"
-- "open a PR", "PR description", "PR body", opening any change request
-- Filing an issue, recording a follow-up, or choosing an issue tracker
-- Creating a worktree
-- Staging changes for commit
-- Ship verbs delegating message format
-- Read directly by subagents briefed to create a commit or open a PR (per the global contract's Commits & PRs section — subagents can't auto-fire skills)
+Use Conventional Commits. Keep the subject short and explain the reason only when the diff does not show it.
 
-</trigger>
-
-Write commit messages terse and exact. Conventional Commits. No fluff. Why over what.
-
-## References
-
-Provider operations live in references, loaded on demand. Before a provider operation, read the files the resolved `Read:` line names.
-
-- `references/resolution.md`: how the provider is resolved, and which file each value selects
-- `references/source-control/github.md`
-- `references/source-control/gitlab.md`
-- `references/source-control/bitbucket.md`
-- `references/source-control/codeberg.md`
-- `references/source-control/none.md`
-- `references/issue-tracking/github.md`
-- `references/issue-tracking/gitlab.md`
-- `references/issue-tracking/codeberg.md`
-- `references/issue-tracking/linear.md`
-- `references/issue-tracking/jira.md`
-- `references/issue-tracking/trello.md`
-- `references/issue-tracking/filesystem.md`: the local follow-up ledger
-- `references/worktrees.md`: where worktrees go, per harness
+For a commit, pull request, squash, or merge, read `references/shipping.md`. Before a provider or worktree operation, use the `Read:` references from the resolved workflow preferences. See `references/resolution.md` if the preferences are missing or unexpected.
 
 ## Rules
 
@@ -141,7 +104,7 @@ A merge-commit merge is the exception that hides this: it keeps every commit on 
 
 - A change a reviewer would otherwise have to run to see — a UI, a docs-site page, terminal output — carries a screenshot of the new state; a fix carries a before and after pair. A change with no rendered surface carries none.
 - One line per image, after the prose, referencing the local file with a caption: `![Plans on the realm root](tmp/shots/plans-root.png)`. The caption says what the reader is looking at, not what changed.
-- The invoking ship verb uploads each file through the `change-request-attach-images` operation of the resolved source-control reference. This skill names the files and writes the captions; it never uploads.
+- Use the resolved provider's attachment operation when uploading an image. This skill names the files and writes captions; it never uploads.
 
 **Omit from PR bodies:**
 
@@ -171,27 +134,10 @@ Diff: package converted to ESM — tooling swapped, types added, node baseline r
 
 </examples>
 
-## Supplemental input: session reports
-
-When the invoking ship verb passes session-report content — the report files the ship verb resolved via `atomic where --json` — treat it as **why-context** for the message. The diff still drives *what*; the reports drive *why*. Specifically:
-
-- Read the report bodies in chronological order.
-- Distill all "Why" sections into at most one sentence in the body. If the why doesn't survive compression to one sentence, it wasn't load-bearing.
-- Pull the "Open threads" sections forward only if they describe a known limitation worth recording (rare).
-- Never paragraph-quote a report. The body cap (4 lines) applies regardless of how much report content exists.
-
-If no reports are passed in, behave as before — diff alone drives synthesis.
-
-## Supplemental input: doc-skip trailers
-
-When the invoking ship verb passes `doc-skip: <reason>` lines (collected by `/documentation`'s skip-with-reason path or by a ship verb's doc-check step), include them verbatim in the commit's trailer block. The trailer block sits after the body's terminating blank line, in `git interpret-trailers --parse` range. One line per skip.
-
-They sit alongside other trailers like `Co-authored-by:` and `Closes #N`. Do not paraphrase, do not merge multiple skips into one line, do not move them into the body. Emit `doc-skip:` lines in the order received; place them adjacent to other trailers without enforcing a fixed position relative to `Co-authored-by:` or issue refs.
-
 <constraints>
 
 ## Boundaries
 
-Generates the commit message or PR title and body, including the screenshot lines a visual change needs, and names where the work is placed through the references. Does not run `git commit`, does not stage files, does not amend, does not push, does not open or merge a change request, does not upload screenshots, does not read or delete session-report files (that is the invoking ship verb's job). Output the text as a code block ready to paste.
+Generate the commit message or PR title and body, including screenshot lines when needed. Do not stage, commit, amend, push, open a PR, or upload screenshots.
 
 </constraints>

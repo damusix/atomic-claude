@@ -131,7 +131,7 @@ git merge-base --is-ancestor <fix-sha> origin/release-please--branches--main && 
 1. **Diagnose** — run all five diagnosis blocks. Classify into exactly one cause row (they are usually mutually exclusive; if main is red, that dominates — fix cause 2 first).
 2. **Confirm before destructive action** — cause 3 (history rewrite), delete-and-recreate, and any force-push touch published history or close a PR. Per axiom 3, get an explicit per-action yes. Causes 4, 5, 6 are safe (forward commit to main).
 3. **Apply the matching fix.** With `branches-ignore` in place, the most common real cause is now cause 2 (main itself is broken) — fix main and the merge-result check follows, no branch surgery. Reach for delete-and-recreate only when the branch genuinely must be re-parented and the CI fix is not sufficient; `gh run rerun` and empty commits do not re-parent the branch.
-4. **Re-watch.** Dispatch `/watch-ci release-please--branches--main` (or watch main if the fix landed there). Confirm the previously-failing step is now green and that release-please regenerated the PR at the expected version. Note: after a delete-and-recreate the PR number changes — watch the new PR.
+4. Resolve the new run on the release PR branch (or `main` if the fix landed there) and run `gh run watch <run-id>`. Confirm the failing step passes and the regenerated release PR has the expected version. Resolve the new PR number after recreation.
 5. **Report** — one line: what was red, which cause, what fixed it, current state.
 
 

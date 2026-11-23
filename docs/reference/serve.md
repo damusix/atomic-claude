@@ -160,7 +160,7 @@ Navigation always wins; the selection yields rather than blocks.
 
 The top bar says where the open file lives. On `/plans/:slug/*` in realm scope the breadcrumb reads `plans › <member> › <slug> › <file>`, and after the file a muted `<branch> · <path>` names the checkout on screen. The path is relative to the served root, absolute when the worktree lives outside it. It comes from the same resolution the version picker uses, so the two cannot disagree.
 
-A bundle file renders by its classified kind. `markdown` renders through the existing markdown pipeline. `html` (an `atomic-visual-options` artifact) renders inside an `<iframe>` sandboxed with `allow-scripts` alone. The mock runs its own scripts in an opaque origin and is never injected into the app's own document or stylesheet. `file` renders as a download link with no inline preview.
+A bundle file renders by its classified kind. `markdown` renders through the existing markdown pipeline. `html`, including a visual planning mock, renders inside an `<iframe>` sandboxed with `allow-scripts` alone. The mock runs its own scripts in an opaque origin and is never injected into the app's own document or stylesheet. `file` renders as a download link with no inline preview.
 
 `⌘K` gains a third `source: "plans"` tab alongside `md` and `code`, filtering the already-fetched `/api/plans` payload by title and description client-side; there is no separate plans search endpoint.
 

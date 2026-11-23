@@ -302,7 +302,7 @@ func TestMigrateOldBinaryDrift(t *testing.T) {
 		t.Fatalf("Migrate: %v", err)
 	}
 
-	drifted := filepath.Join(root, "commands", "commit.md")
+	drifted := filepath.Join(root, "commands", "atomic-help.md")
 	if err := os.WriteFile(drifted, []byte("written by an older binary\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -386,7 +386,7 @@ func TestMigrateResumesInterruptedAdoption(t *testing.T) {
 
 	// The file stays readable, so classification and backup succeed, but the
 	// publish fails mid-operation.
-	blocked := filepath.Join(root, "commands", "commit.md")
+	blocked := filepath.Join(root, "commands", "atomic-help.md")
 	if err := os.Chmod(blocked, 0o444); err != nil {
 		t.Fatal(err)
 	}

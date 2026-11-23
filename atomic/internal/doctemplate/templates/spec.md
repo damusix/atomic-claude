@@ -1,12 +1,8 @@
 <!--
-Template for docs/spec/<topic>.md — emitted by `atomic template spec`.
-The implementation contract written by /atomic-plan
-(inline for trivial work, via the spec loop for non-trivial). Copy this body, fill every
-<angle-bracket> placeholder, and delete the guidance comments as you fill — EXCEPT the
-one under ## Change log, which stays until the first post-approval amendment.
-The body is forward-only current truth: no decision history, no prior-version references,
-no rejected-fork enumeration (see rules/specs/spec-currency.md).
-Use all sections for new specs and scope rewrites; do not backfill them for unrelated edits.
+Template for a disposable implementation spec, emitted by `atomic template spec`.
+For non-trivial work, fill SPEC.md in the task scratchpad. For trivial work, write
+the spec inline. Fill the placeholders and remove all guidance comments. Keep
+decisions and their history in the design; keep only the current contract here.
 -->
 # <title>
 
@@ -30,10 +26,21 @@ Use all sections for new specs and scope rewrites; do not backfill them for unre
 - [ ] <verifiable check>
 
 
+## End-to-end proof
+
+
+- Setup: <Starting state, data, access, or dependencies needed.>
+- Action: <Run the complete user or system journey.>
+- Expected result: <The observation that proves the intended outcome.>
+
+<!-- This proves the finished result, separately from checkpoint checks.
+     If you cannot run it here, name the limitation and who can run it. -->
+
+
 ## Approach
 
 <!-- Design doc exists (always, for non-trivial work): name the chosen approach in ONE line
-     and link the design. Do NOT copy the Approaches table or name the rejected forks —
+     and link the design. Do NOT copy its alternatives or name the rejected forks —
      that deliberation lives only in the design.
      No design doc (trivial inline spec): replace this section with the full `## Approaches`
      table + `## Recommendation` instead, since there's no design to hold them. -->
@@ -99,22 +106,11 @@ Use all sections for new specs and scope rewrites; do not backfill them for unre
 
 ## Flows
 
-<!-- One numbered actor -> step sequence per behavior being implemented.
-     A change that ships no runtime behavior (pure docs/config) writes
-     `None — <reason>` instead of omitting the section — presence is what
-     the reviewer checks, not omission. Unlike the tree and the outline,
-     flows are real markdown: a bold flow name, then an ordered list. No
-     code fence — the steps are prose and carry inline code and links.
-     Example:
+<!-- Link to the relevant design sections for flows they already describe.
+     Write a short, numbered actor → action sequence only for a flow not
+     covered there. If nothing has a flow, write `None — <reason>`. -->
 
-     **Flow: session rotation**
-
-     1. client presents a token older than the rotation interval
-     2. middleware calls SessionStore.rotate -> new token issued, old retired
-     3. response carries the new token; the old one is honored until the
-        grace period ends -->
-
-<flows, or `None — <reason>`>
+<Design flow links or uncovered flows>
 
 
 ## Checkpoints
@@ -132,17 +128,3 @@ Use all sections for new specs and scope rewrites; do not backfill them for unre
 | Risk | Likelihood | Mitigation |
 |------|-----------|-----------|
 | <r>  | high/med/low | <plan> |
-
-
-## Change log
-
-<!-- Append one entry per amendment after approval. Keep prior entries.
-
-### YYYY-MM-DD — <short title>
-
-**What changed:** <the change>
-
-**Why:** <the reason or evidence>
-
-**Superseded:** <prior contract, if applicable>
--->

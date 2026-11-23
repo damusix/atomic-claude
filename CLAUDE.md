@@ -82,10 +82,10 @@ Run this whenever you add, rename, or remove a command / agent / skill / output-
 | 3 | `CLAUDE.md` (root, this file) | Only when the new artifact changes *project-local* conventions for this repo specifically (e.g. new bundle path, new build step, new file role) | Edit the relevant section. This file never installs. Do NOT duplicate the global registration here — the root file is for repo-specific overlays only, not for mirroring `context/AGENTS.md`. Both load into context when cwd is this repo, so duplication = wasted tokens. |
 | 4 | `README.md` | Always — public-facing index | Add to the matching table in `docs/reference/commands.md` (or agents/skills equivalent). Keep one-line descriptions. |
 | 5 | `docs/spec/<topic>.md` | If the artifact has non-trivial behavior or cross-references | Write or extend the spec. Required for anything dispatched by another artifact or that mutates state. **Amending an existing spec: see "Spec amendment rule" below — never silently overwrite the original.** |
-| 6 | Cross-references in other artifacts | If this artifact is invoked by, or invokes, another | Wire both directions. Example: a new skill invoked by `/commit` requires editing the command to call it AND the skill to declare itself as called from there. |
-| 7 | **`/atomic-help` topic table + tour** ⚠ | **Always** — every artifact a user might type, install, or run. Non-negotiable. | Edit `context/commands/atomic-help.md`. Add / remove / rename the row in the right category sub-table (Lifecycle / Ship matrix / State & context / Maintenance & utilities / Reference). Material lifecycle or maintenance change → also update the matching tour stage (Stage 2 lifecycle / Stage 3 state files / Stage 4 maintenance). **Read the full contract in `<help_router_contract>` below before skipping any sub-rule.** |
+| 6 | Cross-references in other artifacts | If this artifact invokes another or is invoked by one | Update the caller and the callee. |
+| 7 | Discoverability | User-facing additions, removals, renames, or behavior changes | Update the authoritative reference. Update `/atomic-help` only if its routing or tour changes. |
 | 8 | Bundle inclusion (`atomic/internal/bundlespec/bundlespec.go` + `atomic/internal/artifacts/catalog.go`) | Only if you introduce a **new artifact kind** (not a new file of an existing kind) | Add the predicate and its walk in `artifacts.Load`, plus a Claude target mapping in `atomic/internal/bundlemirror/mirror.go`. Existing kinds (`context/agents/`, `context/commands/`, `context/skills/`, `context/output-styles/`, `context/rules/`, and the singleton `context/AGENTS.md` steering source) auto-include matching files. |
-| 9 | Signals refresh | After adding the file | Run `/refresh-wiki` (or let ship verbs dispatch `atomic-wiki-inferrer` in silent mode) so `docs/wiki/scan.md` and `docs/wiki/index.md` reflect the new file. |
+| 9 | Doc impact and repo scan | Before final audit | Diff a scratch scan and the task's source changes, update affected docs, and accept the scan only after review. |
 
 </mandatory_checklist>
 
@@ -138,70 +138,30 @@ A command, agent, or the global steering source may compose a reusable block wit
 
 The canonical spec-currency contract lives in **`context/rules/specs/spec-currency.md`** — a path-scoped rule that auto-loads (into the main agent *and* subagents) whenever a `docs/spec/**` or `docs/design/**` file is touched. It covers: body-is-current-truth, the `## Change log` discipline, the per-amendment rules (add / change-supersede / remove / correct / rename), and the change-log entry template. Read that rule rather than duplicating it here.
 
-Repo-specific note: in this repo specs are also read verbatim by fresh-context subagents in `/subagent-implementation` and authored via the `/atomic-plan` spec loop, so currency is load-bearing — a superseded body section gets built. The planning and autopilot commands brief spec-writing subagents to follow the rule explicitly in addition to the auto-load.
+`/implement` passes the current spec to delegated writers. `/atomic-plan` and `/autopilot` brief spec writers to follow the currency rule.
 
 
 ## Cross-artifact wiring rules (mandatory for cohesion)
 
 
-These rules exist because this repo is meant to be installed into *user repositories* — not just dogfooded here. Cohesion is the product. When a user runs `/commit` in their own repo, they expect signals to refresh and docs to stay current without typing five commands.
+Installed workflows must keep project signals and docs current when shipping.
 
 
-- **The implementation phase owns signals refresh; ship verbs are the ad-hoc fallback.** The primary refresh point is the end of an implementation phase: `/subagent-implementation` (Phase 3 finalize) and `/autopilot` (Phase 4) dispatch `atomic-wiki-inferrer` once over the loop's SHA range (`changed_range: <loop-base>..HEAD`), committed as `chore(signals)`. The ship verbs (`/commit` and its merge/squash flows, via the `signals-gate` partial) refresh only when the user is **ad-hoc committing a real code change**: the gate skips docs-only commits (every staged path under `docs/` or a top-level `README*`/`CHANGELOG*`/`LICENSE*`-class file) and relies on the content-based `atomic signals stale` exit code as the coordinator — a fresh stored file (because the implementation phase already refreshed) returns exit 0, so the gate is a no-op, avoiding a redundant dispatch. If neither path refreshes, the user's project signals go stale — invisible drift. Contract: `docs/spec/signals-refresh-timing.md` (child of `docs/spec/signals-workflow.md`).
-- **Ship verbs must remind the user to run `/documentation` after significant changes.** "Significant" = new file, removed file, public-API change, dependency change. Surface a one-line prompt at the end of the verb. The skill is interactive and user-driven (axiom 3: destructive ops explicit confirm; doc rewrites are close enough).
-- **Symmetry within a command family.** The commit/squash/merge family must agree on shared concerns: message format (all delegate to `atomic-git-discipline` skill), worktree detection (all detect on merge/squash and prompt to delete), signals refresh trigger (above). If you change one verb's behavior on a shared concern, change all of them.
+- **Preserve the accepted scan until docs pass review.** Follow `docs/spec/signals-refresh-timing.md` for implementation and ad-hoc commits. Keep realm capture separate.
 - **Skills that are invoked by commands must declare it.** A skill's description should mention "invoked by /foo, /bar" so the trigger surface is inspectable. Reverse holds: a command that invokes a skill must name it in the command file. No silent dependencies.
 - **Agents dispatched by commands must name the `subagent_type` in the command file**, and the agent's own `description` must carry an accurate when-to-use (that's what the harness surfaces in the session roster — there is no CLAUDE.md agent registry). Dispatch is a public contract.
 - **When in doubt, write the spec first.** `docs/spec/<topic>.md` is the canonical source for any cross-artifact contract. If two artifacts reference the same flow and the spec doesn't exist, write it before adding the second reference.
 
 
-**Why these rules apply to user repos, not just this one.** Users install these artifacts and rely on the cohesion. A user's `/commit` that forgets to refresh signals leaves *their* Claude session with a stale project map. The bug is invisible to us but real to them. Treat every wiring rule as a contract the user has implicitly accepted by installing.
+Apply these shipping rules in user repositories as well as here.
 
 
-## ⚠ Help router coverage rule (`/atomic-help`) — CRITICAL
+## Help and discoverability
 
 
-<help_router_contract>
+`/atomic-help` recommends one next action with one reason. The short tour runs only on request. Keep catalogs and exact syntax in their authoritative references, not in the router.
 
-**Hard rule. Non-negotiable. Failing this rule ships invisible features.**
-
-**Why this is critical:** `/atomic-help` is the canonical onboarding map and the only discoverability surface for new users. It is a routing layer — not duplicated docs — so nothing automated detects drift. A command that exists but is unmentioned in help may as well not exist; users typing `/atomic-help` or `/atomic-help tour` will never find it. Every artifact add / remove / rename has a corresponding help update, and that update is part of the same change, not a follow-up.
-
-**Triggering events.** Every one of these requires a `context/commands/atomic-help.md` edit before commit:
-
-- Adding any command, agent, skill, output-style, or rule.
-- Removing any of the above.
-- Renaming any of the above.
-- Adding a new user-runnable `atomic <verb>` binary subcommand.
-- Changing what an existing surface does, in a way that would alter its one-line description.
-- Reshaping the canonical lifecycle, state-file layout, or maintenance surface (touches the tour stages).
-
-**Sub-rules (all hard, no exceptions):**
-
-- **Every committed slash command must appear in at least one `/atomic-help` topic row.** Primary verb for its own topic, or named alternative in another topic's output. A command not discoverable through help is invisible to new users.
-- **Every committed agent and skill must be reachable through a topic.** Agents → topic `agents`. Skills → topic `skills`. Surfacing the roster suffices — individual agents/skills do not each need their own topic, but the roster must stay accurate.
-- **Tour stages mirror the documented surface.** Stage 1 (surfaces) names the five composing layers (output style, skills, commands, agents, binary). Stage 2 (lifecycle) lists the canonical plan → implement → ship → docs verbs. Stage 3 (state files) enumerates where things live (signals, scratchpad, session reports, follow-ups, worktrees, design/spec). Stage 4 (maintenance) covers doctor / validate / update / cleanup / ci / report. Adding a new artifact in one of those zones means updating the matching stage in `context/commands/atomic-help.md` alongside the topic table.
-- **Renames update both the topic row and every freeform-intent example.** Run `grep -n '/<old-verb>' context/commands/atomic-help.md` after a rename — must return zero matches.
-- **Removals delete the topic row, any freeform-intent example, and any tour-stage mention.** No dangling pointers.
-- **Binary subcommands surfaced to users count as commands for this rule.** New `atomic <verb>` that a user runs directly → mention it under the `binary` / `cli` topic (or whichever maintenance / setup topic fits). Internal subcommands invoked only by other artifacts do not.
-- **Final pass before commit (mandatory).** Open `context/commands/atomic-help.md`, scan every category table and all four tour stages, ask: *"Would a new user typing `/atomic-help` discover the change I just made?"* If no, fix `context/commands/atomic-help.md` and stage it. This is the gate — do not commit without it.
-
-**Reshape-don't-cram clause.** If the topic taxonomy becomes the wrong shape (categories overflow, a stage gets bloated past ~15 lines, a topic table grows past one screen), reshape it. The point of the router is discoverability, not exhaustiveness; a help command nobody can scan is worse than one missing one verb. When in doubt, split a category or promote a sub-topic into its own row.
-
-**Verification command (run before committing any artifact change):**
-
-```bash
-# Every committed slash command should have at least one mention in atomic-help.
-for cmd in context/commands/*.md; do
-  verb=$(basename "$cmd" .md)
-  [ "$verb" = "atomic-help" ] && continue
-  grep -q "/$verb" context/commands/atomic-help.md || echo "MISSING: /$verb"
-done
-```
-
-Zero `MISSING:` lines = pass. Any output = blocker.
-
-</help_router_contract>
+Before committing a user-facing artifact change, check its entry in the relevant commands, agents, skills, or configuration reference. For a CLI change, check the CLI help and its reference. For a rename or removal, remove stale pointers from those references and the router. Change the router only when a recommendation or the tour would otherwise be wrong.
 
 
 ## Signals `@-ref` must stay wired (in this repo: the root `CLAUDE.md`)
@@ -360,7 +320,7 @@ These live under `.claude/commands/`, load as project-scoped slash commands for 
 ## Naming
 
 - All custom artifacts use the `atomic-` prefix (`atomic-implementer`, `atomic-tdd`, `atomic-git-discipline`, etc.) so they're easy to spot among third-party installs.
-- Slash commands are imperative verbs (`/commit`, `/undo-commit`, `/atomic-plan`).
+- Slash commands are imperative verbs (`/implement`, `/atomic-plan`).
 
 
 ## Install (for this repo's artifacts)

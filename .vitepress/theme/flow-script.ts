@@ -63,7 +63,7 @@ export const FLOW: SessionSlide[] = [
     {
         id: 'implement',
         label: 'implement',
-        command: '/subagent-implementation',
+        command: '/implement',
         output: [
             { kind: 'say', text: 'Each checkpoint: implementer writes' },
             { kind: 'say', text: 'test-first, reviewer gates.' },
@@ -81,22 +81,9 @@ export const FLOW: SessionSlide[] = [
         ],
     },
     {
-        id: 'report',
-        label: 'report',
-        command: '/session-report',
-        output: [
-            { kind: 'say', text: 'Capturing the why behind choices.' },
-            { kind: 'out', text: 'constructEvent over hand HMAC' },
-            { kind: 'out', text: 'retry skipped → follow-up' },
-            { kind: 'out', text: 'reviewer flags recorded' },
-            gap,
-            { kind: 'say', text: 'Saved. Ship verbs read this.', tone: 'ok' },
-        ],
-    },
-    {
         id: 'ship',
         label: 'ship',
-        command: '/commit pr',
+        command: 'Open a pull request',
         output: [
             { kind: 'say', text: 'Refresh wiki, check docs, open PR.' },
             { kind: 'tool', text: 'Bash(atomic signals scan)' },

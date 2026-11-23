@@ -8,7 +8,7 @@ A sixth subagent that gates the finished implementation once, in a context that 
 
 - Not a diff reviewer. `atomic-reviewer` keeps gating each iteration; the auditor never re-litigates a single checkpoint.
 - Not an approach critic. Whether the design was right stays with `atomic-strategist`.
-- No repo writes. It reports; the orchestrator dispatches a builder against its findings. Its only write is `$SCRATCH/AUDIT.md`.
+- No repo writes. The auditor reports findings; only an audit with a scratchpad may write `AUDIT.md` there.
 - No second audit pass. One dispatch per task, always.
 - No new CLI verb, no Go change.
 
@@ -18,70 +18,40 @@ A sixth subagent that gates the finished implementation once, in a context that 
 - [ ] Frontmatter leaves `model:` unset (the caller's model applies), pins `effort: max`, grants `Write` alongside the read tools, and preloads `atomic-git-discipline`, `atomic-writing`, `atomic-verify`.
 - [ ] Output ends with exactly one `VERDICT: PASS` or `VERDICT: CHANGES_REQUESTED`, matching the contract the orchestrator already parses for `atomic-reviewer`.
 - [ ] Emits all four section headers every run, including when empty, so the orchestrator can grep them.
-- [ ] `/subagent-implementation` Phase 3 dispatches it after `/documentation` and before the signals refresh, capped at one dispatch.
-- [ ] `/autopilot` Phase 4 dispatches it after documentation and before signals, capped at one dispatch.
-- [ ] `/quick-fix` Finalize dispatches it after `atomic-verify` with `brief:` in place of `spec:`, capped at one dispatch; under a brief, an untouched documentation surface is 🟡, not 🔴.
+- [ ] `/implement` and `/autopilot` dispatch one audit after verification and affected doc updates, before signals refresh.
+- [ ] Without a spec, the auditor uses the supplied brief or inline success criteria. It writes findings to `AUDIT.md` only when the caller supplied a scratchpad. It treats documentation as deferred only when the caller says so.
 - [ ] `/atomic-help` reports 7 subagents and names the auditor in both the topic row and the tour listing.
 - [ ] `docs/reference/agents.md` carries an auditor row and the corrected model/effort defaults table.
 - [ ] `make render` and `make -C atomic bundle` are clean; `atomic validate` reports zero FAIL.
 
 ## Approach
 
-A gating agent dispatched once at finalize, sharing `atomic-reviewer`'s `VERDICT:` contract so the orchestrator branches identically. It never edits the repo; when it has findings it also writes the report to `$SCRATCH/AUDIT.md` so the record outlives the one fix iteration.
+The auditor runs once at finalize and returns the same `VERDICT:` contract as the reviewer. It saves findings in the task scratchpad when one exists.
 
-Ordering is the load-bearing part. The auditor judges documentation, so it runs after `/documentation`. The signals refresh scans final state, so it runs after the auditor. That fixes the finalize order at docs → audit → signals in both commands.
+The audit runs after documentation updates and before the signals refresh.
 
 ## Change tree
 
 ```
-templates/agents/
-└── atomic-auditor.md ................. A  (new agent: 4 passes, VERDICT contract)
-agents/
-└── atomic-auditor.md ................. A  (rendered)
-templates/commands/
-├── subagent-implementation.md ........ M  (Phase 3 step 5; steps 5-7 renumber to 6-8)
-├── autopilot.md ...................... M  (Phase 4 audit step + authoring-mode docs step)
-├── quick-fix.md ...................... M  (Finalize audit step, brief: in place of spec:)
-└── atomic-help.md .................... M  (agents topic row + tour count 5 -> 6)
-docs/reference/agents.md .............. M  (auditor row, model/effort defaults)
-docs/spec/atomic-auditor.md ........... A  (this file)
-atomic/internal/embedded/ ............. M  (bundle mirror + manifest)
+context/
+  agents/atomic-auditor.md  M
+  commands/implement.md  M
+docs/
+  reference/agents.md  M
+  spec/atomic-auditor.md  M
 ```
 
 ## Outline
 
-- `templates/agents/atomic-auditor.md`
-    - frontmatter — unpinned model, max effort, read tools plus Write, three preloaded skills, composes `agent-yagni`, `agent-comment-discipline`, `agent-readability`
-    - Scope boundaries — four refusals routing to reviewer, strategist, orchestrator
-    - Caller-provided context — spec, range, state, scratch, surfaces, optional pr
-    - The four passes — cumulative compliance, coherence (including readability accumulated across iterations), commits (and the PR title and body when `pr:` is given), documentation
-    - Output format — four headers, totals, VERDICT; report also written to `$SCRATCH/AUDIT.md` when findings exist
-    - Rules — no repo writes, cite location, judge the whole, one dispatch
-- `templates/commands/subagent-implementation.md`
-    - Phase 3 step 5 — dispatch, verdict branch, one-dispatch cap
-- `templates/commands/autopilot.md`
-    - Phase 4 documentation step — authoring mode, self-answered prompts
-    - Phase 4 audit step — dispatch, verdict branch, never re-audit
-- `templates/commands/quick-fix.md`
-    - Finalize audit step — dispatch with brief:, verdict branch, one-dispatch cap
+- `context/agents/atomic-auditor.md`: accept a spec or brief and optional scratchpad. Return all four sections and a verdict. Save findings only when a scratchpad is supplied.
+- `context/commands/implement.md`: pass the commit range and success criteria; include scratchpad paths when used.
 
 ## Flows
 
-**Finalize, `/subagent-implementation` and `/autopilot`.**
-
-1. Orchestrator confirms the suite is green.
-2. Orchestrator runs `/documentation`, writing new pages and updating stale ones.
-3. Orchestrator dispatches `atomic-auditor` with spec, range, state, scratch, surfaces, and `pr:` when a PR draft exists.
-4. Auditor runs four passes and returns findings plus a verdict; with any finding it first writes the same report to `$SCRATCH/AUDIT.md`.
-5. `PASS` → orchestrator continues to the signals refresh.
-6. `CHANGES_REQUESTED` → orchestrator runs one implementer/reviewer iteration against the findings, re-runs the suite, then continues to signals without re-auditing.
-
-**Finalize, `/quick-fix`.**
-
-1. Orchestrator runs `atomic-verify`.
-2. Orchestrator dispatches `atomic-auditor` with `brief: $SCRATCH/BRIEF.md`, range, state, scratch, surfaces.
-3. Auditor walks the brief's success criteria in pass 1 and reports untouched documentation surfaces as 🟡 in pass 4.
-4. `PASS` → `FOLLOWUPS.md` triage. `CHANGES_REQUESTED` → one implementer/reviewer iteration, commit, then triage without re-auditing.
+1. The caller verifies the behavior and updates affected documentation.
+2. The caller supplies the commit range, spec or brief, and any scratchpad paths.
+3. The auditor runs four passes and returns findings and a verdict. With a scratchpad, it also saves findings in `AUDIT.md`.
+4. The caller resolves blocking findings through checkpoint review before refreshing signals. It does not dispatch another auditor.
 
 **Refusal.** Dispatched before the suite is green, or asked to fix, review one diff, or judge the approach: the auditor returns its `OUT OF SCOPE:` line and stops.
 
@@ -89,9 +59,7 @@ atomic/internal/embedded/ ............. M  (bundle mirror + manifest)
 
 | # | Checkpoint | Files/areas | Verifies |
 |---|------------|-------------|----------|
-| 1 | The agent | `templates/agents/atomic-auditor.md` | Renders to `agents/`; frontmatter leaves model unset, pins max effort, grants Write, preloads three skills; four passes and the VERDICT contract present; render+bundle parity clean |
-| 2 | Dispatch wiring | `templates/commands/subagent-implementation.md`, `templates/commands/autopilot.md` | Dispatched once after `/documentation`, before signals, in both commands; one-dispatch cap stated; autopilot gains the authoring-mode docs step with self-answered prompts; Phase 3 steps renumbered without gaps |
-| 3 | Discovery surfaces | `templates/commands/atomic-help.md`, `docs/reference/agents.md` | Help reports 7 subagents in the topic row and the tour; agents reference carries the auditor row and corrected defaults; MISSING-scan zero; `atomic validate` zero FAIL |
+| 1 | Align audit input and output for planned work and inline fixes | `context/agents/atomic-auditor.md`, `context/commands/implement.md`, `docs/reference/agents.md` | The audit uses the same verdict in both cases and does not require a scratchpad for inline work |
 
 ## Risks
 
@@ -132,3 +100,12 @@ atomic/internal/embedded/ ............. M  (bundle mirror + manifest)
 **What changed:** `/quick-fix` Finalize gains the audit step between `atomic-verify` and `FOLLOWUPS.md` triage, passing `brief: $SCRATCH/BRIEF.md` since no spec exists. The agent reads the brief's success criteria wherever it would read a spec's, and under a brief reports an untouched documentation surface as 🟡, because `/documentation` is deferred to the user by design.
 
 **Why:** the fast loop had no whole-delivery gate at all, and it is the loop where comment noise and a duplicated helper most often slip past per-iteration review.
+
+### 2026-11-22: Audit fixes without a scratchpad
+
+
+**What changed:** `/implement` can pass inline criteria and omit scratchpad paths. The auditor returns findings to the caller and saves them only when a scratchpad exists.
+
+**Why:** A one-checkpoint fix can use the same audit without creating a working bundle.
+
+**Superseded:** The audit dispatch from `/quick-fix` and the requirement to write every finding to `$SCRATCH/AUDIT.md`.

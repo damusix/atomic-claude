@@ -103,7 +103,7 @@ func TestAdvisoryRecoveryPlans(t *testing.T) {
 	t.Run("applied but unrecorded", func(t *testing.T) {
 		home := isolatedHome(t)
 		root := filepath.Join(home, ".claude")
-		path := filepath.Join(root, "commands", "commit.md")
+		path := filepath.Join(root, "commands", "atomic-help.md")
 		data := []byte("selected bytes\n")
 		scenarioMkfile(t, path, string(data))
 		m := scenarioMutation(t, "commands.commit.md", path, data)
@@ -159,7 +159,7 @@ func TestAdvisoryRecoveryPlans(t *testing.T) {
 func TestBlockedLaterEditRecovery(t *testing.T) {
 	home := isolatedHome(t)
 	root := filepath.Join(home, ".claude")
-	path := filepath.Join(root, "commands", "commit.md")
+	path := filepath.Join(root, "commands", "atomic-help.md")
 	scenarioMkfile(t, path, "edited after the operation\n")
 
 	m := scenarioMutation(t, "commands.commit.md", path, []byte("intended bytes\n"))

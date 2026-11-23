@@ -12,7 +12,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/frontmatter"
 )
 
-const representativeSkills = 10
+const representativeSkills = 11
 
 func loadSkillCorpus(t *testing.T) *artifacts.Catalog {
 	t.Helper()
@@ -544,7 +544,7 @@ func TestSkill_RuntimeInstructionsClassified(t *testing.T) {
 		busHarness++
 		want := SkillRuntimeUse{
 			Skill:   "atomic-bus",
-			File:    "skills/atomic-bus/SKILL.md",
+			File:    "skills/atomic-bus/references/operations.md",
 			Surface: SkillRuntimeHarness,
 			Name:    "harness background delivery",
 		}
@@ -555,20 +555,18 @@ func TestSkill_RuntimeInstructionsClassified(t *testing.T) {
 	if busHarness != 1 {
 		t.Errorf("atomic-bus harness gaps = %d, want exactly 1", busHarness)
 	}
-	for _, name := range []string{"atomic-bus", "atomic-debug"} {
-		if !usesCarry(bySkill[name], SkillRuntimeBinary, "") {
-			t.Errorf("%s classifies no atomic-binary runtime instruction: %v", name, bySkill[name])
-		}
+	if !usesCarry(bySkill["atomic-bus"], SkillRuntimeBinary, "") {
+		t.Errorf("atomic-bus classifies no atomic-binary runtime instruction: %v", bySkill["atomic-bus"])
 	}
-	if !usesCarry(bySkill["atomic-debug"], SkillRuntimeAgent, "atomic-investigator") {
-		t.Errorf("atomic-debug does not classify its investigator dispatch: %v", bySkill["atomic-debug"])
+	if usesCarry(bySkill["atomic-debug"], SkillRuntimeAgent, "atomic-investigator") {
+		t.Error("atomic-debug must not require a particular scouting agent")
 	}
 }
 
 // A one-shot background run delivers only its exit, and a listener goes deaf at
 // its harness deadline, so atomic-bus asks for the longest one and a re-arm.
 func TestSkill_BusListenerReArmsAndStops(t *testing.T) {
-	a, ok := loadSkillCorpus(t).Get(string(artifacts.KindSkill) + ":skills/atomic-bus/SKILL.md")
+	a, ok := loadSkillCorpus(t).Get(string(artifacts.KindSkill) + ":skills/atomic-bus/references/operations.md")
 	if !ok {
 		t.Fatal("atomic-bus missing from the corpus")
 	}

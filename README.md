@@ -47,8 +47,8 @@
 | **Multi-harness install** | One authored corpus projects into Claude Code, Oh My Pi (OMP), and Codex CLI through native adapters. `atomic install` detects the harnesses you have; `atomic update` reconverges the ones already enrolled. |
 | **Code graph** | A tree-sitter symbol graph across 31 languages and 23 web frameworks answers callers, call sites, and blast radius, no compiler required. |
 | **SQL in the graph** | Procedures, views, foreign keys, and lineage across Postgres, MySQL, T-SQL, and Snowflake, plus dbt models and macros, read from `.sql` files with no database connection. |
-| **Autopilot** | `/autopilot` takes an issue to a merged PR: plans, tests first, reviews its own diff, ships. Your only decision is how to merge. |
-| **Self-sharpening config** | `/retrospective-learning` mines your corrections for friction and edits its own skills and rules, only with your say-so. |
+| **Autopilot** | `/autopilot` plans, implements, and ships a task or issue without routine questions. It opens a PR by default. |
+| **Session retrospective** | `/retro` uses your corrections to propose improvements. It changes rules only with your approval. |
 | **Inter-session bus** | Concurrent agent sessions message each other over named rooms: delegate work to a peer session, watch or halt a room as the operator. `atomic bus gateway` hosts rooms across machines behind sealed keys. |
 | **Persistent REPLs** | Named Python and Node interpreter sessions hold state across separate Bash calls, so agents stop re-running setup code to get back to where they were. |
 | **Structured replies** | Tables, trees, and ASCII flows replace walls of prose when they explain faster. |
@@ -83,21 +83,19 @@ then get to work
     /gather-evidence <hypothesis> ...... chase the hunch through primary sources
     /pressure-test ..................... defend the design in dialogue before it's built
     /challenge-swarm @spec.md .......... parallel expert lenses attack the written spec
-  /subagent-implementation @spec.md .... implement → review loop; wikis refreshed
-  /implement ........................... Claude writes it here, reviewer per checkpoint
-  /quick-fix <task> .................... same loop, no spec, for known-cause fixes
-  /commit [push|pr|merge|squash] ....... ship from one verb
-  /autopilot <task|issue#> ............. all of it unattended; you pick the merge
+  /implement [task or @spec] ........... implement, review, and verify
+  Ask to commit, push, open a PR, squash, or merge.
+  /autopilot <task|issue#> ............. plan, implement, and ship unattended
 
 clean up what's already there
 
-  /deslop [<path>] ..................... audit standing code for slop → report you read
-  /deslop apply <ids|tier> ............. fix what you accepted, behind a green baseline
+  /deslop [scope] ..................... audit a change, PR, or standing code
+  /cleanup ............................ remove selected session files or worktrees
 ```
 
 Fresh-context subagents drive the loop as a maker/checker split (Anthropic's evaluator-optimizer pattern): the implementer writes a failing test before any code, the reviewer re-runs tests and gates the diff against the spec, and work commits per green checkpoint. → [workflow](docs/reference/workflow.md)
 
-Ship verbs, `/report-issue`, and follow-ups act on your resolved workflow preferences: the source-control provider (GitHub, GitLab, Bitbucket, Codeberg), the issue tracker (GitHub, GitLab, or Codeberg issues, Linear, Jira, Trello, or the local follow-up ledger), and where worktrees go. The `origin` remote and your signed-in CLI usually decide them; `atomic workflow resolve` prints the result and `atomic workflow set` overrides one key per profile, realm, or repo. → [workflow preferences](docs/reference/concepts.md#workflow-preferences)
+Shipping, `/report-issue`, and follow-ups use the resolved provider, issue tracker, and worktree location. `atomic workflow resolve` shows the result; `atomic workflow set` overrides one key per profile, realm, or repo. See [workflow preferences](docs/reference/concepts.md#workflow-preferences).
 
 Each phase's working state lives in one `atomic scratchpad` bundle per task — later phases join the same bundle rather than scattering new directories. Bundles sit in the repository's state root, `.atomic/` by default ([resolution order](docs/reference/concepts.md#state-root-resolution-order)); `atomic state migrate` moves Atomic's state out of legacy `.claude` (into `.atomic` by default), and new worktrees go in `.claude/worktrees/` under Claude Code and `.atomic/worktrees/` elsewhere. `atomic serve`'s Plans view lists every bundle and its docs across your worktrees, so you can check what's in flight without `cd`-ing anywhere. → [conventions](docs/reference/conventions.md) · [serve](docs/reference/serve.md)
 
@@ -106,26 +104,24 @@ Each phase's working state lives in one `atomic scratchpad` bundle per task — 
 Wikis are how Claude learns a codebase once instead of every session. Two scopes:
 
 - **Repo wiki**: `docs/wiki/` inside one repository. Build and framework facts, a domain map, cross-cutting notes. Plus one pointer card per domain under `<state-root>/rules/wiki/` (default `.atomic/rules/wiki/`), injected whenever Claude touches a file in that domain.
-- **Realm wiki**: a Karpathy-style knowledge base you compile with Claude instead of maintaining by hand. A folder holds your repos and the loose material around them; the `wiki/` beside them holds per-repo summaries and shared concerns, and every folder in a capture bucket carries an index of what it holds.
+- **Realm wiki and capture**: a folder holds repos and the material around them. Capture buckets carry indexes; existing realm wiki summaries and concerns remain readable and are maintained by their owners.
 
 ```text
 ~/work/acme/       the realm: repos + the material around them
 ├─ AGENTS.md       realm rules (plus a thin CLAUDE.md loader) — loaded from any session inside
 ├─ billing-api/    repo · has its own wiki → linked
 ├─ gateway/        repo · has its own wiki → linked
-├─ vendor-sdk/     repo · no wiki → summarized
+├─ vendor-sdk/     repo · no wiki
 ├─ research/       capture bucket: one folder per item, raw material in 01_raw/
-└─ wiki/           the map atomic compiles
+└─ wiki/           realm registry and existing pages
    ├─ index.md     member registry + bucket listing
-   ├─ repos/       summaries of members without their own wiki
-   └─ concerns/    what cuts across repos
+   ├─ repos/       existing summaries
+   └─ concerns/    existing cross-repo notes
 ```
 
-The scopes compose. A realm summarizes the repos under it without writing into them, and a member repo that keeps its own wiki is linked rather than re-summarized. Claude loads whichever scope the session sits in: a realm session sees the cross-repo picture, a repo session sees that repo's map. `atomic code index` layers a symbol graph onto either scope; at a realm root it indexes every member, and queries fan out across them.
+Use `/setup-wiki` for missing repo setup and `/refresh-wiki` for an on-demand repo wiki refresh. Implementation uses the scan and task diff to update affected documentation before accepting a new baseline.
 
-`/setup-wiki` audits a repo's conventions and proposes only what's missing. `/refresh-wiki` scans sources and writes summaries. A repo wiki also refreshes when an implementation loop or commit changes the source tree. At realm scope, `/refresh-wiki` requires an independent wiki repository. For a linked realm wiki, exchange edits explicitly with `atomic realm sync`. → [realm wiki](docs/reference/realm-wiki.md) · [knowledge base](docs/guides/knowledge-base.md) · [repo wiki](docs/reference/repo-wiki.md)
-
-To share selected wiki content, capture buckets, or team guidance, see the [realm sharing guide](docs/guides/realm-sharing.md).
+For a linked realm wiki, exchange edits explicitly with `atomic realm sync`. See the [realm sharing guide](docs/guides/realm-sharing.md), [knowledge base](docs/guides/knowledge-base.md), and [repo wiki](docs/reference/repo-wiki.md).
 
 
 ## 💭 Contributing & feedback

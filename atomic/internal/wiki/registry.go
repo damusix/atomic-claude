@@ -501,7 +501,7 @@ func PrintHandoff(w io.Writer, members []Member) {
 		fmt.Fprintln(w, "NEXT STEPS")
 		for _, m := range members {
 			if m.Status == "pending" {
-				fmt.Fprintf(w, "  run /refresh-wiki for: %s\n", m.Path)
+				fmt.Fprintf(w, "  Optional: run /refresh-wiki from inside the member repo %s\n", m.Path)
 			}
 		}
 	}

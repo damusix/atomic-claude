@@ -10,7 +10,7 @@ tags: [code-graph, cli, sqlite]
 
 Grep finds text. It cannot answer who calls this, what breaks if I change it, or where this route ends up, so an agent asking those questions reads files until it guesses.
 
-This domain answers them from a real graph. It parses a project's source into symbols, stores them in SQLite, resolves cross-file references into edges, and serves structural queries over the result. Consumers are the `atomic code` CLI verbs, an MCP server, agents that compose the `agent-code-intel` partial, and the `serve` domain's code-graph view.
+This domain parses project source into symbols, resolves cross-file references into edges, and stores the graph in SQLite. The CLI, MCP server, and browser code view query that graph.
 
 The index lives at `<state-root>/.atomic-index/atomic.db` (default [`.atomic/.atomic-index/atomic.db`](../../.atomic/.atomic-index/atomic.db)), derived by `config.IndexDBPath` in [`atomic/internal/config/harness.go`](../../atomic/internal/config/harness.go). The state root itself comes from the config domain's resolution ladder in [`atomic/internal/config/statelocation.go`](../../atomic/internal/config/statelocation.go).
 
@@ -187,12 +187,6 @@ validation/     tests only, no production code
 | [`atomic/internal/codeintel/codectx/codectx.go`](../../atomic/internal/codeintel/codectx/codectx.go) | `FindRelevantContext` + `BuildContext`: the markdown digest `atomic code explore` returns. |
 | [`atomic/internal/codeintel/types/types.go`](../../atomic/internal/codeintel/types/types.go) | The stored vocabulary. Kind strings are persisted in SQLite and must never change once data exists. |
 
-### Artifacts
-
-| Path | Role |
-|------|------|
-| [`context/_partials/agent-code-intel.md`](../../context/_partials/agent-code-intel.md) | The `agent-code-intel` partial: verb guidance, bounded-query rule, a degradation rule (missing `<state-root>/.atomic-index/atomic.db` or a query error falls back silently to `sg`/grep, never an error message), the `<state-root>/atomic.toml` ignore hint, realm fan-out. Composed into [`context/agents/atomic-investigator.md`](../../context/agents/atomic-investigator.md), `atomic-reviewer.md`, `atomic-auditor.md`, `atomic-deslopper.md`, `atomic-wiki-inferrer.md`, `atomic-wiki-writer.md`, and (via [`context/_partials/agent-implementer-workflow.md`](../../context/_partials/agent-implementer-workflow.md)) `atomic-implementer.md`. `atomic-strategist` carries its own narrower grounding rule instead. |
-
 ### Docs
 
 | Path | Covers |
@@ -207,7 +201,7 @@ validation/     tests only, no production code
 | [`docs/spec/code-intel-surfaces.md`](../spec/code-intel-surfaces.md) | CLI and MCP surfaces (CP21 to CP23). |
 | [`docs/spec/code-intel-realm.md`](../spec/code-intel-realm.md), [`docs/design/code-intel-realm.md`](../design/code-intel-realm.md) | Realm scope resolution and fan-out across member repos. |
 | [`docs/spec/code-mcp-per-repo.md`](../spec/code-mcp-per-repo.md) | Cwd-independent `atomic --repo <path> code mcp`. |
-| [`docs/spec/code-intel-integration.md`](../spec/code-intel-integration.md), [`docs/design/code-intel-integration.md`](../design/code-intel-integration.md) | How agents consume the engine: the `agent-code-intel` partial contract, composition matrix, lifecycle index/sync points, degradation contract. |
+| [`docs/spec/code-intel-integration.md`](../spec/code-intel-integration.md), [`docs/design/code-intel-integration.md`](../design/code-intel-integration.md) | Historical prompt integration. |
 | [`docs/spec/code-intel-package-nodes.md`](../spec/code-intel-package-nodes.md), [`docs/design/code-intel-package-nodes.md`](../design/code-intel-package-nodes.md) | Synthesized `package:npm/<name>` hubs: identity rule, mint loop, orphan sweep. |
 | [`docs/spec/code-intel-local-variable-suppression.md`](../spec/code-intel-local-variable-suppression.md), [`docs/design/code-intel-local-variable-suppression.md`](../design/code-intel-local-variable-suppression.md) | Function-scoped local-variable suppression and the `extractor_version` migration. |
 | [`docs/spec/graphignore.md`](../spec/graphignore.md), [`docs/design/graphignore.md`](../design/graphignore.md) | Repo-scoped `[code] ignore` globs. |
@@ -242,7 +236,7 @@ validation/     tests only, no production code
 - **wiki and config** own the `<code-index>` vocabulary and the mode. `realm/codeindex_block.go` imports `wiki.CodeIndexOpen`, `wiki.CodeIndexClose`, `wiki.CodeIndexStub`, `wiki.FindCodeIndexBlock`, and `wiki.StripCodeIndex` from [`atomic/internal/wiki/codeindex.go`](../../atomic/internal/wiki/codeindex.go), whose `initSteeringPair` also treats a [`CLAUDE.md`](../../CLAUDE.md) holding only that block as Atomic's own; `config.ResolveSteeringMode` and `bundlespec.SteeringAgentsMD` choose the file. The steering key and conversion are described in [`docs/wiki/config.md`](config.md) and [`docs/wiki/harness.md`](harness.md).
 - **serve** consumes `engine.GetAllNodes` / `engine.GetAllEdges` for its full-graph export, and `graph.Manager`'s `GetCallers` / `GetCallees` / `GetImpactRadius` through the `CodeEngine` interface. Adding a `NodeKind` here requires a matching entry in serve's code-graph kind-to-group taxonomy, or the kind falls into the `other` bucket. See [`docs/wiki/serve.md`](serve.md).
 - **doctor** category 11 ([`atomic/internal/doctor/checks_code_index.go`](../../atomic/internal/doctor/checks_code_index.go)) reports index health: absent is an informational PASS, stale is WARN, fresh is PASS. It imports `engine.IndexPath`, so a path-convention change touches both.
-- **workflow** commands drive the index lifecycle, all on the same warm/cold rule: `atomic code sync` when the db exists, `atomic code index` without prompting when it does not, and a failed sync or index never blocks the run. `/subagent-implementation` and `/autopilot` apply it at task start and re-sync after each green implementer commit; `/refresh-wiki` applies it before synthesis.
+- **workflow** uses code-intel where available; `/refresh-wiki` can use the index to inform repo domain assignment.
 - `runCode` in [`atomic/cmd/atomic/cmd_code.go`](../../atomic/cmd/atomic/cmd_code.go) dispatches `code` into `cli.RunCodeWithRealm`, from the cwd or the `--repo` path, with `~/.claude/CLAUDE.md` as the `<wikis>` fallback path. A new verb or flag needs a registration in `buildCodeCmd` there, which `cliusage.DeriveCommands` reads, and a matching entry in the golden slice in [`atomic/internal/cliusage/cliusage.go`](../../atomic/internal/cliusage/cliusage.go) (`TestDeriveCommandsGolden`), or `atomic validate artifacts` will misjudge citations of it.
 - [`atomic/internal/codeintel/tsbinding/`](../../atomic/internal/codeintel/tsbinding) is its own Go module. Bumping wazero or tree-sitter means running `go mod tidy` inside that directory, separately from the main module.
 - MCP tool names are the public contract for IDE and agent integrations. Renaming an `atomic_code_*` tool breaks them.

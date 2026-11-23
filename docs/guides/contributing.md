@@ -106,7 +106,7 @@ context/agents/<name>.md     ─┤
 context/AGENTS.md            ─┘
 ```
 
-Every expanding kind draws from one pool, so a partial defined once is callable from any of them. Command partials cover the ship flows (`commit-flow`, `pr-flow`, `merge-flow`, `squash-flow`, `push-flow`), the fragments inside them (`doc-impact`, `signals-gate`, `review-gate`, `base-resolution`, `worktree-cleanup-prompt`, `worktree-setup`, `report-issue-privacy`, `git-safety`), and the implementation loop that `/subagent-implementation`, `/quick-fix`, `/implement`, and `/autopilot` share (`handoff`, `implement-loop`, `loop-finalize`; each command is a policy table plus those includes). Agent partials carry an `agent-` prefix (`agent-atomic-voice`, `agent-code-intel`, `agent-comment-discipline`, `agent-implementer-workflow`, `agent-search-tooling`, `agent-shared-rules`, `agent-signals-output`, `agent-tdd-signals`, `agent-where`, `agent-yagni`). Every agent composes at least `agent-atomic-voice`; `atomic-implementer` pulls the largest set through `agent-implementer-workflow`.
+Command and agent templates share one pool of partials. Agent partials use the `agent-` prefix. `/autopilot` refers to the plan and implementation commands rather than expanding their prompts.
 
 Expansion happens once, in `make bundle`, on the way into the embedded bundle. Nothing writes a rendered copy back into `context/`, so an artifact exists in exactly one place and a partial edit reaches every consumer on the next build.
 

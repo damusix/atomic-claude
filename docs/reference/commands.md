@@ -17,21 +17,13 @@ Commands are explicit actions you invoke with a slash. They never auto-fire — 
 
 | Command | What it does |
 |---------|-------------|
-| `/autopilot` | Run the whole lifecycle hands-off: plan, the implement-then-review loop, and ship, from a task description or an issue number. Fixes every reviewer finding as it goes, dispatches a read-only strategist for root-cause analysis when stuck, and asks just one thing — how to merge. Pass a merge verb (e.g. `/autopilot 29 commit squash merge`) to skip even that. |
-| `/subagent-implementation` | Run the implement-then-review loop from an approved spec. Creates an isolated worktree on request (asks if unspecified). Builder writes code, reviewer checks it, passing checkpoints get committed. |
-| `/implement` | Run the implementation phase in the main agent, for work whose context is already in the conversation. Same checkpoint discipline and commit-per-green as `/subagent-implementation`, but Claude writes the code and dispatches `atomic-reviewer` after every checkpoint. Finalizes the way the loop does: docs, one `atomic-auditor` pass, a range-scoped signals refresh. |
-| `/quick-fix` | Run the implement-then-review loop without a spec, worktree, or finalize ceremony; the once-per-task audit stays. For a fix with a known cause and one obvious approach; hands off to `/subagent-diagnose` or `/atomic-plan` if the assumption breaks. |
-| `/subagent-diagnose` | Investigate and fix a failure. `ci` mode starts from a failed CI run; `bug` mode starts from a description. Same loop as implementation. |
+| `/autopilot` | Plan, implement, and ship a task or issue. Decide without routine prompts, consult a read-only strategist when stuck, and default to a PR. Merge only on request. |
+| `/implement` | Implement a task or spec. A straightforward known-cause fix needs no spec. Work directly or delegate, review each checkpoint independently, and commit on PASS. |
 
 
 ## Shipping
 
-All ship commands delegate commit messages to the `atomic-git-discipline` skill.
-
-| Command | What it does |
-|---------|-------------|
-| `/commit` | Stage and commit, then ask how far to ship — or skip the prompt by passing a token: `push`, `pr`, `merge`, `squash`, or `squash merge`. With no pending changes and commits ahead of base, skips straight to the ship step. Code Claude wrote directly, outside the implement loop, gets an `atomic-reviewer` pass before the commit lands. |
-| `/undo-commit` | Soft-undo the last commit. Refuses merge commits, initial commits, and already-pushed commits. |
+Ask to commit, push, open a PR, squash, or merge. `atomic-git-discipline` supplies the safeguards and message format.
 
 
 ## Code review
@@ -39,35 +31,33 @@ All ship commands delegate commit messages to the `atomic-git-discipline` skill.
 | Command | What it does |
 |---------|-------------|
 | `/review-branch` | One-shot code review of the current branch against base. No orchestration loop, no spec required. Reviews a diff; for code nobody is changing, see `/deslop` under Maintenance. |
-| `/documentation` | Keep project docs in sync with code changes. First run bootstraps: scans for markdown files, you pick which to track as indexed surfaces. Subsequent runs match diffs against tracked surfaces and walk you through each: update now, record a follow-up for later, or skip. Ship verbs run the same check automatically during commit flow. |
+| `/documentation` | Index project documentation or walk affected pages with the user. `/implement` uses the scan and task diff to maintain affected pages before final review. |
 
 
 ## Project setup
 
 | Command | What it does |
 |---------|-------------|
-| `/setup-wiki` | Bootstrap a repo for atomic conventions. Audits `.gitignore`, `docs/` layout, and the project steering file. Proposes only what is missing — never overwrites. |
-| `/refresh-wiki` | Refresh the project wiki; scope is auto-detected. Repo scope updates `docs/wiki/` and its path-scoped pointer cards under `<state-root>/rules/wiki/`. Independent realm scope scans member repos, writes pending summaries, re-authors the selected summaries and concerns, and commits inside `wiki/`. The one-time bucket offer records a blank response as a decline. For a linked `wiki/`, edit the selected files and use `atomic realm sync` instead. See [Realm wiki](/reference/realm-wiki). |
+| `/setup-wiki` | Check the project steering file, wiki, and state directories. Propose only missing setup and preserve existing content. |
+| `/refresh-wiki` | Manually update a repository's `docs/wiki/` pages, source links, and path-scoped steering. Use `atomic-wiki` for realm capture buckets. |
 
 
 ## Maintenance
 
 | Command | What it does |
 |---------|-------------|
-| `/deslop` | Audit the codebase as it stands — not a diff — for accumulated slop: comment noise, AI-tell prose in shipped docs, one-use abstractions, hand-rolled stdlib, duplicate helpers, dead code, swallowed errors, and drift from the repo's own stated conventions. Fans out read-only `atomic-deslopper` agents sharded by wiki domain, then writes an indexed report into a scratchpad bundle and stops. `/deslop apply <ids or tier>` is a separate invocation that fixes accepted findings through the surgical implementer behind a green test baseline, committing per batch and stopping on the first regression. Every finding carries a safety tier; the `report-only` tier — public API, dynamic references, generated files — is never auto-fixed. |
-| `/git-cleanup` | Scan for stale worktrees, branches, and optionally remote tracking refs. Shows a report and asks before deleting anything. |
-| `/watch-ci` | Spawn a background agent to monitor CI for the current branch. Reports back when it finishes. |
-| `/follow-up` | `/follow-up <text>` records one follow-up in the resolved issue tracker, or in the local ledger when the tracker is `filesystem` or cannot take it. `/follow-up review` triages ledger entries past their review date: extend, close, promote to the tracker, or skip. Set `issue-tracker: filesystem` (`atomic workflow set issue-tracker filesystem`) to keep follow-ups local. |
-| `/session-report` | Capture what changed and why during this session. Read by the next ship command for commit message context, then deleted. |
-| `/retrospective-learning` | Session retrospective. Mines session history and the current conversation for friction signals, cross-references against installed artifacts, and walks proposed improvements one at a time. Persists a run log so later runs detect drift on past accepts. |
+| `/deslop` | Audit the current change, a PR, or an explicitly selected path or repo. Apply safe, behavior-preserving fixes only when asked. |
+| `/cleanup` | Remove selected temporary files, artifacts, or worktrees. Defaults to the session and current worktree; broader local or remote scans are opt-in. |
+| `/follow-up` | Record an item in the resolved tracker or ledger. Use `/follow-up review` to triage stale ledger entries. |
+| `/retro [focus]` | Review this session and propose improvements for approval. Past sessions and checks of earlier decisions are opt-in. See [Retro](/reference/retro). |
 
 
 ## Utilities
 
 | Command | What it does |
 |---------|-------------|
-| `/atomic-help` | When you are not sure what to do next. Reads git state, figures out where you are, and recommends one action. `/atomic-help tour` runs a four-stage guided walkthrough of the whole system; bare invocation offers the tour automatically on fresh repos. |
-| `/report-issue` | Open a bug report, feature request, or question in the current repo's resolved issue tracker: GitHub, GitLab, Codeberg, Linear, Jira, Trello, or the local ledger. Checks for duplicates and shows a preview before creating it. |
+| `/atomic-help` | Recommends one next action or asks a clarifying question. Use `/atomic-help tour` for a walkthrough. |
+| `/report-issue` | File a bug, enhancement, or question in the resolved issue tracker or local ledger. |
 | `/report-issue-with-atomic` | Open a GitHub issue against the atomic-claude repo itself. |
 
 
@@ -87,7 +77,7 @@ All ship commands delegate commit messages to the `atomic-git-discipline` skill.
 | `atomic realm` | Publish, receive, review, and link selected realm paths without sharing member repositories. Verbs: `share`, `sync`, `join`, `link`, `status`, `unlink`. | [CLI contract](/reference/realm-wiki#realm-sharing-cli) · [Sharing guide](/guides/realm-sharing) |
 | `atomic bus` | Message between concurrent agent sessions over named rooms, and operate a room from outside it. | [Bus](/reference/bus) |
 | `atomic repl` | Drive a named Python or Node interpreter session that survives across separate Bash calls. | [REPL](/reference/repl) |
-| `atomic retro` | `atomic retro extract` writes session history since a date as one numbered markdown file for `/retrospective-learning`. | [Retro](/reference/retro) |
+| `atomic retro` | `atomic retro extract` exports numbered session history for optional cross-session review. | [Retro](/reference/retro) |
 | `atomic docs` | `atomic docs index` rebuilds the `<bucket-docs>` listing in a directory's `index.md` from its files' frontmatter; `--check` fails CI when it lags. | [Docs index](/reference/docs-index) |
 | `atomic serve` | Serve the wiki and code graph as a browsable site. Read-only, localhost by default. | [Serve](/reference/serve) |
 | `atomic scratchpad` | Create, look up, list, and archive slug-keyed work bundles — the shared shape behind every implement-loop scratchpad. | [Conventions](/reference/conventions) |

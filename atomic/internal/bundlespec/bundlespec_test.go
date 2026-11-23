@@ -203,23 +203,26 @@ func TestSteeringContract(t *testing.T) {
 // writes, or a later install no longer recognizes the block as its own.
 func TestPipelineLoaderProseMatchesLoaderDocument(t *testing.T) {
 	doc := strings.TrimSuffix(string(bundlespec.ScopeSteering.LoaderDocument()), "\n")
-	for file, indent := range map[string]string{
-		"context/commands/setup-wiki.md":                "",
-		"context/commands/refresh-wiki.md":              "",
-		"context/skills/atomic-wiki/references/repo.md": "    ",
+	file := "context/skills/atomic-wiki/references/repo-output.md"
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", file))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "```markdown\n"+doc+"\n```") {
+		t.Errorf("%s has no loader block matching LoaderDocument %q", file, doc)
+	}
+
+	for file, ref := range map[string]string{
+		"context/commands/setup-wiki.md":                "atomic-wiki/references/repo-output.md",
+		"context/commands/refresh-wiki.md":              "atomic-wiki/references/repo-output.md",
+		"context/skills/atomic-wiki/references/repo.md": "[repo-output.md](repo-output.md)",
 	} {
 		raw, err := os.ReadFile(filepath.Join("..", "..", "..", file))
 		if err != nil {
 			t.Fatal(err)
 		}
-		lines := strings.Split("```markdown\n"+doc+"\n```", "\n")
-		for i, line := range lines {
-			if line != "" {
-				lines[i] = indent + line
-			}
-		}
-		if !strings.Contains(string(raw), strings.Join(lines, "\n")) {
-			t.Errorf("%s has no loader block matching LoaderDocument %q", file, doc)
+		if !strings.Contains(string(raw), ref) {
+			t.Errorf("%s does not delegate to %s", file, ref)
 		}
 	}
 }

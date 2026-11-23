@@ -1,70 +1,28 @@
-# Realm wiki
+# Realm capture buckets
 
-A wiki is a generated knowledge graph for a tree of code, and it comes at two scopes. This page is the **realm** scope: a folder of repositories, mapped into a `wiki/` beside them. The [repo wiki](/reference/repo-wiki) is the other scope, one level down, mapping a single repository into its own `docs/wiki/`. Same command, same inferrer; `/refresh-wiki` reads a `<wiki-type>` marker to tell which one it is looking at.
 
 Use `atomic wiki scan` to map a local realm and `atomic realm status --json` to inspect a realm bound to a shared Git checkout. For the full team workflow, see [Share a realm](/guides/realm-sharing).
 
-You work out of a folder. Call it a realm: a client engagement, a team's set of services, an open-source org you contribute to. It accumulates two kinds of things. Repositories, some yours and some vendored. And the loose material that collects around real work: a ticket you are halfway through, an email thread with the one detail that explains a bug, a PDF someone sent you, the notes you took chasing a problem across three systems. You keep that loose material by hand, in a `research/` folder.
+A realm groups related repositories and capture folders. Register a bucket for research, notes, tickets, or other material, then follow its indexes to find items. Existing realm wiki pages remain readable; `/refresh-wiki` synthesizes repository wikis only.
 
-```
-~/work/acme/            the independent realm
-├─ AGENTS.md           realm rules · ## Capture surfaces written by bucket add
-├─ CLAUDE.md           thin loader importing AGENTS.md (loader mode)
-├─ billing-api/        repo · has its own wiki → indexed
-├─ gateway/            repo · has its own wiki → indexed
-├─ vendor-sdk/         repo · no wiki → summarized
-├─ legacy-cron/        repo · no wiki → offered for promotion on refresh
-├─ research/           capture bucket · registered via `atomic wiki bucket add research`
-│  ├─ index.md         lists the bucket's items
-│  └─ seo-audit/       one item · scaffolded by `atomic wiki bucket doc research seo-audit`
-│     ├─ index.md      lists the item's stages
-│     └─ 01_raw/       collected source material, with its own index.md
-├─ experiments/        code spikes and prototypes · user-maintained (not a bucket)
-└─ wiki/               the map atomic compiles over it
-   ├─ index.md         member registry + <wiki-buckets> block + your narrative
-   ├─ repos/           summaries of the opt-in repos
-   └─ concerns/        what cuts across them
-```
+An independent realm can keep guidance in `AGENTS.md` with a thin local `CLAUDE.md` loader. The [`[steering] claude` setting](/reference/atomic-toml) also supports `agents-md` and `claude-md`. A shared realm keeps root steering and native loaders local. Publish reviewed team guidance in `.agents/realm.md` through `atomic realm share`; see the [sharing guide](/guides/realm-sharing).
 
-Holding all of that in your head is what makes a context-switch expensive. A wiki removes that cost. It is a knowledge base for one realm, compiled by `/refresh-wiki`, so the next time the realm needs explaining, the work is already done. A repo wiki describes one repo; this one describes the realm above it. See [concepts](/reference/concepts#wikis) for the idea; this page is the mechanism.
+## Set up and use a bucket
 
-Two layers fill a wiki, and they differ by who drives them.
+Register a folder before Atomic indexes it. Each eligible folder in a bucket gets an `index.md` listing its contents. Unbound and bound realms store registrations differently; see [Capture buckets](#capture-buckets).
 
-**Atomic drives the repo layer.** For an independent wiki, `/refresh-wiki` maps the realm's repositories. It links to existing repo wikis and asks which other members should get their own wiki. It summarizes the rest in `wiki/repos/` without writing to those source repositories. `wiki/concerns/` holds topics that span members.
-
-**You drive the capture layer through buckets.** Register a folder before Atomic indexes it. Each eligible folder in a bucket gets an `index.md` listing what it holds. The unbound and bound realms store registrations differently; see [Capture buckets](#capture-buckets).
-
-**Steering depends on how the realm is set up.** An independent realm can keep its guidance in `AGENTS.md` with a thin local `CLAUDE.md` loader. The [`[steering] claude` setting](/reference/atomic-toml) also supports `agents-md` and `claude-md`. A shared realm keeps root `AGENTS.md`, `AGENTS.local.md`, and native loaders local. Publish only reviewed team guidance in `.agents/realm.md` through `atomic realm share`. See the [sharing guide](/guides/realm-sharing) for startup behavior.
-
-This draws the boundary. Atomic stays on the code side: it documents repos, keeps their wikis current, runs the plan-implement-ship lifecycle, and indexes the capture folders you register. The non-code work is yours to direct from the realm steering file, and the wiki is the assistant layer for it, a Karpathy-style knowledge base you build with Claude instead of by hand.
-
-Deterministic CLI verbs and one command do the work:
+Registration alone does not publish anything. In a bound realm, new buckets are private by default. Use `atomic realm status` to distinguish usable buckets, received paths, and collisions. Preview a share or link and get approval before applying it. Keep private paths and purposes out of shared files. See the [knowledge base guide](/guides/knowledge-base).
 
 - **`atomic wiki scan [--root=<path>]`** — scaffolds the wiki, scans the root for member repos, classifies each, declares `scope = "realm"` in the root's `.atomic/atomic.toml` (`<state-root>/atomic.toml`; [resolution order](/reference/concepts#state-root-resolution-order)), and registers the wiki globally. A marker file that names another scope or fails to parse is warned about and left unchanged. Deterministic, no model.
 - **`atomic wiki init --scope repo|realm [--root=<path>]`** — writes the fixed-content steering scaffold for the given scope (`AGENTS.md`, shaped by the `[steering] claude` mode: a `CLAUDE.md` loader beside it by default), and declares that root's identity: it writes `scope = "repo"` or `scope = "realm"` into `.atomic/atomic.toml`, the same marker `atomic repo init` writes on the repo side. `atomic where`'s realm axis prefers this marker over the `<wikis>` registry below; `repoctx` prefers the repo marker over git detection. Idempotent; a root whose marker already names a different scope is left untouched and reported as a conflict. At realm scope the only files it writes under `wiki/` are the steering pair (`wiki/AGENTS.md` and its `CLAUDE.md` loader); run `atomic wiki scan` afterwards to complete the scaffold. Scan accepts a `wiki/` that holds only that unedited pair, and refuses any other `wiki/` that has no `index.md`.
 - **`atomic wiki stale [--root=<path>]`** — a read-only membership check. Reports `DRIFT added`, `DRIFT removed`, and `DRIFT status` lines for repos that differ from the last scan. Exits `0` no drift, `1` drift, `2` error. See [Membership drift](#membership-drift).
 - **`atomic wiki linkify --root=<path>`** — renders the path citations in summaries, concerns, and the index into file-relative markdown links. Deterministic, idempotent, no model.
 - **`atomic wiki bucket add|list|doc|skill|index`** registers, lists, scaffolds, and indexes capture buckets. See [Capture buckets](#capture-buckets).
-- **`/refresh-wiki [root]`** runs the model pass for an independent wiki: it scans, writes or re-authors summaries and concerns, linkifies citations, and commits in the wiki's own repository.
-
-The split is the same one the repo scope uses. The CLI does the deterministic work: walking the tree, classifying, registering, indexing buckets. The command does the judgment: summarizing repos and re-authoring the existing concerns that cut across them.
-
-| Deterministic CLI | called by | LLM command |
-|---|---|---|
-| `atomic signals scan` | → | `/refresh-wiki` |
-| `atomic wiki scan` | → | `/refresh-wiki` |
-
+The CLI handles realm scanning and bucket indexing without a model pass. Use `/refresh-wiki` inside an individual repository to synthesize its repo wiki.
 
 ## Setting one up
 
-From a folder of repositories with no linked `wiki/`:
-
-```
-/refresh-wiki
-```
-
-This scaffolds or scans `wiki/` and runs the refresh. To scaffold without the model pass, run the scan directly:
-
+From a folder of repositories with no linked `wiki/`, scaffold the realm with a deterministic scan:
 ```
 atomic wiki scan                      # scaffold ./wiki from the current directory
 atomic wiki scan --root ~/work/acme   # scaffold <path>/wiki
@@ -86,51 +44,13 @@ repos = ["{billing-api,gateway,vendor-sdk,legacy-cron}", "experiments"]
 The scan and `atomic wiki stale` then walk only those paths. Entries accept globs, and a bad entry warns on stderr without stopping the scan. See [`[realm] repos`](/reference/atomic-toml#realm-repos) for the matching rules and every warning.
 
 
-## What a wiki looks like
+## Existing wiki pages
 
-```
-<root>/wiki/
-├── index.md      # managed <wiki-scan> + <wiki-buckets> blocks (CLI) + narrative (LLM)
-├── README.md     # written by the scan
-├── AGENTS.md     # steering, written by the scan
-├── CLAUDE.md     # thin loader importing AGENTS.md (loader mode)
-├── repos/        # summaries — only for repos without their own wiki
-│   ├── legacy-cron.md
-│   └── vendor-sdk/<domain>.md   # large repos are split by domain
-└── concerns/     # cross-cutting docs, one per concern
-    └── shared-auth.md
-```
+An independent `wiki/` has its own Git repository. `atomic wiki scan` initializes it and maintains its managed membership and bucket regions while preserving authored prose. Existing summaries and concerns remain readable but are not refreshed by `/refresh-wiki`.
 
-The scan writes `index.md`, `README.md`, the steering pair (`AGENTS.md` and its `CLAUDE.md` loader), and the empty `repos/` and `concerns/` folders. `/refresh-wiki` writes the summaries and re-authors existing concerns. You write a new concern by hand.
+Sharing snapshots selected wiki files without `.git`; Atomic retains the original wiki and its history in local recovery storage. A linked `wiki/` belongs to the managed realm checkout. Edit linked files and run `atomic realm sync` to exchange changes.
 
-An independent `wiki/` has its own Git repository. `atomic wiki scan` initializes it and `/refresh-wiki` commits there. Sharing snapshots the current selected wiki files without `.git`; Atomic retains the original wiki and its history in local recovery storage. A linked `wiki/` belongs to the managed realm checkout, whose Git history starts with the published snapshot. Edit linked wiki files and run `atomic realm sync` to publish them. Do not run `/refresh-wiki` against linked `wiki/`: its automatic commit assumes an independent wiki repository.
-
-**OKF-aligned frontmatter.** The producer writes typed frontmatter on concept pages so `atomic serve` (and any OKF consumer) can color and filter by type:
-
-- `wiki/concerns/<name>.md` — gets `type: Concern` and `description: <one-line>` when written by `/refresh-wiki`.
-- `wiki/repos/<name>.md` — no `type:` frontmatter. `atomic serve` colors them by path convention, so they render as `repo`-type nodes.
-- `index.md` — no frontmatter; the managed-block writer owns its content.
-
-Cross-links between concept pages use standard bundle-relative markdown links (`[text](/wiki/concerns/shared-auth.md)`), the OKF §5.1 recommended form. `atomic serve` resolves these as in-shell navigable routes. Relative links work too; bundle-relative links are shorter for cross-directory references and survive file moves within the bundle.
-
-The wiki is a navigable markdown graph. The scan writes a managed `## Members` section into `index.md` in OKF §6 listing form, each entry as `- [Name](target) - description`, with a one-line description drawn from the member's own wiki or a brief summary. `atomic wiki linkify` then turns the inline path citations across summaries, concerns, and the index into relative links to the files they name. Open the realm in Obsidian or any markdown server and click through it. A rendered `[text](path)` link is a plain markdown link, not an `@`-reference.
-
-
-## Repo states
-
-`atomic wiki scan` classifies each member repo by whether it has `docs/wiki/index.md`, and records the result in the `<wiki-scan>` block:
-
-| State | Meaning | Knowledge source |
-|-------|---------|------------------|
-| `indexed` | has its own wiki | the realm points at that in-repo wiki and cites the path — never copies it |
-| `summarized` | no wiki | a summary at `wiki/repos/<repo>.md`, written by reading the repo without touching it |
-| `pending` | no wiki, fresh scan | the refresh pass resolves it to `indexed` or `summarized` |
-
-"No wiki" is a fork, not a defect. A repo you own can carry a committed wiki; an open-source dependency should not — the wiki summarizes it instead, never writing into it.
-
-When the refresh pass meets a `pending` repo, it presents the repos without one as a numbered list and asks which to run `/refresh-wiki` on, promoting those to `indexed`. The rest are summarized into the wiki by `atomic-wiki-inferrer` in its wiki-output mode: it scans the repo with the substrate redirected outside it (`atomic signals scan --out`), infers, and writes the summary only into the wiki. The source repo is never modified.
-
-When running `atomic signals scan` directly for a member, scope it to that member repository, not to the realm's logical root or its backing checkout. The realm `wiki/` is the destination for summaries, not the source of repo signals.
+`atomic wiki scan` classifies member repositories and records them in the `<wiki-scan>` block. Run `atomic wiki stale` explicitly to compare that membership against the realm.
 
 
 ## The registry
@@ -159,7 +79,7 @@ DRIFT status legacy-cron pending→indexed
 
 Paths are relative to the realm root. When [`[realm] repos`](/reference/atomic-toml#realm-repos) is set to a non-empty list, the walk covers only those paths, and a recorded repo outside them prints as `DRIFT removed <path>`, the same as a deleted one. It exits `0` when the recorded members match the disk, `1` when it prints a `DRIFT` line, and `2` on a hard error such as a missing `wiki/index.md`. It reads no frontmatter, hashes no files, and runs no git.
 
-`atomic serve` shows this result as navigation badges and on `/status`. A scan records fresh membership for an independent wiki. For a linked wiki, the comparison uses the published `<wiki-scan>` block, which a local scan does not replace.
+A scan records fresh membership for an independent wiki. For a linked wiki, the comparison uses the published `<wiki-scan>` block, which a local scan does not replace.
 
 ## Realm sharing CLI
 
@@ -219,25 +139,7 @@ If the harness blocks edits through a link, use the resolved managed checkout fr
 
 ## Keeping summaries and concerns current
 
-Nothing tracks whether summaries or concerns still match their source repos. For an independent wiki, `/refresh-wiki` summarizes pending repos and preserves existing artifacts you do not select:
-
-```mermaid
-flowchart TD
-    accTitle: Realm /refresh-wiki artifact pass
-    accDescr: The scan runs first, pending repos are summarized, then only the summaries and concerns you pick are re-authored before a closing scan, linkify, and the wiki commit.
-    A["atomic wiki scan"] --> C{"pending repos?"}
-    C -->|yes| D["summarize into repos/"]
-    C -->|no| E["list repos/ and<br/>concerns/"]
-    D --> E
-    E --> F["re-author the picked ones"]
-    F --> S["atomic wiki scan"]
-    S --> G["atomic wiki linkify"]
-    G --> H["commit the wiki repo"]
-```
-
-The diagram leaves out the run's two other prompts: the one-time bucket offer and the offer to run repo-scope `/refresh-wiki` on pending repos. It also leaves out the early stop when nothing is pending or offerable.
-
-The selection prompt accepts indices (`1 3`), ranges (`1-3`), `all`, `none`, and `all except N`. An artifact you leave out of the selection is reported as `SKIPPED (not selected)` and stays byte-for-byte as it was.
+Existing summaries and concerns are user-maintained. Atomic does not refresh realm wiki prose or issue automatic staleness reminders. Use `atomic wiki stale` for an explicit membership check, and `/refresh-wiki` within a repository to refresh its repo wiki.
 
 
 ## Upgrading an existing realm
@@ -292,7 +194,7 @@ Fill in the purpose and conventions in the bucket's root `index.md`. For a bound
 
 ### Authoring bucket docs
 
-A bucket item is a folder: `<bucket>/<slug>/index.md` describes it, and its work lives in numbered stage folders. `01_raw/` collects source material, and later stages you add, such as `02_findings/` or `10_publish/`, build on the one before. Raw material and research share one bucket this way; each item keeps its sources in its own `01_raw/`. The [knowledge base guide](/guides/knowledge-base#example-a-tickets-bucket-with-triage) works through a tickets bucket whose items add a `02_triage/` stage.
+A bucket item is a folder: `<bucket>/<slug>/index.md` describes it, and its work lives in numbered stage folders. `01_raw/` collects source material; add later stages such as `02_findings/` or `10_publish/` as needed. See the [knowledge base guide](/guides/knowledge-base) for a worked example.
 
 The index recognizes six frontmatter keys on each doc, including every `index.md`, all optional at index time:
 

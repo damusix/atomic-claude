@@ -1,288 +1,44 @@
 ---
-description: "Bootstrap and maintain project documentation surfaces. Two modes: bootstrap (discover doc files, index them in the project steering file) and authoring (scan for unindexed docs, match diff against indexed surfaces, walk stale/incomplete/missing items with Yes/Later/Skip)."
+description: Discover documentation surfaces, preview the impact of a diff, or walk and update affected pages.
 ---
 
-Run `/documentation` to bootstrap doc surface indexing or perform a full documentation pass.
+Use `atomic-documentation` for the table template, classification, and content generation. Use `atomic-writing` for edits.
 
-## Flags
+## Read the request
 
-- `--print-template` — print the `## Documentation surfaces` table skeleton to stdout and exit. Paste into your project steering file to declare custom surfaces manually.
-- `--dry-run` — print discovered/stale surfaces without applying edits or staging anything.
-- `--discover` — re-scan and offer to update the surfaces table even when a table already exists. Use after adding new doc files.
-- `<range>` — any valid git range (`HEAD~5..HEAD`, `main..feature-branch`). If omitted, defaults to `<base>..HEAD` where `<base>` is the merge-base with `main`.
 
-## Step 0 — Handle flags
+| Intent | Action |
+|---|---|
+| Show the table template | Print the skill's template and stop without scanning. |
+| Preview documentation changes | Discover and classify without writing files, offering edits, or staging. |
+| Discover or re-index docs | Offer to index unlisted pages, then stop. Keep existing rows. |
+| Run a documentation pass | Discover and offer to index unlisted pages. If there was no table, stop after bootstrap; otherwise continue to classification. |
 
-If `--print-template` is present, print the following and exit:
+## Discover surfaces
 
-```markdown
-## Documentation surfaces
 
-| Path | Covers | Voice |
-|------|--------|-------|
-| `docs/architecture/payments.md` | billing, webhooks, Stripe | atomic-writing |
-| `docs/models/README.md` | data model, ERD, migrations | atomic-writing |
-| `docs/api/endpoints.md` | REST API, auth, rate limits | atomic-writing |
-| `README.md` | project overview, quick start | atomic-writing |
-```
+Find the table using the skill's steering lookup. Run `atomic docs scan` and read `<state-root>/project/doc-surfaces.md`; resolve `state_root` with `atomic where --json` (older installs use `.claude`). For previews or if scanning fails, use `find` to list Markdown under `docs/`, `doc/`, `documentation/`, `wiki/`, `ADR/`, `adr/`, and `decisions/`, plus `README.md` files up to three levels deep. Exclude `.git` and `node_modules`.
 
-Add this section to your shared project steering file (`AGENTS.md`, or the `CLAUDE.md` loader beside it) and fill in your project's doc files. Voice is always `atomic-writing` — the column exists to name the skill that governs the edit, not to pick between alternatives.
+Report if no docs exist. List unindexed paths and headings. In preview, stop here if there is no table. Otherwise, when indexing, number the paths and accept `all`, `none`, or indices and ranges. Suggest `Covers` from H1 and the first three H2s. Add only approved rows with `Voice: atomic-writing` to the owning steering file, using the skill's lookup and write rules. Stage only that edit; report if nothing was indexed.
 
-## Step 1 — Detect mode
+## Classify and act
 
-A missing surfaces table, or `--discover`, runs bootstrap; anything else runs authoring.
 
-```mermaid
-flowchart TD
-    T{"Surfaces table<br/>present?"} -->|no| B["Bootstrap: Steps 2–4"]
-    T -->|yes| D{"--discover?"}
-    D -->|yes| B
-    D -->|no| A["Authoring: Step 5"]
-```
+Use the requested Git range. Otherwise resolve the intended base through the shipping reference in `atomic-git-discipline` and diff from its merge base to `HEAD`. Classify affected surfaces with the skill. Skip stale and incomplete checks on an empty diff. For missing pages, check `docs/wiki/index.md` for domains with at least five source files and no corresponding surface within two directory levels.
 
-- **Surfaces table present?**: a `## Documentation surfaces` table in the project's steering files. Search order: a local override file → the shared project steering `AGENTS.md` → any adjacent native loader (e.g. `CLAUDE.md`). First file containing the heading wins.
+Outside preview, when the changed symbols need broader investigation, ask a read-only scout on an inexpensive model to search their references and return a compact symbol-to-surface map. Use the diff and `Covers` alone if a scout is unavailable.
 
-## Steps 2–4 — Bootstrap
+For a preview, report the classifications and reasons, then stop. Otherwise show each path, status, and reason, and ask for one action per surface:
 
-Bootstrap indexes only the doc files the user selects, and ends after writing the table.
+| Status | Choice | Action |
+|---|---|---|
+| Stale or incomplete | Yes (`y`) | Read the page and diff. Update the affected content, diagrams, and examples, then stage the page. |
+| Stale or incomplete | Later (`l`) | Record a follow-up through the sink below. Use severity `nit`, kind `finding`, and origin `/documentation`. |
+| Missing | New (`n`) | Write and stage the page. Offer to index it and note where it should be linked. |
+| Any | Skip (`s`) | Leave no record. |
 
-```mermaid
-flowchart TD
-    S{"Scan exits 0?"} -->|no| E["Print stderr, stop"]
-    S -->|yes| F{"Doc files found?"}
-    F -->|no| X["Print none, exit"]
-    F -->|yes| L["Print numbered list"]
-    L --> P{"Selection?"}
-    P -->|none| X2["Print none indexed"]
-    P -->|indices or all| C["Confirm covers"]
-    C --> W["Append, stage, exit"]
-```
-
-- **Scan exits 0?**: `atomic docs scan`, then read the cache file it writes to `<state-root>/project/doc-surfaces.md` (`<state-root>` is the `state_root` field of `atomic where --json`, `.atomic` by default).
-- **Print none, exit**: `no documentation files found. Run with --discover after adding docs.`
-- **Print numbered list**: axiom 4 — plain-text indexed selection:
-
-    <example>
-    ```
-    Discovered N documentation files. Index these in your project steering file?
-
-      [1] docs/architecture/payments.md — Payments / Webhook Flow / Stripe Integration
-      [2] docs/models/README.md — Data Model / Entity Relationships / Migration History
-      [3] README.md — (no headings extracted)
-      ...
-
-    Type: all | 1 3 5 | none
-    ```
-    </example>
-
-- **Selection?**: accept `all`, space-separated indices (`1 3 5`), comma-separated (`1,3,5`), ranges (`1-3`), mixed (`1-3 5`), `none`.
-- **Print none indexed**: `no surfaces indexed.`
-- **Confirm covers**: for each selected surface, suggest a `Covers` annotation derived from headings (H1 + first 3 H2s) and ask the user to confirm or replace:
-
-    ```
-    [1] docs/architecture/payments.md
-    Suggested covers: payments, webhook flow, Stripe integration
-    Accept or type replacement (Enter to accept):
-    ```
-
-- **Append, stage, exit**: after confirming all selected surfaces, locate the target project steering file: the shared steering file (`AGENTS.md`) at the git root, or the native loader beside it, whichever exists; if neither exists, create the shared `AGENTS.md`. Append the section, then `git add <steering-file>`:
-
-    ```markdown
-    ## Documentation surfaces
-
-    | Path | Covers | Voice |
-    |------|--------|-------|
-    | `docs/architecture/payments.md` | payments, webhook flow, Stripe integration | atomic-writing |
-    ```
-
-    Then print and exit:
-
-    ```
-    indexed N surfaces in the project steering file.
-    Run /documentation again to walk stale or missing docs.
-    ```
-
-## Step 5 — Authoring: check for unindexed docs
-
-Run `atomic docs scan`; on a non-zero exit, print its stderr and stop. Compare the scan results against the paths already in the `## Documentation surfaces` table.
-
-If unindexed doc files are found, present them as a numbered list:
-
-```
-Found N doc files not in your surfaces table. Add them?
-
-  [1] docs/api/new-endpoints.md — API Reference / Authentication / Rate Limits
-  [2] docs/guides/getting-started.md — (no headings extracted)
-
-Type: all | 1 3 5 | none
-```
-
-For selected items, run the bootstrap **Confirm covers** step and the append and stage of **Append, stage, exit**, then continue.
-
-## Step 6 — Authoring: resolve the diff range
-
-An empty diff skips stale detection but still runs missing detection.
-
-```mermaid
-flowchart TD
-    R{"Range given?"} -->|yes| D["Diff the range"]
-    R -->|no| M["Resolve base"]
-    M --> D
-    D --> E{"Diff empty?"}
-    E -->|yes| K["Step 7,<br/>missing only"]
-    E -->|no| S["Step 7"]
-```
-
-- **Range given?**: a `<range>` argument is used verbatim.
-- **Resolve base**: `git merge-base HEAD main 2>/dev/null || echo "main"`; the range is `<base>..HEAD`.
-- **Diff the range**: `git diff <range>`.
-- **Step 7, missing only**: print `no changes in range; skipping stale detection.`
-
-## Step 7 — Authoring: classify surfaces
-
-Read the `## Documentation surfaces` table. For each surface:
-
-- **Stale** — the diff touches paths or concepts mentioned in the `Covers` column for this surface.
-- **Incomplete** — the diff adds something (new entity, new endpoint, new step) related to the surface's covers, but the surface doesn't mention it yet.
-- **Missing** — domains identified in project signals (`docs/wiki/index.md`) that have 5+ source files with no corresponding doc surface within two directory levels. Only suggest new pages in authoring mode; never during commit flow.
-
-**Code-intel blast-radius (when index is present).** If a code-intel index exists (`atomic code search` responds without error), the changed-symbol impact sweep — determining which symbols from the diff affect which doc surfaces — should be DELEGATED to a subagent (`atomic-investigator`, or the harness's default general agent, by name, on the economical reasoning tier). Brief it with the list of changed symbols and ask it to run `atomic code impact <symbol>` for each and return a compact "symbol → affected surfaces" digest. The main `/documentation` agent must NOT run `atomic code impact` inline — these queries are token-heavy and belong in a disposable subagent thread. Consume the returned digest to refine stale/incomplete classification. **Degrade:** when no index is present, fall back to the existing diff-vs-covers judgment above (no code-intel path, no error).
-
-If `--dry-run` was supplied, print the classifications and exit:
-
-```
-dry-run: classified surfaces
-
-  stale (1):
-    docs/models/README.md — migration adds refund_status column
-  incomplete (1):
-    docs/api/endpoints.md — new POST /payments/refund endpoint
-  missing (1):
-    notifications/ (8 files) — no doc surface found
-
-no edits applied.
-```
-
-## Step 8 — Authoring: walk surfaces
-
-Walk surfaces one at a time. For each **stale** or **incomplete** surface, print:
-
-<example>
-```
-surface <N>/<total>: <path>
-status: stale | incomplete
-reason: <why it's stale or incomplete>
-
-  [y] Yes    — update now (skill edits the file, stages)
-  [l] Later  — record a follow-up
-  [s] Skip   — no action
-```
-</example>
-
-Under those lines, print the sink preview of the follow-up "Later" would record. Wait for the user to type one of `y`, `l`, `s`.
-
-For each **missing** surface, print:
-
-<example>
-```
-surface <N>/<total>: <module>/ (N files)
-status: missing — no doc surface covers this module
-
-  [n] New    — generate a full page draft
-  [s] Skip   — no action
-```
-</example>
-
-Wait for `n` or `s`.
-
-### Yes (`y`)
-
-Open `<path>`. Read the current content and the diff. Generate a targeted edit:
-
-- Stale ERD → add the new field to the Mermaid block and field table.
-- Stale flow → insert the new step in the diagram and update surrounding prose.
-- Incomplete API reference → add a new row for the new endpoint.
-- Preserve existing diagram style (orientation, node naming, color scheme).
-- Update any stale code examples in the file to reflect the current API.
-
-Apply the edit, then stage the file:
-
-```bash
-git add <path>
-```
-
-### Later (`l`)
-
-Record through the **Follow-up sink** below, with id `doc-<slug>-<short-hash>`, title `update <path> — <one-line reason>`, severity `nit`, kind `finding`, and origin `/documentation authoring`.
+For each offered follow-up, show the sink's redacted preview before the user chooses Later. Later approves that exact record; do not ask twice.
 
 {{ template "followup-sink" . }}
 
-### Skip (`s`)
-
-No action, no record.
-
-### New (`n`)
-
-Generate a full page draft for the missing module. Pick the doc type based on content:
-
-- Module with data models → domain guide with ERD (`erDiagram`), field tables, business rules.
-- Module with API routes → API reference with endpoint table, request/response examples.
-- Multi-step process → flow doc with Mermaid flowchart, step descriptions.
-- Architectural decision → ADR with context, decision, consequences.
-
-Follow `atomic-writing` voice: short intro sentence, tables for comparisons, Mermaid diagrams with one-sentence captions, plain language, no LLM-tell filler.
-
-Write the new file. Then offer to add it to the surfaces table:
-
-```
-Created docs/<module>.md.
-Add to your ## Documentation surfaces table? [y/n]
-```
-
-If yes, append a row to the table in the project steering file and stage it. Note where the new page should be linked (index page, sidebar, README).
-
-Stage the new file:
-
-```bash
-git add docs/<module>.md
-```
-
-## Step 9 — Print summary
-
-After all surfaces are walked, print:
-
-<example>
-```
-documentation pass complete.
-
-  updated (staged):
-    docs/models/README.md — added refund_status to ERD and field table
-    docs/api/endpoints.md — added POST /payments/refund endpoint
-
-  deferred:
-    docs/architecture/payments.md — follow-up: <tracker> <issue URL, key, or ledger entry id>
-
-  skipped:
-    docs/legacy/v1.md
-
-  created:
-    docs/notifications.md — added to surfaces table
-
-  total: <N> surfaces / <Y> updated / <L> deferred / <S> skipped / <C> created
-```
-</example>
-
-## Rules
-
-<constraints>
-
-- This command does not commit. Edits are staged; the user commits via a ship verb. **Why:** commit is an explicit, user-initiated act — staging is reversible, committing is not.
-- `--dry-run` prints the proposal and exits without touching any file. **Why:** lets users audit what would change before trusting the skill to edit docs.
-- `--print-template` exits immediately after printing; no scan is performed. **Why:** template output is a side-channel tool, not a doc pass — mixing the two would be surprising.
-- `--discover` re-runs bootstrap surface selection even when a table already exists. Use it after adding new doc directories. **Why:** surfaces grow; the table needs an explicit opt-in path to add new entries without wiping the old ones.
-- Missing detection (Step 7) runs only in authoring mode. Never during commit flow (ship verbs). **Why:** commit flow is fast-path — proposing new doc pages mid-commit breaks the user's flow and slows every commit.
-- When creating or updating a file, generate full Mermaid syntax — never describe what a diagram would look like. Every Mermaid block gets a one-sentence caption. **Why:** prose descriptions of diagrams are useless to readers and cannot be rendered; captions anchor the diagram's purpose without making the reader decode the graph first.
-- The surfaces table belongs in the shared project steering file (`AGENTS.md`) so the whole team shares it. Exception: where a repo's steering file is the installed global contract — its content ships to every workspace — or where equivalent shared-surface constraints apply, the table may live in a local override file instead; the bootstrap step can write there if the user directs it. **Why:** a table only one person sees provides no coordination value; the exception keeps project-neutral installed files clean.
-- The voice rules and surface taxonomy live in `skills/atomic-documentation/SKILL.md`. This command does not duplicate them. **Why:** single source of truth — duplication drifts silently.
-
-</constraints>
+Summarize updated, deferred, skipped, and created paths. Do not commit.

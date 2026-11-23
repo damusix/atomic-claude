@@ -83,12 +83,12 @@ Four Auto-Clarity triggers revert the style to full prose with no fragments: sec
 
 ## Two surfaces, one file voice
 
-Atomic style governs replies in the terminal, never file contents. When Claude writes or edits a file, that file follows the `atomic-writing` skill: README, guides, reference pages, specs, design docs, wiki pages, `CLAUDE.md`, and the prompt artifacts alike. One voice, with length set by what the surface has to carry. Saying "stop atomic" or switching output styles reverts the reply voice immediately, and has no effect on how files are written.
+The output style governs replies, and `atomic-writing` governs files. Both aim for the same result: the person who owns the decision can understand it, and an agent can act on it. Switching output styles changes replies, not file-writing rules.
 
 
 ## Subagents do not inherit the style
 
-Output styles only attach to the main agent. When the orchestrator dispatches `atomic-implementer`, `atomic-reviewer`, or any other subagent, those agents follow their own system prompts — they are already terse by design.
+Output styles attach to the main agent. Subagents follow their own prompts and write findings that both humans and orchestrators can read.
 
 
 ## `keep-coding-instructions: true`

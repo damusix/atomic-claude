@@ -284,7 +284,7 @@ func TestRunClaudeInstallRoutesEnrolledTargetThroughConverge(t *testing.T) {
 	}
 	root := filepath.Join(home, ".claude")
 
-	victim := filepath.Join(root, "commands", "commit.md")
+	victim := filepath.Join(root, "commands", "atomic-help.md")
 	selected, err := os.ReadFile(victim)
 	if err != nil {
 		t.Fatal(err)
@@ -310,7 +310,7 @@ func TestRunClaudeInstallRoutesEnrolledTargetThroughConverge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	row, ok := ledger.Find("claude:"+root, "commands/commit.md")
+	row, ok := ledger.Find("claude:"+root, "commands/atomic-help.md")
 	if !ok || row.Applied.Digest != managedfile.Digest(got) {
 		t.Errorf("ledger does not record the restored command: %+v", row)
 	}

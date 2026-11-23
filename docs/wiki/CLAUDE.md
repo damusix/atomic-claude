@@ -37,4 +37,4 @@ The full contract lives in [`skills/atomic-wiki/references/repo.md`](../../skill
 
 Write repo-root-relative paths in backticks and let `atomic signals linkify` render them. It skips this file, so any link here is written by hand.
 
-A page here never counts things in the repo. The `atomic-writing` skill's rule 17 has the list; a version or a documented contract value is not a count.
+A page here never counts things in the repo. See the [documentation writing reference](../../context/skills/atomic-writing/references/documentation.md) for the rule and exceptions.

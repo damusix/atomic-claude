@@ -93,7 +93,7 @@ func TestMixedInstallAllEnrollsThree(t *testing.T) {
 			t.Errorf("the %s target %s was not enrolled", kind, key)
 		}
 	}
-	if !fileExists(filepath.Join(home, ".claude", "commands", "commit.md")) {
+	if !fileExists(filepath.Join(home, ".claude", "commands", "atomic-help.md")) {
 		t.Errorf("the Claude artifact tree was not projected")
 	}
 	if !fileExists(filepath.Join(config.PackageRoot(home, "omp"), "extensions", "atomic.ts")) {

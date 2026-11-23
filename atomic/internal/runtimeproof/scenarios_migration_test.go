@@ -206,7 +206,7 @@ func TestListedMissingDrift(t *testing.T) {
 	home := isolatedHome(t)
 	root := legacyClaudeInstall(t, home)
 	ageClaudeInstall(t, home, root)
-	deleteClaudeListed(t, root, "commands/commit.md")
+	deleteClaudeListed(t, root, "commands/atomic-help.md")
 
 	ev := ScenarioEvidence{
 		Scenario:  "cp8a/migration/listed-missing-drift",
@@ -228,13 +228,13 @@ func TestListedMissingDrift(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := scenarioActionFor(plan, "commands/commit.md"); got != installstate.ActionRecreate {
+	if got := scenarioActionFor(plan, "commands/atomic-help.md"); got != installstate.ActionRecreate {
 		t.Errorf("action = %s, want recreate", got)
 	}
 	if _, err := installstate.Adopt(scenarioAdoptReq(t, home, root)); err != nil {
 		t.Fatalf("adopt: %v", err)
 	}
-	if !fileExists(filepath.Join(root, "commands", "commit.md")) {
+	if !fileExists(filepath.Join(root, "commands", "atomic-help.md")) {
 		t.Errorf("convergence did not restore the missing artifact")
 	}
 
@@ -336,7 +336,7 @@ func TestV2MigrationStates(t *testing.T) {
 	t.Run("in-flight", func(t *testing.T) {
 		home := isolatedHome(t)
 		root := filepath.Join(home, ".claude")
-		path := filepath.Join(root, "commands", "commit.md")
+		path := filepath.Join(root, "commands", "atomic-help.md")
 		scenarioMkfile(t, path, "applied\n")
 		m := scenarioMutation(t, "commands.commit.md", path, []byte("applied\n"))
 		scenarioWriteJournal(t, home, scenarioJournal("op-inflight", []installstate.Mutation{m}, nil))
@@ -376,10 +376,10 @@ func TestDriftedRowIsPerResourceDrift(t *testing.T) {
 	home := isolatedHome(t)
 	root := legacyClaudeInstall(t, home)
 	ageClaudeInstall(t, home, root)
-	drifted := filepath.Join(root, "commands", "commit.md")
+	drifted := filepath.Join(root, "commands", "atomic-help.md")
 	scenarioWriteLedger(t, home, nil, []installstate.Row{{
 		Target:   "claude:default",
-		Resource: "commands/commit.md",
+		Resource: "commands/atomic-help.md",
 		Applied:  installstate.AppliedValue{Path: drifted, Kind: managedfile.KindFile, Digest: "0000"},
 	}})
 
@@ -439,7 +439,7 @@ func TestReplaceOrLeaveUnowned(t *testing.T) {
 	root := legacyClaudeInstall(t, home)
 	ageClaudeInstall(t, home, root)
 	ev.Paths = []string{home, root}
-	victim := filepath.Join(root, "commands", "commit.md")
+	victim := filepath.Join(root, "commands", "atomic-help.md")
 	older, err := os.ReadFile(victim)
 	if err != nil {
 		t.Fatal(err)
@@ -459,7 +459,7 @@ func TestReplaceOrLeaveUnowned(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := scenarioActionFor(replace, "commands/commit.md"); got != installstate.ActionReplace {
+	if got := scenarioActionFor(replace, "commands/atomic-help.md"); got != installstate.ActionReplace {
 		t.Errorf("replace action = %s, want replace", got)
 	}
 
@@ -469,7 +469,7 @@ func TestReplaceOrLeaveUnowned(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := scenarioActionFor(left, "commands/commit.md"); got != installstate.ActionLeaveUnowned {
+	if got := scenarioActionFor(left, "commands/atomic-help.md"); got != installstate.ActionLeaveUnowned {
 		t.Errorf("leave action = %s, want leave-unowned", got)
 	}
 	if _, err := installstate.Adopt(leave); err != nil {
@@ -504,7 +504,7 @@ func TestInterruptedAdoptionResumes(t *testing.T) {
 	}
 
 	artifacts := claudeArtifacts(t, root)
-	victim := scenarioArtifact(t, artifacts, "commands/commit.md")
+	victim := scenarioArtifact(t, artifacts, "commands/atomic-help.md")
 	digest, err := managedfile.DigestResourceBytes(victim.Data, victim.Kind)
 	if err != nil {
 		t.Fatal(err)
@@ -677,7 +677,7 @@ func TestOldBinaryDrift(t *testing.T) {
 		t.Fatalf("post-adoption state = %s (%v), want v2-clean", c.State, c.Conflicts)
 	}
 
-	driftedPath := filepath.Join(root, "commands", "commit.md")
+	driftedPath := filepath.Join(root, "commands", "atomic-help.md")
 	scenarioMkfile(t, driftedPath, "old binary wrote this\n")
 	drifted := scenarioClassify(t, home, root)
 	if drifted.State == installstate.StateMixed {
@@ -698,7 +698,7 @@ func TestOldBinaryDrift(t *testing.T) {
 		t.Fatalf("replace-decided repair of old-binary drift: %v", err)
 	}
 	for _, a := range claudeArtifacts(t, root) {
-		if a.ID != "commands/commit.md" {
+		if a.ID != "commands/atomic-help.md" {
 			continue
 		}
 		got, err := os.ReadFile(driftedPath)

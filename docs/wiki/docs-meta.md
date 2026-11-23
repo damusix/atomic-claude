@@ -10,7 +10,7 @@ tags: [docs, artifacts, voice]
 
 Documentation drifts silently: nothing fails when a page stops matching the code, so the gap is only found by the reader it misleads. And a repo with no stated voice grows one dialect per surface, so a spec, a README, and an agent prompt end up reading as if three people wrote them.
 
-This domain answers both. It defines the voice for every file the repo ships and a separate one for Claude's terminal replies, and it routes each diff to the pages that diff invalidates, at the moment the diff is committed.
+This domain defines how Atomic writes and how it finds documentation affected by a change.
 
 ## How it works
 
@@ -57,32 +57,15 @@ The Mermaid types listed as not used in these docs each paint a fixed palette th
 
 ### Routing a diff to a page
 
-Only a ship verb prints the setup hint; `/documentation` with no surfaces table bootstraps one instead, and every page edit waits on the user's answer, so nothing here writes a page unprompted.
+Standalone requests leave page choices to the user. Implementation maintenance updates required docs before review.
 
 ```mermaid
 flowchart TD
-    A["ship verb (staged diff)"] --> T
-    B["/documentation<br/>(git range)"] --> D
-    T{"surfaces table<br/>in context?"}
-    T -->|no| H["print setup hint,<br/>proceed"]
-    T -->|yes| M
-    D{"table present,<br/>no --discover?"}
-    D -->|no| BS["bootstrap:<br/>index doc files"]
-    D -->|yes| M
-    M["match paths and symbols<br/>against each row's<br/>Covers column"]
-```
-
-### Prompting per surface
-
-Each matched surface gets its own prompt, and only a `Yes` answer edits a file; `Later` records a follow-up through the `followup-sink` partial (the resolved issue tracker, falling back to the local ledger) and `Skip` drops it.
-
-```mermaid
-flowchart TD
-    M["matched surfaces"] --> C["classify stale /<br/>incomplete / missing"]
-    C --> P["prompt, one surface<br/>at a time"]
-    P -->|Yes| E["atomic-documentation<br/>edits file, git add"]
-    P -->|Later| F["followup-sink:<br/>issue tracker or ledger"]
-    P -->|Skip| N["no action, no record"]
+    A["Standalone /documentation"] --> P["Preview, index, or choose edits"]
+    B["Scratch scan and task diff"] --> M["Update required docs"]
+    M --> R{"Updates pass review?"}
+    R -->|Yes| S["Accept new scan"]
+    R -->|No| K["Keep accepted scan"]
 ```
 
 Matching is LLM judgment inside the current turn. No Go code parses the surfaces table, and no doctor check validates it.
@@ -95,7 +78,7 @@ Scan scope is fixed: [`docs/`](..), `doc/`, `documentation/`, `wiki/`, `ADR/`, `
 
 ### A frontmatter contract for design and spec files
 
-[`docs/spec/doc-frontmatter.md`](../spec/doc-frontmatter.md) specifies a YAML frontmatter block (`type`, `description`, `domain`, `parent`, `status`) for every `docs/design/<topic>.md` and `docs/spec/<topic>.md` file, so family membership and shipped state become queryable without prose grep. `domain` is required only on a family root, a file with no `parent` key; a file that carries `parent` inherits `domain` from the chain at read time. `status` is one of `draft`, `active`, `shipped`, and the spec assigns the stamping of `shipped` (plus `shipped_sha`) to the finalize phase of `/subagent-implementation` and `/autopilot`, never to automatic derivation from checkpoint completion.
+[`docs/spec/doc-frontmatter.md`](../spec/doc-frontmatter.md) defines how design and spec files declare family membership and shipped state.
 
 The spec assigns enforcement to `atomic validate spec`: discover `docs/spec/*.md` and `docs/design/*.md`, strip the leading block before any rule runs (so `mdparse.IsATXOnly`, which reads a `---` under a non-empty line as a setext heading underline, never mistakes the block's closing fence for one), and gate the existing S0/S1/S5/S6 checkpoint rules to files whose `type` is `Spec`. A new S7 rule checks the block itself, unconditionally, on every discovered file.
 
@@ -139,9 +122,8 @@ flowchart TD
 
 | Path | Role |
 |------|------|
-| [`context/skills/atomic-documentation/SKILL.md`](../../context/skills/atomic-documentation/SKILL.md) | Diff-to-surface classifier and content generator. Maintenance and authoring modes; emits the YAML handoff block. |
-| [`context/commands/documentation.md`](../../context/commands/documentation.md) | `/documentation`. Bootstrap mode indexes surfaces into the project steering file; authoring mode walks stale, incomplete, and missing surfaces. Single source file — no separate template, since `make bundle` embeds it directly. |
-| [`context/_partials/doc-impact.md`](../../context/_partials/doc-impact.md) | The ship-verb maintenance-mode partial, pulled in via `{{ template "doc-impact" . }}`. Composed by `commit-flow` and `squash-flow`. |
+| [`context/skills/atomic-documentation/SKILL.md`](../../context/skills/atomic-documentation/SKILL.md) | Shared rules for identifying and updating affected docs. |
+| [`context/commands/documentation.md`](../../context/commands/documentation.md) | `/documentation`. Bootstrap mode indexes surfaces into CLAUDE instructions; authoring mode walks stale, incomplete, and missing surfaces. Single source file — no separate template, since `make bundle` embeds it directly. |
 | [`atomic/internal/docs/docs.go`](../../atomic/internal/docs/docs.go) | `Scan` walks the doc directories and writes the doc-surfaces cache; `Stale` reports freshness by mtime and by set drift. |
 | [`atomic/cmd/atomic/cmd_docs.go`](../../atomic/cmd/atomic/cmd_docs.go) (`docsAction`) | Maps `Scan`/`Stale` results to the exit codes above. |
 | [`atomic/internal/cliusage/cliusage.go`](../../atomic/internal/cliusage/cliusage.go) | `docs scan` and `docs stale` entries in the golden fixture `TestDeriveCommandsGolden` checks; production `--help` and the A1 lint read the live Cobra tree through `SetRoot`. |
@@ -171,11 +153,7 @@ Under [`.claude/rules/authoring/`](../../.claude/rules/authoring). Each carries 
 
 **The `voice` column is always `atomic-writing`.** It names the skill that governs the edit. It is not a choice between alternatives, and a surfaces table offering other values is stale.
 
-**Maintenance mode never emits `impact_type: missing`.** Proposing a new page mid-commit is outside the user's mental context. Only authoring mode, reached through `/documentation`, suggests new pages, and only for a signals domain with 5 or more files and no surface within two directory levels.
-
-**`atomic-documentation` is the only skill that emits a machine-readable block.** The final fenced `yaml` block is the handoff, justified by ship verbs needing an unambiguous per-surface item list for accept/reject prompts. Callers parse the *last* `yaml` or `yml` block and degrade to "no surfaces affected" on a missing block, a parse error, a missing `surfaces` key, or a non-list value. Entries missing `path` or `voice` are skipped, not fatal. Unknown extra fields are accepted. No other skill in this repo emits a machine-readable handoff block; a second consumer of the same shape would duplicate the parse-and-degrade rules above rather than share them.
-
-**The surfaces table belongs in the shared project steering file (`AGENTS.md`),** so the whole team shares it. Search order is a local override file, then the shared `AGENTS.md`, then any adjacent native loader such as [`CLAUDE.md`](../../CLAUDE.md); the first file containing the heading wins. Bootstrap appends to `AGENTS.md` at the git root or the native loader beside it, whichever exists, and creates `AGENTS.md` when neither does. A repo whose steering file is the installed global contract may keep the table in a local override file instead. This repo carries the table in the committed root [`CLAUDE.md`](../../CLAUDE.md), since [`context/AGENTS.md`](../../context/AGENTS.md) is the bundle source and there is no root `AGENTS.md`. When no file has the heading, the ship-verb partial prints `no documentation surfaces indexed. run /documentation to set up.` and skips without blocking.
+Use the first documentation surfaces table in a local override, then the shared `AGENTS.md`, then its native loader. If there is no table, maintenance still checks the source diff and related docs. Standalone authoring can suggest missing pages; maintenance adds one only if the task requires it and no existing page owns the material.
 
 **Every spec body carries `## Change tree`, `## Outline`, and `## Flows`,** on top of Goal, Non-goals, Success criteria, Checkpoints, and Risks. An omitted section leaves the implementing subagent to guess the file list, the piece-by-piece breakdown, or the actor-to-step sequence the spec author intended. Use `None — <reason>` when a section has nothing to hold. The rule applies forward only: a pre-existing spec is not backfilled by an unrelated line-level amendment. Full contract in [`context/rules/specs/spec-currency.md`](../../context/rules/specs/spec-currency.md), which auto-loads on any `docs/spec/**` or `docs/design/**` edit.
 
@@ -187,7 +165,7 @@ Under [`.claude/rules/authoring/`](../../.claude/rules/authoring). Each carries 
 
 ## Coupling
 
-**workflow** drives this domain. Ship verbs compose `doc-impact` before `signals-gate` in [`context/_partials/commit-flow.md`](../../context/_partials/commit-flow.md) (steps 5 and 6) and `squash-flow.md`. That order is fixed: doc edits must be staged before the signals scan reads the tree. `/subagent-implementation` Phase 3 calls `/documentation`, then passes the surfaces table to `atomic-auditor` alongside `spec`, `range`, `state`, and `scratch`. [`context/_partials/loop-finalize.md`](../../context/_partials/loop-finalize.md)'s Report step closes with a one-line advisory ("N doc surfaces may be stale") only when the loop's finalize policy omitted the docs step and a touched file matches a surfaces-table row — `/quick-fix` is the command whose policy omits it; `/subagent-implementation` always includes docs, so the advisory can never fire there. [`docs/spec/doc-frontmatter.md`](../spec/doc-frontmatter.md) also names `/subagent-implementation` and `/autopilot`'s finalize phase as the future stamper of `status: shipped` and `shipped_sha`, in the same commit as the signals refresh — not yet implemented.
+`/implement` invokes documentation maintenance before the audit. Ad-hoc shipping follows the same maintenance and baseline rules before committing.
 
 **bundle** ships the artifacts. `make bundle` walks [`context/`](../../context) directly and embeds it via `go:embed` — there is no separate render step, so a change to `/documentation` is a single-file edit to [`context/commands/documentation.md`](../../context/commands/documentation.md). Skills install under the `context/skills/atomic-*/` rule (`MatchesSkillDir` in [`atomic/internal/bundlespec/bundlespec.go`](../../atomic/internal/bundlespec/bundlespec.go)), which is a full directory walk, so `references/` subdirectories install alongside their `SKILL.md`. The output style matches `context/output-styles/atomic*.md` (`MatchesOutputStyle`). The authoring rules live under [`.claude/rules/`](../../.claude/rules), outside the bundled [`context/rules/`](../../context/rules) tree, and never install.
 
@@ -199,5 +177,5 @@ Under [`.claude/rules/authoring/`](../../.claude/rules/authoring). Each carries 
 
 Contracts change in lockstep:
 
-- The YAML block shape in [`context/skills/atomic-documentation/SKILL.md`](../../context/skills/atomic-documentation/SKILL.md) and every caller that parses it ([`context/_partials/doc-impact.md`](../../context/_partials/doc-impact.md), [`context/commands/documentation.md`](../../context/commands/documentation.md)).
+- Standalone preview must be read-only; maintenance does not ask for per-page choices.
 - The `# Format routing` section in [`context/output-styles/atomic.md`](../../context/output-styles/atomic.md) and the `## Format routing vocabulary` section in [`docs/reference/output-style.md`](../reference/output-style.md), which documents the same routes for human readers.

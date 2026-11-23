@@ -1,112 +1,29 @@
 ---
 name: atomic-review
-description: >
-  Compressed code review comments. Cuts noise from PR feedback while preserving the
-  actionable signal. Each comment is one line: location, problem, fix. Use when user
-  says "review this PR", "code review", "review the diff", or invokes /atomic-review.
-  Auto-triggers when reviewing pull requests.
+description: Review a scoped change for correctness, reuse, and readability. Defines the finding and severity rules used by Atomic's reviewer and auditor.
 ---
 
-<trigger>
+Read enough surrounding code to understand the change. Report findings only in scope. For changed public symbols, inspect callers and references with LSP or source search.
 
-- "review this PR", "code review", "review the diff", "check this PR"
-- "review this change", "review my changes"
-- Reviewing pull requests or diffs
+## What to catch
 
-</trigger>
 
-Write code review comments terse and actionable. One line per finding. Location, problem, fix. No throat-clearing.
+- **Reuse:** Follow the implementer's YAGNI ladder as a review check. Ask whether the code is needed, whether an existing helper or repo pattern solves it, and whether an installed library, standard library, or platform feature already handles it. Check actual callers before recommending another abstraction. Flag duplicate helpers, drift from established library usage, unnecessary dependencies, and abstractions with no second use. Name the exact replacement or what to remove. Keep validation, error handling, and security intact.
+- **Correctness and evidence:** Check failure paths, caller compatibility, and tests that exercise the changed behavior. Flag error handling that hides a failure rather than handling it; valid defensive handling is fine. Missing required test-first evidence or a check result contradicted by evidence is a bug. A weak test is a risk.
+- **Comments and prose:** Flag misleading comments as bugs. Flag comments or repeated prose that bury a constraint, explain competing behavior, or make the change materially harder to maintain as risks. A harmless, isolated restatement, wordy comment, or naming cleanup is a nit. Keep short explanations of decisions or constraints the code cannot express. Leave license headers and directives alone.
 
-## Pre-flight: blast radius (when a code-intel index is present)
+Inspect all added comments in scope. For counts, use `atomic code comments --diff <range>` only if that command measures the same changes. Otherwise count full-line comment entries in the scoped diff, excluding trailing comments and docstring literals.
 
-If the diff changes a public symbol (exported function, shared utility, interface method, changed signature), run `atomic code impact <symbol>` before listing findings. Callers that assume the old behavior become `🟡 risk` findings. One targeted query per changed public symbol — no full-graph dump. Skip silently when no index is present.
+## Findings
 
-<output_format>
 
-## Format
+Use `path:line: <emoji> <severity>: <problem>. <fix>.` Cite evidence and name the concrete fix. Explain serious security or design risks in full sentences if one line is not enough.
 
-`path:line: <emoji> <severity>: <problem>. <fix>.`
+| Marker | Severity | Use |
+|---|---|---|
+| 🔴 | bug | Wrong behavior, data loss, security defect, misleading comments, or contradicted evidence |
+| 🟡 | risk | Maintainability or correctness risk, including avoidable duplication, library drift, and speculative design |
+| 🔵 | nit | Harmless polish that does not change or obscure behavior |
+| ❓ | question | Missing decision or evidence prevents a judgment |
 
-Single-file reviews may use `L<line>: ...` instead of `path:L<line>: ...`.
-
-## Severity
-
-| Emoji | Severity | Use for |
-|-------|----------|---------|
-| 🔴 | bug | Wrong output, crash, security hole, data loss |
-| 🟡 | risk | Edge case, race, leak, perf cliff, missing guard |
-| 🔵 | nit | Style, naming, micro-perf — emit only if user asked thorough |
-| ❓ | question | Need author intent before judging |
-
-End the review with a totals line: `totals: 1🔴 1🟡 1❓`. Zero findings → `No issues.` File order, ascending line numbers within file.
-
-## Over-engineering
-
-Flag complexity that can be deleted, not just bugs: hand-rolled logic the standard library ships (name the function), a dependency doing what the platform already does (name the feature), a duplicate of an existing helper, or a speculative abstraction with one implementation. 🟡 risk, never 🔵 — code is read far more often than it is written, and every line that could have been absent is a line every reader pays for. Always name the concrete replacement, never "consider simplifying".
-
-- `src/util.ts:12-38: 🟡 risk: hand-rolled email validator. Real validation is the confirmation mail; 26 lines go.`
-- `src/date.ts:4: 🟡 risk: moment.js for one format call. Intl.DateTimeFormat, 0 deps.`
-- `src/repo.ts:88: 🟡 risk: AbstractRepository with one impl. Inline until a second exists.`
-
-## Comment noise
-
-Prefer no comments, so a new one has to earn its line. Ask what the reader learns from it that the code below does not already say. If the answer is nothing, it is describing what already exists — 🟡 risk, delete it. Never 🔵: a nit is optional, and a comment the next hundred readers have to skip past is not. That covers comments narrating the next line, restating the diff ("changed X to use Y"), doc comments saying what the signature already says, a CSS comment restating its own declaration, and a measurement that was true only the day it was written.
-
-Two things earn a comment: tribal knowledge (an external-system quirk, an ordering or units requirement, a constraint from outside the file, a landmine someone already stepped on) and why a thing exists at all — the decision, not the mechanics. Everything else goes.
-
-Flag a comment that contradicts or misdescribes the code as 🔴 bug — future readers trust the wrong one. A reviewer-addressed comment shipped into source ("fixed per review", "as requested") is 🟡 risk.
-
-What the rest of the file does is not a defense. A chatty file does not license another comment. Not a finding: license headers, directive comments (`//go:embed`, `// eslint-disable`), and comments that clear the bar above. Judgment call, not a regex lint.
-
-Run `atomic code comments --diff <range>` on the diff under review and walk its list instead of reading the diff for comments by eye.
-
-- `src/queue.ts:14: 🟡 risk: comment says "increment counter" above the increment. Delete, the line reads itself.`
-- `src/retry.ts:30: 🔴 bug: comment says "retries 3 times" but code retries 5. Fix the comment or the constant.`
-- `src/user.ts:52: 🟡 risk: "// fixed per review comment" left in source. Reviewer talk, not code — delete.`
-
-## Drop
-
-- "I noticed that...", "It seems like...", "You might want to consider..."
-- "This is just a suggestion but..." — use `🔵 nit` instead
-- "Great work!", "Looks good overall but..." — say it once at the top, not per comment
-- Restating what the line does — reviewer can read the diff
-- Hedging ("perhaps", "maybe", "I think") — if unsure use `❓ question`
-
-## Keep
-
-- Exact line numbers
-- Exact symbol/function/variable names in backticks
-- Concrete fix, not "consider refactoring this"
-- The *why* when the fix isn't obvious from the problem statement
-
-## Examples
-
-Bad: "I noticed that on line 42 you're not checking if the user object is null before accessing the email property. This could potentially cause a crash if the user is not found in the database. You might want to add a null check here."
-
-Good: `src/auth.ts:42: 🔴 bug: user can be null after .find(). Add guard before .email.`
-
-Bad: "It looks like this function is doing a lot of things and might benefit from being broken up into smaller functions for readability."
-
-Good: `src/handler.ts:88-140: 🟡 risk: 50-line fn does 4 things. Extract validate/normalize/persist.`
-
-Bad: "Have you considered what happens if the API returns a 429? I think we should probably handle that case."
-
-Good: `src/client.ts:23: 🟡 risk: no retry on 429. Wrap in withBackoff(3).`
-
-## Auto-Clarity
-
-Drop terse mode for:
-
-- Security findings — CVE-class bugs need full explanation plus references. Write the prose first, then resume terse for the rest of the review.
-- Architectural disagreements — need rationale, not a one-liner.
-- Onboarding contexts where the author is new and needs the "why".
-
-</output_format>
-
-<constraints>
-
-## Boundaries
-
-Reviews only. Does not write the code fix, does not approve or request-changes, does not run linters. Output the comments ready to paste into the PR.
-
-</constraints>
+Standalone reviews report nits only on request. Gate reviews report actionable nits so the caller can fix or defer them. Sort findings by path and line and finish with `totals:`. Say `No issues.` only when there are none. Do not edit the work or approve a PR.

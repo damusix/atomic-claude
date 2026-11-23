@@ -381,7 +381,7 @@ stateDiagram-v2
 
 **code-intel.** Check 11 locates the DB with `engine.IndexPath` and detects realm scope with `realm.Resolve`, `realm.LoadConfig`, and `realm.ForRealm`. If the engine's index-path convention changes, this check breaks silently.
 
-**workflow.** The `atomic-verify` skill runs `atomic validate spec` + `config` + `artifacts` when a spec or bundled artifact changed and treats a FAIL as a gate failure equal to a failing test; the `loop-finalize` partial runs `spec` and `config` under the same condition at its Verify step, in every loop that composes `loop-finalize` (`/subagent-implementation`, `/implement`, `/quick-fix`, and `/autopilot`, whose Finalize policy rows all include verify). `/retrospective-learning` runs `atomic doctor --json --skip signals,binary` and `atomic validate --json` into its scratchpad, each with stderr discarded and `|| true`, then turns every doctor `FAIL`/`WARN` and every validate `FAIL` into a candidate finding. These artifacts call the binary unconditionally; none checks whether it is installed.
+`atomic-verify` checks spec and prompt changes. Run `atomic doctor` separately for installation and configuration health.
 
 **Lockstep contracts.**
 

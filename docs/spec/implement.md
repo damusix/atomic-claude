@@ -1,62 +1,36 @@
-# /implement: main-agent implementation with a per-checkpoint reviewer gate
+# /implement
 
 
 ## Goal
 
 
-An `/implement` command runs the implementation phase in the main agent rather than
-through fresh-context subagents, for work whose context is already in the
-conversation. It keeps the checkpoint discipline and commit-per-green rhythm of
-`/subagent-implementation`, dispatches `atomic-reviewer` after every checkpoint to
-supply the independent review the main agent cannot give itself, and finalizes the
-way the subagent loop does: docs, one `atomic-auditor` pass, a range-scoped signals refresh.
+Implement a task or approved spec with one independently reviewed loop, whether the main agent writes the code or delegates a checkpoint.
 
 
 ## Non-goals
 
 
-- Replacing `/subagent-implementation`. When the context is not already loaded, the
-  subagent loop is the cheaper way to buy it and stays the default.
-- Replacing `/quick-fix`. That verb skips planning for a known-cause fix and still
-  delegates the writing; this one keeps the checkpoint structure and does the writing here.
-- Removing the ship-verb review gate. `/commit`'s `review-gate` still covers ad-hoc
-  edits made outside any command.
-- A new reviewer prompt or scratchpad shape. Both come from the binary, unchanged.
-- Autonomy. Every gate that asks the user in `/subagent-implementation` still asks here.
+- Diagnose unknown causes inside `/implement`.
+- Replace `/autopilot` or the ship commands.
 
 
 ## Success criteria
 
 
-- [ ] `/implement` with no arguments works — the task comes from the conversation, not from `$ARGUMENTS`.
-- [ ] The hand-off table (shared `handoff` partial) plus the command's own Entry row exits to `/subagent-implementation` when the context is not already loaded or the work would not fit in it, to `/subagent-diagnose` on an unknown root cause, and to `/atomic-plan` on multiple viable approaches, open criteria, or an implied contract choice.
-- [ ] Checkpoints are declared and stated to the user before any code is written; a spec's checkpoint table is used when one exists.
-- [ ] `atomic-reviewer` is dispatched once per checkpoint, never batched to the end, and never replaced by the main agent's own suite run.
-- [ ] A checkpoint commits only on `VERDICT: PASS`; 🔴 findings and readability 🟡 findings are fixed before the commit rather than deferred to `FOLLOWUPS.md`.
-- [ ] Two consecutive `CHANGES_REQUESTED` rounds on the same blocking signal surface the stuck choice (continue / `/pressure-test` / `atomic-strategist`) and wait for the user.
-- [ ] The worktree gate runs only when the working tree is clean, and states the skip in one line when it is dirty.
-- [ ] The scratchpad trio (`BRIEF.md`, `STATE.md`, `FOLLOWUPS.md`) is written from `atomic template` verbs, and `BRIEF.md` is refreshed per checkpoint so the reviewer prompt's Step 1 read resolves.
-- [ ] `STATE.md` records the loop base SHA before the first checkpoint entry, and a commit SHA per green checkpoint.
-- [ ] `atomic-auditor` is dispatched exactly once, with `range: <loop-base>..HEAD`, `state:`, `scratch:`, and the spec or brief path.
-- [ ] `atomic-verify`'s reviewer-dispatch exclusion list and `atomic-reviewer`'s own description both name `/implement`.
-- [ ] The signals refresh runs after the audit, gated on `atomic signals stale` exit 1, scoped to `<loop-base>..HEAD`.
-- [ ] The command never pushes, merges, or opens a PR.
-- [ ] `/commit`'s `review-gate` skips a change produced by `/implement`, since every checkpoint already met a reviewer.
-- [ ] `/implement` appears in `/atomic-help`'s lifecycle topic table and in tour stage 2.
-- [ ] `/implement` appears in `docs/reference/commands.md`, `docs/reference/workflow.md`, `docs/reference/agents.md`'s dispatch tree, and the README command list.
-- [ ] `make -C atomic bundle` succeeds with the command present, resolving its `handoff`, `worktree-setup`, `implement-loop`, and `loop-finalize` directives.
+- [ ] Accept a task, a spec reference, or the task already in the conversation without a mode flag.
+- [ ] Stop before editing on unknown causes and direct the user to `atomic-debug`. Direct unresolved scope or contract decisions to `/atomic-plan`.
+- [ ] Use the spec's checkpoints when available. Otherwise declare cohesive checkpoints before editing; a straightforward known-cause fix uses one checkpoint without a spec or worktree.
+- [ ] Write directly when the context and scope fit. Otherwise delegate to `atomic-implementer`. Keep a scratchpad for delegated or multi-checkpoint work.
+- [ ] Review the task-only checkpoint patch. Fix avoidable duplication, library drift, speculative abstractions, and other blockers before committing on `PASS`. Outside Autopilot, defer only explicitly advisory nits and pass them to the final auditor.
+- [ ] Verify the outcome and use the scratch scan and task diff to update affected docs. Audit the whole delivery once, including uncommitted docs and remaining polish. Fix every remaining finding and review and verify the fixes without repeating the audit. Reconcile docs and rescan if scope changes. Keep the baseline unchanged until acceptance. Do not ship without a request.
+- [ ] Keep a task-generated scratchpad spec accessible through verification and audit. Discard it after acceptance, keeping the design and other bundle files. Preserve incomplete specs and externally supplied or tracked specs.
+- [ ] Route live help, planner handoffs, and examples to `/implement`. No separate quick-fix, delegated implementation, or diagnosis command remains in the bundle.
 
 
 ## Approach
 
 
-A single-agent loop composed from the same partials as `/subagent-implementation`
-(`handoff`, `worktree-setup`, `implement-loop`, `loop-finalize`) with one role
-collapsed: the orchestrator and the implementer are the same context. Because that
-removes the structural separation the subagent loop relies on, the reviewer dispatch
-is an explicit, non-optional step after each checkpoint, stated in the loop partial's
-`Writer: main agent` branch. The command's own text is its policy table and the
-checkpoint declaration. Design: `docs/design/implement-loop-consolidation.md`.
+Use one command that selects the writer and requires the same review gate for either writer. See `docs/design/implement-loop-consolidation.md` for the review loop design.
 
 
 ## Change tree
@@ -64,50 +38,97 @@ checkpoint declaration. Design: `docs/design/implement-loop-consolidation.md`.
 
 ```
 context/
-├── CLAUDE.md ....................... M  (workflow section: third implementation path)
-├── _partials/
-│   └── review-gate.md .............. M  (already-reviewed guard names /implement)
-├── agents/
-│   └── atomic-reviewer.md .......... M  (description names the per-checkpoint dispatch)
-├── skills/
-│   └── atomic-verify/SKILL.md ...... M  (gate exclusion list names /implement)
-└── commands/
-    ├── implement.md ................ A  (new; composes handoff, worktree-setup, implement-loop, loop-finalize)
-    └── atomic-help.md .............. M  (lifecycle row, tour stage 2, review row)
+  CLAUDE.md  M
+  commands/
+    implement.md  M
+    subagent-implementation.md  D
+    subagent-diagnose.md  D
+    quick-fix.md  D
+    atomic-plan.md  M
+    atomic-help.md  M
+  _partials/
+    handoff.md  D
+    review-gate.md  M
 docs/
-├── spec/implement.md ............... A  (this file)
-└── reference/
-    ├── commands.md ................. M
-    ├── workflow.md ................. M
-    └── agents.md ................... M
-README.md ........................... M
+  spec/implement.md  M
+  reference/  M
+README.md  M
 ```
+
+
+## Outline
+
+
+```
+context/commands/implement.md
+  Starting point — check readiness and select checkpoints
+  Implement and review — select a writer, verify, and apply the review gate
+  Finish — verify the end result, scan and update affected docs, audit once, then accept the reviewed baseline
+```
+
+
+## Flows
+
+
+**Flow: reviewed checkpoint**
+
+1. User provides a task or spec, or refers to the current conversation.
+2. Main agent declares checkpoints and implements or delegates each one.
+3. Independent reviewer checks the task-only patch. The writer fixes blockers and returns for review, or the checkpoint commits that patch on `PASS`.
+4. Main agent verifies and audits the delivery.
 
 
 ## Checkpoints
 
 
-| # | Checkpoint | Files/areas | Est. files | Verifies |
-|---|------------|-------------|------------|----------|
-| 1 | Write the `/implement` command: policy table, Entry row, checkpoint declaration; the loop and finalize come from the shared partials | `context/commands/implement.md` | 1 | `make -C atomic bundle` resolves every partial directive |
-| 2 | Wire the cross-artifact contracts: review-gate guard, global contract workflow entry, and the two agent-facing surfaces that decide whether a redundant reviewer fires — `atomic-verify`'s exclusion list and `atomic-reviewer`'s description | `context/_partials/review-gate.md`, `context/CLAUDE.md`, `context/skills/atomic-verify/SKILL.md`, `context/agents/atomic-reviewer.md` | 4 | bundle succeeds; no surface instructs a second reviewer pass on work `/implement` already gated |
-| 3 | Register across discovery surfaces: help router row and tour stage, reference tables, README | `context/commands/atomic-help.md`, `docs/reference/{commands,workflow,agents}.md`, `README.md` | ~6 | the help-router verification loop in root `CLAUDE.md` prints zero `MISSING:` lines |
+| # | Checkpoint | Files/areas | Agent | Est. files | Verifies |
+|---|---|---|---|---|---|
+| 1 | Consolidate implementation routes and preserve independent review | `context/commands/implement.md`, command handoffs and review gate | atomic-implementer (mode: feature) | ~8 | Config and target artifact validation; former command files absent |
+| 2 | Update discovery and reference material | Help, README, reference docs, and demos | atomic-implementer (mode: feature) | ~8 | Live examples use `/implement`; diagnosis guidance points to `atomic-debug` |
 
 
 ## Risks
 
 
 | Risk | Likelihood | Mitigation |
-|------|-----------|-----------|
-| The verb becomes the default because it feels faster, and work with no loaded context runs without the loop's benefits | high | The policy table's Entry row tests for loaded context specifically, and the description leads with the precondition rather than the speed |
-| The main agent skips the reviewer dispatch, judging its own suite run sufficient | high | Non-optional in the workflow and restated as a rule with its why; "your own suite run is evidence, not review" |
-| Implementing inline exhausts the context that made this the right verb, mid-task | med | The Checkpoints section's mid-loop hand-off fires on little remaining context, with `STATE.md` intact |
-| Checkpoints get discovered while writing, so the reviewer fires once at the end | med | Declaration is a separate step before implementation and is stated to the user |
-| Entering a worktree mid-flow strands uncommitted work in the source tree | med | The worktree gate runs only on a clean tree |
-| `/commit` re-reviews work every checkpoint already reviewed | low | The `review-gate` already-reviewed guard names `/implement` alongside the other loops |
+|---|---|---|
+| Review includes unrelated work or misses new files | Medium | Pass `diff: working` and checkpoint paths; commit only the reviewed changes. |
+| An unconfirmed diagnosis leads to a speculative fix | Medium | Stop and direct the user to `atomic-debug`. |
+| A caller invokes a retired command | Medium | Update live handoffs and examples. |
 
 
 ## Change log
+
+### 2026-11-23: Gate reuse and close out polish
+
+**What changed:** Checkpoint reviews block on avoidable duplication and library drift. Harmless polish can wait for the final audit outside Autopilot. Review and verify audit fixes without repeating the audit.
+
+**Why:** Each change should build on the repo's conventions, and local polish should not interrupt checkpoint work that can safely proceed.
+
+### 2026-11-23: Retire task-generated specs after acceptance
+
+**What changed:** Read the supplied scratchpad spec and design through review, then discard only the task's disposable spec.
+
+**Why:** The design keeps the decisions. An incomplete run still needs its contract to resume.
+
+### 2026-11-23: Use the scan to update documentation
+
+**What changed:** Diff a scratch scan before updating docs. Accept it only after review.
+
+**Why:** Advancing the baseline first hides documentation drift.
+
+### 2026-11-22: Review task-owned patches
+
+**What changed:** Checkpoint review and commit share a patch. The final audit also sees uncommitted and new task files. Only a non-autonomous run can defer an advisory nit.
+
+**Why:** Path filters miss unrelated hunks in shared files, and a commit range misses edits that have not been committed.
+
+### 2026-11-22: Show checkpoint review and finalization as diagrams
+
+
+**What changed:** The command shows both loops directly. Finalization checks the end result, audits, verifies fixes, and scans the final source tree without writing wiki prose.
+
+**Why:** The two diagrams show when a change can commit and when the task can ship without requiring a reader to follow shared partials.
 
 ### 2026-09-06 — Compose from shared loop partials; auditor is the final gate
 
@@ -116,3 +137,21 @@ README.md ........................... M
 **Why:** `docs/design/implement-loop-consolidation.md`: the four implementation commands restated one loop, and the three-way final-gate pick added a prompt and a parsing caveat the other verbs did not have.
 
 **Superseded:** a user-selected final gate (`auditor` / `strategist` / `reviewer`) chosen by a trailing `$ARGUMENTS` token or an `AskUserQuestion`; a command-local fit gate and escape hatch.
+
+### 2026-11-22: Consolidate implementation and keep diagnosis separate
+
+
+**What changed:** `/implement` selects a direct or delegated writer and applies the same checkpoint review gate to both. Unknown causes go to `atomic-debug`.
+
+**Why:** The writer choice does not need a separate command, and diagnosis belongs before implementation.
+
+**Superseded:** Main-agent-only `/implement` and handoffs to `/subagent-implementation` or `/subagent-diagnose`.
+
+### 2026-11-22: Fold quick fixes into implementation
+
+
+**What changed:** Straightforward known-cause fixes use one `/implement` checkpoint without a spec or worktree. Independent review and verification still apply.
+
+**Why:** A small fix does not need a separate command.
+
+**Superseded:** The separate `/quick-fix` command.

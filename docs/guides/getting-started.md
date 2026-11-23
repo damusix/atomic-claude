@@ -39,7 +39,7 @@ Open a repo you work in and run two commands.
 
 `/setup-wiki` audits the repo for the conventions atomic expects: the state root (`.atomic/` by default; [resolution order](/reference/concepts#state-root-resolution-order)) and `.gitignore` rules for scratch and worktree directories (`.claude/worktrees/` under Claude Code, `.atomic/worktrees/` under other harnesses), the `docs/` layout, and a project steering file (`AGENTS.md`, with a `CLAUDE.md` loader beside it for Claude Code). It proposes only what is missing and never overwrites. It makes no commits. The scaffolding is one idempotent `atomic repo init` call, which also runs `atomic state migrate` once to move Atomic's state out of legacy `.claude` (into `.atomic` by default).
 
-`/refresh-wiki` is the step that stops the guessing. It walks the repo and writes a standing model of it to `docs/wiki/index.md` (with the deterministic scan at `docs/wiki/scan.md` and per-domain files beside it): the framework, the build and test and lint commands, the languages, and a map of which directories form which feature. Claude reads that model before it reads your code, so a new session knows your stack instead of inventing `npm` scripts that do not exist. Ship commands refresh the model as the repo changes, so you do not hand-maintain it. The refresh also writes one pointer card per domain under `<state-root>/rules/wiki/` (default `.atomic/rules/wiki/`; [resolution order](/reference/concepts#state-root-resolution-order)): when Claude opens a file in a domain, the card names that domain's page, contracts, and references, and reminds it to update them on behavior changes or renames.
+Run `/refresh-wiki` to build the repo index, domain pages, and pointer cards. Open the index to find the domain page for your work. In Claude Code, a matching source path can load the card; in other harnesses, open the index and page explicitly. During implementation, the assistant uses the task diff and a scratch scan to update affected docs and cards before accepting the new scan baseline.
 
 After this step, ask Claude something about the project. It answers from the wiki rather than from a guess.
 
@@ -59,35 +59,28 @@ It reads your git state and recommends one next command. For the full map of wha
 
 For real work, you have two paths.
 
-**Stay in the loop.** Plan, implement, and ship as separate commands, each with its own approval gate:
+**Stay in the loop.** Plan, implement, and ship with separate approval gates:
 
 ```text
 /atomic-plan add rate limiting to the login endpoint
-/subagent-implementation @docs/spec/rate-limiting.md
-/commit pr
 ```
 
-`/atomic-plan` writes a spec. `/subagent-implementation` runs an implement-review loop with test-first subagents and commits each green checkpoint. `/commit pr` commits and opens the PR (or `/commit` alone to commit without pushing).
-
-**Hand it off.** Give `/autopilot` a task or a GitHub issue number and it runs the whole lifecycle on its own. The only decision left to you is how to merge:
+For a full plan, use the scratchpad spec path returned by `/atomic-plan`:
 
 ```text
-/autopilot 142 commit squash merge
+/implement @<actual-scratchpad-path>/SPEC.md
+Open a pull request
+```
+
+For an inline spec, hand off the conversation instead. `/implement` reviews each checkpoint and commits on PASS. Ask to open the PR when the branch is ready.
+
+Give `/autopilot` a task or GitHub issue number. It plans, implements, and opens a PR by default:
+
+```text
+/autopilot 142
 ```
 
 Start with the in-the-loop path while you build trust in the system, then reach for autopilot once you know how it works. The [workflow reference](/reference/workflow) covers both in depth.
-
-
-## Step 4 — Index your code (optional)
-
-
-The repo wiki gives Claude a prose map of the repo. The code-intel engine gives it a precise one: a symbol graph of every definition, call, and import. Build it once from the repo root:
-
-```text
-atomic code index
-```
-
-Once the index exists, the investigator, reviewer, and wiki agents query the graph instead of grepping, and you can query it yourself from the terminal with no Claude involved. Indexing is opt-in and everything degrades to plain search when it is absent. See the [code intelligence reference](/reference/code-intel), including how to use it as a standalone CLI.
 
 
 ## Keeping atomic current

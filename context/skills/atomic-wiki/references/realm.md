@@ -1,166 +1,22 @@
-# Realm-scope wiki pipeline
+# Realm bucket reference
 
-Full pipeline for realm-scope inference. Root: `<realm-root>/wiki/` (a separate git repo). Executed by `atomic-wiki-inferrer` in wiki-output mode, activated by `target_repo` + `wiki_dir` dispatch args. It summarizes a single member repo into `wiki/repos/`.
+Use `atomic-wiki` for realm resolution, bucket registration, capture, indexing, and queries. Realm wiki prose is not synthesized or refreshed automatically.
 
-The realm orchestration (scan, interactive offers, linkify, commit) is handled by the `/refresh-wiki` command. This file covers the inference pipeline, plus the bucket-doc contract `SKILL.md` points at.
+## Bucket frontmatter
 
----
+Bucket documents may carry these keys:
 
-## Wiki-output mode
+| Key | Writer | Meaning |
+|---|---|---|
+| `title` | author | Falls back to the first H1, then the filename stem. |
+| `type` | author | Free-form, such as `Research` or `Ticket`. |
+| `description` | author | One line; falls back to the first prose line. |
+| `tags` | author | YAML list; a bare string reads as one tag. |
+| `status` | author | Free-form, such as `active` or `done`. |
+| `created` | scaffold | Stamped by `atomic wiki bucket doc`. |
 
-Activated when the caller provides **both** `target_repo` and `wiki_dir`; run W1–W7 below instead of the repo-scope default pipeline, which is not executed. If exactly one is present, print this and stop immediately:
+Every key is optional at index time. Documents without frontmatter appear under `### Unindexed`.
 
-```
-ERROR: wiki-output mode requires both target_repo and wiki_dir.
-Missing: <whichever is absent>.
-Aborting — not falling back to default signals mode.
-```
+## Managed index regions
 
-### W1 — Guard: read-only on target_repo
-
-`target_repo` is explored **read-only**. No writes, no edits, no file creation anywhere inside it. The only write destination is `wiki_dir/repos/`. This mode is exempt from the repo-scope scope rule: it never writes to `target_repo`'s `docs/wiki/` and never wires `@-refs`.
-
-### W2 — Obtain deterministic substrate
-
-Run `atomic signals scan` scoped to `target_repo`, writing output to a temporary directory outside it:
-
-```bash
-cd <target_repo> && atomic signals scan --out <tmp_dir>
-```
-
-where `<tmp_dir>` is a fresh temporary directory outside `target_repo` (e.g., a `os.MkdirTemp`-equivalent path). The scan must be rooted at `target_repo` so the substrate reflects that repo's files — not the current working directory or wiki dir. The output goes to `<tmp_dir>` instead of into `target_repo`'s `docs/wiki/`, which is never written to.
-
-Read the resulting `<tmp_dir>/docs/wiki/scan.md` as the substrate for inference.
-
-### W3 — Infer domain partitioning
-
-Apply the same domain-partitioning logic as the repo-scope Step 3 (vertical slices by functional concern). Read source files in `target_repo` as needed to verify structure — read-only.
-
-**Size heuristic:**
-
-- **Small repo** (≤ 3 inferred domains or ≤ ~1,000 total lines of significant source): write a single summary file at `wiki_dir/repos/<repo-name>.md`.
-- **Large repo** (> 3 domains or > ~1,000 lines): write one file per domain at `wiki_dir/repos/<repo-name>/<domain>.md`.
-
-`<repo-name>` is the base name of `target_repo` (e.g., `target_repo = /home/user/projects/myapp` → `<repo-name> = myapp`).
-
-### W4 — Dispatch sub-agents per domain
-
-Dispatch one `atomic-wiki-writer` per member repo, dispatched by its stable identity, fresh context — an implicitly chosen agent carries none of the wiki contract. Same dispatch logic as the repo-scope Step 4, with two differences:
-
-1. Sub-agents read from `target_repo` read-only and write their domain output to `wiki_dir/repos/<repo-name>/` (or single file for small repos). They do NOT write into `target_repo`.
-2. **Omit the `<concerns_format>` block from sub-agent prompts.** Wiki mode never surfaces concerns (W7 explicitly excludes them), so including the block wastes tokens generating output that is immediately discarded.
-
-Only one pipeline reference is loaded per run, so the sub-agent instructions are restated here rather than cross-referenced into `repo.md`:
-
-```
-<instructions>
-- Summaries are FACTS about current state — not instructions, rules, or intent. Every sentence must be verifiable by reading a source file in target_repo.
-- Never count things in the repo. `atomic-writing` rule 17 has the list; a version or a documented contract value is not a count.
-- Read the actual source files. Do not infer from filenames alone.
-- Invoke the `atomic-writing` skill and follow it. It governs three things here, not one: the page's reading order, when a shape gets drawn instead of written, and the sentence-level voice.
-- Draw every shape the repo has. A build pipeline, a request path, and a deploy flow are three claims and three diagrams, each with its own `###` sub-heading and a caption stating what it claims. There is no cap. Leaving a shape in prose is the failure to avoid, not drawing too many.
-- Before writing any Mermaid block, read the `atomic-writing` skill's Mermaid reference (`mermaid.md`, in that skill's own references directory) — it picks the diagram type from the reader's question and lists what breaks rendering.
-- Draw from the source you read, never from prose someone already wrote about it. A diagram inherits any error in the paragraph it was copied from.
-- Redraw the design diagrams. The dispatch prompt's `<design_docs>` block lists `target_repo`'s `docs/design/*.md` for this domain, or `none`. For each file in `<design_docs>`, read every Mermaid block. A block that draws current architecture (a pipeline, a data model, a request path, a lifecycle) is redrawn in `## How it works` against the source: every node label resolves to a file or symbol in `target_repo` (`atomic code search <label>` when the index exists, grep otherwise), the caption states the claim, and the layout table in `~/.claude/skills/atomic-writing/references/mermaid.md` applies. A block that draws a decision (before and after, a rejected topology) stays in the design. A block whose nodes no longer resolve is dropped and named on the page as one `## Constraints` line stating what breaks: `docs/design/<file>.md draws <node>, which no longer exists in source; this page's diagram is current, the design's is not.` The redrawn block's `%% source:` comment names the design doc it came from and the source files its nodes resolve to.
-- Output only the file content. Do not summarize your process.
-</instructions>
-```
-
-The output format is the **wiki summary format** (not the signals domain file format):
-
-```
-<output_format>
----
-title: <domain or repo name>
-repo: <repo-name>
-generated: <YYYY-MM-DD>
----
-
-## What it does
-
-<Purpose before mechanism: what this repo is for, whose problem it solves, what breaks
- without it. Then the mechanism in a sentence or two. Name any mismatch between the
- repo's name and what it actually contains.>
-
-## How it works
-
-<The shapes: how a request, a build, or a piece of data moves through this repo. One
- diagram per shape, each captioned with the claim it makes rather than naming the
- subject, each past the first under its own `###` sub-heading. No cap on the count,
- though a realm summary is read to decide whether to open the repo at all, so draw the
- shapes that decide that. A repo with no shape worth drawing writes prose alone.>
-
-## Where it lives
-
-<One table: path | role. Entry points and the packages a reader would open first.
- Not an exhaustive tree.>
-
-## Stack
-
-<Language, frameworks, and the dependencies that constrain a change, read from source
- and config rather than inferred from a lockfile's size.>
-
-## Constraints
-
-<Non-obvious decisions and conventions that affect a caller, each naming what breaks
- when it is violated.>
-</output_format>
-```
-
-Same reading order as a repo-scope domain file: what is this and why do I care, how does it work, where is it, what it is built on, what can go wrong. A realm summary is read by someone deciding whether to open the repo at all, so a page that opens on a path list answers the question they have not asked yet.
-
-### W5 — Reviewer validates each summary file
-
-Same reviewer dispatch logic as the repo-scope Step 5. Reviewer checks that every claim is verifiable from source files in `target_repo`, and applies the same page-shape checks: sections present in order, `## What it does` opening on purpose rather than mechanism, every diagram captioned with a claim and every one past the first under its own sub-heading, `## Where it lives` as one table, every constraint naming what breaks. Diagram count is not capped; flag a diagram that restates its neighbour, and a shape left in prose that a picture would carry better. The reviewer also checks that every current-architecture diagram in a listed design doc appears in `## How it works`, redrawn with nodes that resolve to source in `target_repo`, or is named in `## Constraints` as stale; that no count of things in the repo appears anywhere on the page, including diagram labels and table cells (`atomic-writing` rule 17 has the list; any such number is `CHANGES_REQUESTED`, named; the only exceptions are a version and a documented contract value); and that every Mermaid block passes the layout table in `~/.claude/skills/atomic-writing/references/mermaid.md`. Iterate up to 3 times before flagging unresolved.
-
-### W6 — Skip @-ref wiring
-
-Do NOT wire any `@-ref`. Wiki summaries live under `wiki_dir/` — they are not wired into any steering file or project config. No `@-ref` is written.
-
-### W7 — Report
-
-Print a per-file disposition:
-
-```
-wiki summary written: wiki_dir/repos/<repo-name>[/<domain>].md  NEW | RE-AUTHORED
-```
-
-Do not print concerns in wiki-output mode — concerns are surfaced by the `/refresh-wiki` orchestrator, not this agent.
-
----
-
-## Bucket docs
-
-Buckets get no inference pass. Code builds their indexes from each doc's frontmatter.
-
-### Bucket-doc frontmatter contract
-
-Bucket docs (any `.md` file in a bucket, including each folder's `index.md`) carry the recognized keys below:
-
-| Key | Writer | Notes |
-|-----|--------|-------|
-| `title` | author | falls back to first H1, then filename stem, if absent |
-| `type` | author | free-form (e.g. `Research`, `Experiment`, `Ticket`) |
-| `description` | author | one-line; falls back to first prose line if absent |
-| `tags` | author | YAML list of strings; a bare string reads as a single-element list |
-| `status` | author | free-form (e.g. `active`, `done`) |
-| `created` | code (scaffold) | stamped by `atomic wiki bucket doc` at creation time |
-
-Every key is optional at index time — a doc with no frontmatter at all still indexes, under an `### Unindexed` heading.
-
-### Per-folder indexes (code-generated, read-only)
-
-`atomic wiki scan` and `atomic wiki bucket index` maintain these managed regions from this frontmatter. Never write to them:
-
-- `<folder>/index.md`, in every folder of a bucket: a `<bucket-docs>` region listing that folder's direct `.md` files and subfolders (title, description, tags, unindexed flag). A subfolder entry links to its own `index.md`. Numbered stage folders (`01_raw`, `02_findings`) list in numeric order.
-- `wiki/index.md` — a `<wiki-bucket-list>` region listing every registered bucket with its description.
-
-Both regions are spliced idempotently by code; the inferrer never authors them.
-
----
-
-## Rules
-
-- `target_repo` is always read-only in wiki-output mode. No writes, no edits, no file creation inside it. **Why:** wiki summarization is a read pass; mutations to the target repo are never the agent's responsibility.
-- Omit `<concerns_format>` from wiki-output sub-agent prompts. **Why:** concerns are discarded in wiki-output mode (W7); generating them wastes tokens.
-- Both `target_repo` and `wiki_dir` must be present together for wiki-output mode. If either is missing, stop immediately and name it. **Why:** partial args indicate a dispatch error; falling back to a different mode silently would produce the wrong output.
+`atomic wiki scan` and `atomic wiki bucket index` maintain `<bucket-docs>` in each eligible bucket index. In an unbound realm, they also maintain `<wiki-bucket-list>` in `wiki/index.md`. Do not hand-edit these regions. In a bound realm, use the usable registrations returned by `atomic wiki bucket list` and keep private paths out of shared files.

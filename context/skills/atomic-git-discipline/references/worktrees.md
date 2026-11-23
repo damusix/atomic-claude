@@ -27,4 +27,4 @@ With `worktrees: off`, skip both steps and work in the current checkout.
 
 ## Clean up
 
-Cleanup follows `/git-cleanup` and the worktree cleanup prompt: archive the scratchpad bundle, enumerate with `git worktree list`, and prompt before removal. Never enumerate with a path glob, since the location differs by harness and preference.
+Follow `/cleanup`: enumerate with `git worktree list`, archive the scratchpad bundle, and get approval before removal. Do not infer worktrees from a path glob.

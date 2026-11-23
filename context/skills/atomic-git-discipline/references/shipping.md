@@ -1,0 +1,9 @@
+# Shipping safeguards
+
+Use this reference for commit, pull request, squash, merge, or branch-base lookup. The requested action sets the scope; a commit request does not authorize a push, pull request, or merge.
+
+1. Inspect status, branch, upstream, base, and head. Resolve the base in order: explicit target, existing change-request base, configured branch base, then the provider default from the resolved `references/source-control/` file. A tracking branch is not a base if it is the task's own remote head. For a new change request pass the base explicitly. Preserve unrelated work.
+2. Verify the intended change. For ad-hoc source or prompt changes, use `/implement`'s scan-driven documentation and baseline rules on the intended commit tree. If unrelated edits prevent an accurate scan, leave the baseline intact and report the blocker. Before committing, require `atomic-reviewer` to pass the exact task-only patch unless it already passed review. Stage only that patch and exclude secrets and unrelated artifacts.
+3. Use the resolved source-control reference for hosted operations. Reuse an existing request for the same head and base. Commit only the intended changes and push or create a request only when authorized.
+4. For squash or merge, require authorization for that action. Do not rewrite the base branch. Do not reset, force-push, delete a branch, or remove a worktree without explicit authorization; account for other sessions and preserve uncommitted work. Never remove the active worktree or one with uncommitted or unpushed work.
+5. Check the actual result after each mutation: commit SHA and status, remote push result, request URL and state, or merge result as applicable. A command failure after a URL appears may still have created the request; inspect its state before retrying. Report only what occurred and any remaining work.

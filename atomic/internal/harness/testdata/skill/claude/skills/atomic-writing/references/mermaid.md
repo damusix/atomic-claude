@@ -1,8 +1,18 @@
 # Mermaid: choosing a type, and what breaks rendering
 
-Read this before writing a diagram into a `docs/` file or a prompt artifact (a command, agent, skill, rule, or `CLAUDE.md`, or its source under `context/`). It covers the three things that go wrong that knowing Mermaid syntax does not prevent: picking the type that does not carry the claim, writing a label the parser rejects, and a layout that renders but stays illegible.
+Read this before writing a Mermaid block in docs or prompt artifacts. Choose a form that carries the claim, then check its layout and syntax.
 
-The diagram contract itself (one claim per diagram, the caption states it, node budgets, real identifiers, shape over color) lives in the skill body. This file is the mechanics.
+## The diagram contract
+
+Give each diagram one claim and a caption above it that states the claim. Put conditions and outcomes in the labels and arrows so the raw block remains legible. Use prose for reasoning, exact commands, and exceptions that the diagram cannot show clearly, not a second narration of the workflow.
+
+Use as many diagrams as the subject needs. Each additional diagram needs its own claim and heading; cut restatements. Label nodes with real identifiers such as `AuthGuard.verify()`, not generic labels such as “check auth.” Encode distinctions in shape or line style, not color.
+
+Keep each flowchart to 9 nodes, each sequence to 6 participants, and each ER or class diagram to 8 entities. Split a larger claim by abstraction level. Place the diagram where its subject is maintained: one system map in the README, subsystem logic near its code, design rationale in the design, and changes in the PR body. Commit diagrams with the code they describe.
+
+Straight steps without branches or boundary crossings belong in a numbered list. Use diagrams in how-tos only when readers need to choose a path or understand a gate.
+
+Before committing, check parsing with `npx -y @mermaid-js/mermaid-cli -i docs/page.md -o /tmp/out.md`. The first run downloads Chromium; containers running as root need a Puppeteer config with `--no-sandbox` passed via `-p`. Remove sibling SVG files if they were only for the check. If `mmdc` is unavailable, compare the block against the rendering gotchas below.
 
 ## Choosing the type
 
@@ -31,7 +41,7 @@ The `-beta` types (`architecture-beta`, `block-beta`, `packet-beta`) and `C4Cont
 
 ## Layout: direction, width, and density
 
-A diagram can pass every node budget in the skill body and still be unreadable, because width, density, and color are what break it. Each rule below is a number and a way to count it.
+The node budgets above do not guarantee a readable diagram. Check width, density, and color as well.
 
 | Rule | Limit | Check |
 |------|-------|-------|
@@ -48,7 +58,7 @@ Over any limit, split by abstraction level: one overview diagram with a node per
 
 ## What breaks rendering
 
-**Punctuation in a label needs quotes.** Parentheses, brackets, braces, commas, colons, and `#` all break a bare label. The skill body asks for real identifiers in labels, and real identifiers carry parens, so quote by default:
+**Punctuation in a label needs quotes.** Parentheses, brackets, braces, commas, colons, and `#` all break a bare label. Real identifiers carry parens, so quote by default:
 
 ```
 A[verify(token)]        breaks
@@ -98,4 +108,4 @@ Does not: npm, PyPI and other package registries, plain-text terminals, many edi
 
 The fence language must be exactly lowercase `mermaid`. Platforms pin different Mermaid versions, so newer syntax can render in the live editor and fail on the target.
 
-**Where a doc travels outside a Mermaid-rendering host** (a README that ships to npm, for example), the fenced block is what that reader gets. This is why the skill body requires the surrounding prose to stand on its own: the diagram compresses an explanation, it does not replace one.
+**Where a doc travels outside a Mermaid-rendering host** (a README that ships to npm, for example), the reader gets the fenced block. Keep labels and arrows readable as source, and include the reasoning and constraints the diagram cannot convey in surrounding prose.

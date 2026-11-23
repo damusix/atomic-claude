@@ -160,7 +160,7 @@ func TestLeaveUnownedDecisionPersists(t *testing.T) {
 				t.Errorf("doctor flags kept files:\n%s", out)
 			}
 			status, code := runAtomicCLI(t, home, "harness", "status", "claude:"+root, "--json")
-			if code != 0 || strings.Contains(status, `"blockers"`) || !strings.Contains(status, filepath.Join(root, "commands", "commit.md")) {
+			if code != 0 || strings.Contains(status, `"blockers"`) || !strings.Contains(status, filepath.Join(root, "commands", "atomic-help.md")) {
 				t.Errorf("status (exit %d) does not report the kept files as left:\n%s", code, status)
 			}
 		})
@@ -204,7 +204,7 @@ func TestReplaceForgetsLeaveUnowned(t *testing.T) {
 func TestVanishedLeftFileIsRecreated(t *testing.T) {
 	home := t.TempDir()
 	root, _ := adoptLeavingUnowned(t, home)
-	gone := filepath.Join(root, "commands", "commit.md")
+	gone := filepath.Join(root, "commands", "atomic-help.md")
 	if err := os.Remove(gone); err != nil {
 		t.Fatal(err)
 	}
@@ -256,7 +256,7 @@ func TestClaudeUpdateBacksUpOwnedFileEdit(t *testing.T) {
 	t.Chdir(t.TempDir())
 	home := t.TempDir()
 	root := enrolledClaude(t, home)
-	edited := filepath.Join(root, "commands", "commit.md")
+	edited := filepath.Join(root, "commands", "atomic-help.md")
 	selected, err := os.ReadFile(edited)
 	if err != nil {
 		t.Fatal(err)
@@ -278,7 +278,7 @@ func TestClaudeUpdateBacksUpOwnedFileEdit(t *testing.T) {
 func TestLeavingAnEditedOwnedFileReleasesItsRow(t *testing.T) {
 	home := t.TempDir()
 	root := enrolledClaude(t, home)
-	edited := filepath.Join(root, "commands", "commit.md")
+	edited := filepath.Join(root, "commands", "atomic-help.md")
 	mustWrite(t, edited, "my edit\n")
 
 	if out, code := runAtomicCLI(t, home, "harness", "repair", "--leave-unowned", "--yes"); code != 0 {
@@ -299,7 +299,7 @@ func TestLeavingAnEditedOwnedFileReleasesItsRow(t *testing.T) {
 func TestNewlyClaimedPathWithUserFileWaitsForDecision(t *testing.T) {
 	home := t.TempDir()
 	root := enrolledClaude(t, home)
-	path := filepath.Join(root, "commands", "commit.md")
+	path := filepath.Join(root, "commands", "atomic-help.md")
 	ledger, err := installstate.LoadLedger(config.LedgerPath(home))
 	if err != nil {
 		t.Fatal(err)
@@ -359,7 +359,7 @@ func TestOlderBinaryRewriteConvergesOwnedRoot(t *testing.T) {
 	}
 	assertBundleBytes(t, root)
 	assertConvergeRecoveryCopies(t, home, older)
-	assertLedgerClaimsDisk(t, home, harness.Target{Kind: harness.KindClaude, Instance: root}, filepath.Join(root, "commands", "commit.md"))
+	assertLedgerClaimsDisk(t, home, harness.Target{Kind: harness.KindClaude, Instance: root}, filepath.Join(root, "commands", "atomic-help.md"))
 }
 
 // A legacy install into an unrelated project clears the home-wide adopted
@@ -368,7 +368,7 @@ func TestUnrelatedLegacyInstallDoesNotReadoptOwnedRoot(t *testing.T) {
 	t.Chdir(t.TempDir())
 	home := t.TempDir()
 	root := enrolledClaude(t, home)
-	edited := filepath.Join(root, "commands", "commit.md")
+	edited := filepath.Join(root, "commands", "atomic-help.md")
 	mustWrite(t, edited, "my edit\n")
 	project := filepath.Join(t.TempDir(), ".claude")
 	if out, code := runAtomicCLI(t, home, "claude", "install", "--target", project); code != 0 {
@@ -451,7 +451,7 @@ func TestRefusedInstallTakesNoSnapshot(t *testing.T) {
 	}{
 		"blocked": {
 			seed: func(t *testing.T, home string) {
-				mustWrite(t, filepath.Join(home, ".claude", "commands", "commit.md"), "user file\n")
+				mustWrite(t, filepath.Join(home, ".claude", "commands", "atomic-help.md"), "user file\n")
 			},
 			args: []string{"install", "--harness", "claude", "--yes"},
 		},

@@ -1,110 +1,16 @@
 ---
 name: atomic-tdd
-description: >
-  Test-first discipline. Auto-triggers on "let's implement X", "add feature Y", "fix bug Z",
-  "write a test for", "implement", "build out", and similar pre-code-change phrases.
-  Iron rule: failing test exists before production code. Skip only for pure docs/config
-  changes with an explicit "skipped because:" note. Explicit invocation: /atomic-tdd.
-  Boundary with atomic-debug: this skill owns writing or changing code — new behavior, or a
-  fix whose root cause is already understood. Diagnosing why something is broken (unknown
-  cause) is atomic-debug's job; debug to the root cause first, then return here to write the
-  fix test-first.
+description: Use test-first development for new behavior, known bug fixes, and refactors. Use atomic-debug first when the cause is unknown.
 ---
 
-Test first. Watch it fail. Write minimal code. Watch it pass. Refactor green.
+Write a test for observable behavior before changing production code. For a bug fix, use the original repro or an existing test that exercises it; add a regression test if neither does.
 
-<trigger>
+| Step | Action |
+|---|---|
+| Red | Run the targeted test against the old behavior. Confirm it fails for the expected reason. |
+| Green | Make the smallest fix and rerun the test. |
+| Refactor | Clean up without changing behavior, then rerun the affected checks. |
 
-Auto-trigger on:
+If the fix already exists, verify red against an isolated copy of the pre-fix code. Do not discard or overwrite existing work. For a behavior-preserving refactor, start with a passing test that protects the contract.
 
-- "let's implement X", "add feature Y", "build out Z"
-- "fix bug", "patch the regression"
-- "write tests for", "write a test for"
-- "make the code do X"
-- Any pre-implementation language for behavior changes
-
-Explicit: `/atomic-tdd`.
-
-</trigger>
-
-## The iron law
-
-Write the failing test before production code. **Why:** tests written after implementation mirror what the code does, not what it should do. Tests-first are specifications; tests-after are tautologies.
-
-Wrote code before a failing test? Delete it. Start over. **Why:** keeping existing code as reference biases the test toward the implementation rather than the intent.
-
-<workflow>
-
-## The cycle
-
-A behavior reaches Green only after its test fails for the right reason in Red, and Refactor only after every test passes.
-
-```mermaid
-stateDiagram-v2
-    [*] --> Red
-    Red --> Red: passes or wrong failure
-    Red --> Green: fails for the right reason
-    Green --> Refactor: all tests green
-    Refactor --> Red: next behavior
-    Refactor --> [*]: no behavior left
-```
-
-- **Red**: write one minimal failing test and run it. The right reason is the feature missing, not a typo. A test that passes immediately is wrong: fix the test.
-- **Green**: write the smallest code that makes the test pass, then run all tests. No "while I'm here" extras.
-- **Refactor**: clean up and re-run. The suite must stay green, with no behavior change.
-
-</workflow>
-
-## Required for
-
-- New features — any new behavior
-- Bug fixes — test reproduces the bug first, then fix
-- Refactoring — existing tests must stay green; if none exist, add one first
-- Behavior changes
-
-## Skip rules
-
-TDD doesn't apply to these cases. Each skip requires an explicit `skipped because: <reason>` note in the response.
-
-| Skip case | Example |
-|-----------|---------|
-| Pure docs / Markdown / comment-only edits | Updating README, adding a JSDoc |
-| Pure config / `.env` / non-executable file edits | Changing a JSON config, updating an env var |
-| Generated code | Regenerated from a schema or spec, not hand-written |
-| Throwaway prototypes the user explicitly flagged as throwaway | "Just spike this, we'll throw it away" |
-
-Skipping silently = violation.
-
-## Discipline reminders
-
-The test always comes first. These situations tempt shortcuts — resist them:
-
-- Code already written without a test → delete it, write the test first, then reimplement. Keeping existing code as reference biases the test toward the implementation rather than the intent.
-- "Too simple to need a test" → simple code deserves a simple test. Write it.
-- Tests-after vs tests-first are fundamentally different: tests-first answer "what should this do?", tests-after answer "what does this do?"
-
-## Good test characteristics
-
-| Quality | Yes | No |
-|---------|-----|----|
-| Minimal | One behavior per test | "and" in the name → split it |
-| Clear | Name describes the behavior | `test1`, `it works` |
-| Real | Real inputs, real outputs | Asserts on mocks (tests the mock, not the code) |
-
-## Purpose of tests
-
-Tests prove the feature works for real users. They are not the goal — they are evidence.
-
-- Passing tests are not success. Correct behavior is success. If the feature works wrong but tests pass, the tests are wrong.
-- A test that cannot fail when business logic changes is dead weight. Every test encodes an intention: "if this breaks, something the user cares about is wrong."
-- Do not write tests to satisfy coverage metrics or make CI green. Write tests that would catch a regression a user would notice.
-- Tests-first answer "what should this do?" — they encode intent before implementation exists. This is why TDD works: the test is a specification, not a verification of existing code.
-
-<constraints>
-
-## Boundaries
-
-- **Bug fix:** the failing test must reproduce the bug as reported. If you can't write a test that fails on current code, you don't understand the bug yet — switch to `atomic-debug` first. **Why:** a test that doesn't match the reported symptom may pass after the fix while the real bug persists.
-- **atomic-tdd + atomic-verify:** both fire independently. atomic-tdd ensures the test exists before production code. atomic-verify ensures the claim that tests pass is backed by a fresh run.
-
-</constraints>
+Use deterministic tests that exercise real behavior. Skip TDD for docs-only changes, non-behavioral config or comment edits, regenerated output, and explicitly disposable prototypes. State why. Use `atomic-verify` to match the final claim to the checks run.

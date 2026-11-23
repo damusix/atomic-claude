@@ -109,7 +109,7 @@ func TestClaudeOnlyLifecycle(t *testing.T) {
 	if !enrolledTarget(t, home, harness.KindClaude, root) {
 		t.Fatalf("the Claude target was not enrolled")
 	}
-	if !fileExists(filepath.Join(root, "commands", "commit.md")) {
+	if !fileExists(filepath.Join(root, "commands", "atomic-help.md")) {
 		t.Fatalf("the artifact tree was not projected")
 	}
 
@@ -492,7 +492,7 @@ func TestFullUninstallPreservesAuthorities(t *testing.T) {
 			t.Errorf("authority %s changed: %q", path, got)
 		}
 	}
-	if fileExists(filepath.Join(root, "commands", "commit.md")) {
+	if fileExists(filepath.Join(root, "commands", "atomic-help.md")) {
 		t.Errorf("enrolled artifacts survived the full uninstall")
 	}
 
@@ -638,7 +638,7 @@ func TestUninstallRecovery(t *testing.T) {
 	if fileExists(journalPath) {
 		t.Errorf("the recovered journal was not consumed by the uninstall")
 	}
-	if fileExists(filepath.Join(root, "commands", "commit.md")) {
+	if fileExists(filepath.Join(root, "commands", "atomic-help.md")) {
 		t.Errorf("the enrolled artifacts survived the full uninstall")
 	}
 

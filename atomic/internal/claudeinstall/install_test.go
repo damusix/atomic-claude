@@ -634,9 +634,9 @@ func TestInstall_NudgeNoLongerClaimsClaudeFillsIt(t *testing.T) {
 }
 
 // A stale nudge would point users at a verb that no longer exists.
-func TestInstall_NudgePointsToRetrospectiveLearning(t *testing.T) {
-	if !strings.Contains(claudeinstall.ProfileNudge, "/retrospective-learning") {
-		t.Errorf("ProfileNudge does not mention /retrospective-learning: %q", claudeinstall.ProfileNudge)
+func TestInstall_NudgePointsToRetro(t *testing.T) {
+	if !strings.Contains(claudeinstall.ProfileNudge, "Run /retro to") || strings.Contains(claudeinstall.ProfileNudge, "/retrospective-learning") {
+		t.Errorf("ProfileNudge does not point to /retro: %q", claudeinstall.ProfileNudge)
 	}
 	if strings.Contains(claudeinstall.ProfileNudge, "/atomic-improve") {
 		t.Errorf("ProfileNudge still mentions stale /atomic-improve: %q", claudeinstall.ProfileNudge)

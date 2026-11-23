@@ -252,7 +252,7 @@ func Apply(targetDir, home string, plan []FileAction, dryRun bool, clock Clock) 
 }
 
 // ProfileNudge is printed when profile.md is created for the first time.
-const ProfileNudge = "Profile created at ~/.atomic/profile.md. Mention your role, projects, and preferences in conversation and Claude will record them. Run /retrospective-learning to review drift."
+const ProfileNudge = "Profile created at ~/.atomic/profile.md. Mention your role, projects, and preferences in conversation and Claude will record them. Run /retro to review the session."
 
 // ensureProfileStub creates <home>/.atomic/profile.md if absent, printing a
 // bootstrap nudge to out. Reports whether it created the file.
@@ -507,14 +507,19 @@ func installOrUpdate(targetDir, home string, dryRun bool, clock Clock, out io.Wr
 		// Unconditional — RefreshIfStale self-gates on lastcheck.
 		populateProfile(home, clock)
 
-		// Prune artifacts listed in the old [install.artifacts] but absent from the
-		// current bundle. PruneConfirm batches the confirm; non-interactive skips.
-		if _, err := runPrune(targetDir, staleTargets); err != nil {
+		retained, err := runPrune(targetDir, staleTargets)
+		if err != nil {
 			return nil, err
 		}
 
-		if err := writeInstallManifest(home, plan); err != nil {
+		if err := writeInstallManifest(home, plan, retained); err != nil {
 			return nil, fmt.Errorf("write install manifest: %w", err)
+		}
+		if len(retained) > 0 {
+			fmt.Fprintln(out, "Stale artifacts remain installed (prune skipped):")
+			for _, target := range retained {
+				fmt.Fprintf(out, "  %s\n", target)
+			}
 		}
 	}
 	return plan, nil

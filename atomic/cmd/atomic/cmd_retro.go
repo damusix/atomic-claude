@@ -18,7 +18,7 @@ import (
 func buildRetroCmd() *cobra.Command {
 	parent := &cobra.Command{
 		Use:   "retro",
-		Short: "Session-history extraction for /retrospective-learning",
+		Short: "Session-history extraction for /retro",
 		Args:  cobra.ArbitraryArgs,
 		RunE:  func(cmd *cobra.Command, args []string) error { runRetro(args); return nil },
 	}

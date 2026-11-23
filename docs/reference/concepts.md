@@ -91,7 +91,7 @@ Rung 3 looks at the folders that already hold state:
 | `atomic code explore "<question>"` | Start here: a one-shot digest of the relevant symbols, files, and how they relate |
 | `atomic code callers <symbol>` / `callees <symbol>` | What calls it, what it calls |
 | `atomic code impact <symbol>` | The blast radius of changing it |
-| `atomic code sync` | Refresh the index (ship verbs and `/refresh-wiki` run it when the index is warm) |
+| `atomic code sync` | Refresh an existing index on request |
 | `atomic code mcp` | Expose the graph to an interactive session as MCP tools |
 
 Full verb list and lifecycle: [code-intel reference](/reference/code-intel), [MCP guide](/guides/code-intel-mcp).
@@ -100,20 +100,20 @@ Full verb list and lifecycle: [code-intel reference](/reference/code-intel), [MC
 ## Wikis
 
 
-A wiki is a generated knowledge graph for a tree of code: context curated once and kept as an artifact, instead of re-derived every session. Two scopes, one system: the same command, inferrer, and page shape, with a `<wiki-type>` marker telling `/refresh-wiki` which it is looking at.
+Use `/refresh-wiki` to generate a repository's pages from its source. Use capture buckets and their indexes to organize material across a realm.
 
 | Scope | Root | Maps | Steered by |
 |-------|------|------|------------|
 | **repo** | `docs/wiki/` inside the repository | one project: framework, commands, domain map | `docs/wiki/AGENTS.md` (+ `CLAUDE.md` loader) |
 | **realm** | `<root>/wiki/`, an independent Git repository or a link into the managed shared checkout | a folder of repositories: what each is, what cuts across them | `<root>/AGENTS.md` (+ `CLAUDE.md` loader), or separate team and local steering in a shared realm |
 
-They compose. A realm summarizes the repos under it without writing into them, and a member repo with its own wiki is linked rather than re-summarized.
+The realm index links to member repos and the wiki pages that already exist.
 
 
 ### Repo scope
 
 
-A hand-written `CLAUDE.md` drifts: you swap Jest for Vitest and forget. A repo wiki is regenerated instead, by `/refresh-wiki` and by ship verbs on every real-code commit, grounded in the code-intel graph and the actual diff. It ends invented `npm run` scripts, wrong guesses about the stack, and re-explaining the layout every session.
+Use `/refresh-wiki` to update the pages that explain the repo. Implementation uses a scratch scan and task diff to update affected documentation before accepting the baseline.
 
 | File | Content | Loaded |
 |------|---------|--------|
@@ -132,7 +132,7 @@ An independent wiki commits to its own Git repository. A linked wiki lives in th
 
 | Verb | Does |
 |------|------|
-| `/refresh-wiki` | Scan the realm; refresh repo summaries and cross-cutting concerns with cited evidence |
+| `atomic wiki scan` | Scan realm membership and rebuild eligible bucket indexes |
 | `atomic wiki bucket add <name>` | Register a folder of loose material (research items with their raw material, notes, ticket exports); the scan keeps an index in every folder |
 | `atomic wiki stale` | Report repos added, removed, or reclassified since the last scan |
 | `atomic serve` | Browse the realm as a navigable graph in the browser |
@@ -174,7 +174,7 @@ Claude's default voice opens with "Sure! I'd be happy to help," hedges, and narr
 ## Planning
 
 
-`/atomic-plan` gauges a task's size. Only non-trivial work gets a design doc, and nothing reaches implementation without your approval:
+`/atomic-plan` gauges a task's size. Small tasks get an inline spec; full plans keep decisions in a design and put the implementation spec in the task scratchpad. Nothing reaches implementation without your approval:
 
 ```mermaid
 flowchart TD
@@ -187,7 +187,7 @@ flowchart TD
     Gate -- trivial --> Inline["inline spec"]
     Gate -- non-trivial --> Design["design doc<br/>docs/design/"]
     PT["/pressure-test"] -.->|"find weak assumptions"| Design
-    Design --> Spec["spec<br/>docs/spec/"]
+    Design --> Spec["disposable SPEC.md<br/>task scratchpad"]
     Inline --> Approve{"you approve"}
     Spec --> Approve
     Approve --> Impl["implementation"]
@@ -198,21 +198,21 @@ flowchart TD
 | `/gather-evidence` | Chase a hunch ("does this library support that") against primary sources and return a verdict before a session is designed around it |
 | `/pressure-test` | Attack a design's assumptions to find the weak ones before they reach a spec |
 | design doc, `docs/design/` | The thinking space: concepts, rules, approaches weighed, the why. Trivial tasks skip it |
-| spec, `docs/spec/` | The contract subagents build from: checkpoints, success criteria, the plan |
+| spec, scratchpad `SPEC.md` | The disposable contract subagents build from: checkpoints, success criteria, and proof. An inline spec stays in the conversation. |
 
-A spec body states what is true now; a subagent reads it as ground truth. Its change log records how it got there: when a decision changes, rewrite the affected body and add a dated entry saying what changed and why. History survives without the body going stale.
+Keep a full spec through implementation and review, then discard it after acceptance. Record lasting decisions in the design. Existing tracked specs remain in place and their bodies describe the current contract; a dated change log records changes and why they were made.
 
 
 ## Implementation
 
 
-`/subagent-implementation` runs the implement-then-review loop against a spec, committing each green checkpoint. Every subagent starts with no memory of the last run, so the orchestrator alone writes the scratchpad and subagents only read it and report back:
+`/implement` works directly or delegates a checkpoint. An independent reviewer checks the result before it can commit:
 
 ```mermaid
 flowchart LR
     accTitle: What carries state between fresh-context subagent runs
     accDescr: Only the orchestrator writes the scratchpad files. The implementer and reviewer read the brief and the spec and report back to the orchestrator. Deferred findings are promoted to committed follow-ups.
-    %% source: context/commands/subagent-implementation.md
+    %% source: context/commands/implement.md
     %% claim: only the orchestrator writes the scratchpad; subagents read the brief and report back
     Orch["orchestrator"] -->|"writes BRIEF · STATE · FOLLOWUPS"| Scratch[("scratchpad")]
     Scratch -->|"BRIEF + spec, read-only"| Impl["implementer<br/>fresh context"]
@@ -242,7 +242,7 @@ There is no `GOAL.md` or `PLAN.md`; the spec already is those. At the end you tr
 ### Worktrees
 
 
-A worktree is a second checkout on its own branch in a different directory. Under Claude Code it goes in `.claude/worktrees/<branch>/`, Claude Code's own worktree home, and its `EnterWorktree` tool moves the session there, so edits and shell commands land inside it with no `cd` discipline. Under OMP, Codex, or an unknown harness it goes in `<state-root>/worktrees/<branch>/` (`.atomic/worktrees/` by default). The `worktrees` preference can name another repository-relative path or `off`, and the `worktrees` field of `atomic where --json` prints the resolved directory. `/subagent-implementation` offers one before significant work, `/autopilot` creates one without asking, and on merge or squash `/commit` offers to clean it up. Atomic runs `git worktree add -b <branch>` itself so the branch is based on the current `HEAD` and a spec you just committed follows it; if a sandbox blocks that, the loop says so and works in place.
+A worktree is a second checkout on its own branch in a different directory. Under Claude Code it normally goes in `.claude/worktrees/<branch>/`; under OMP, Codex, or an unknown harness it goes in `<state-root>/worktrees/<branch>/` (`.atomic/worktrees/` by default). The `worktrees` preference can name another repository-relative path or `off`, and `atomic where --json` prints the resolved directory. `/implement` offers isolation for significant work on a clean tree, `/autopilot` uses a worktree, and `/cleanup` can retire it after protecting uncommitted or unpushed changes.
 
 
 ### Subagents
@@ -251,32 +251,10 @@ A worktree is a second checkout on its own branch in a different directory. Unde
 Atomic defines a roster of fresh-context agents, each scoped to one job, built on the [evaluator-optimizer pattern](https://www.anthropic.com/engineering/building-effective-agents): one agent writes, a separate one critiques and re-runs the tests. Scope is constrained too; the implementer's surgical mode refuses more than two files, and the strategist is read-only. Roster: [agents](/reference/agents).
 
 
-### Ship verbs
+### Shipping
 
 
-One `/commit` verb, escalated by token: bare `/commit` stages, commits, then asks how far to go; `/commit push`, `pr`, `merge`, `squash`, `squash merge` skip the prompt. It exists instead of a plain "commit and push" because of what runs around the git operation:
-
-```mermaid
-flowchart LR
-    accTitle: What a ship verb runs around the commit
-    accDescr: Staging is followed by a doc-impact check, then a wiki refresh unless the staged set is docs-only, then the commit message written from the diff. Merge tokens verify and test the merged result first.
-    %% source: context/commands/commit.md, context/_partials/signals-gate.md
-    %% claim: docs are checked before the wiki refresh so a new doc file lands in the scan
-    Stage["stage"] --> Docs["doc-impact check"]
-    Docs --> Gate{"docs-only?"}
-    Gate -- yes --> Msg["message from diff<br/>atomic-git-discipline"]
-    Gate -- no --> Wiki["wiki refresh<br/>atomic signals stale"] --> Msg
-    Msg --> Commit["commit"]
-    Commit -. "merge tokens" .-> Verify["verify + test<br/>merged result"]
-```
-
-Docs are checked before the wiki refresh so a newly staged doc file lands in the scan. Full token set: [commands](/reference/commands).
-
-
-### Session reports
-
-
-Long or scattered work loses its why: you come back tomorrow, or three terminals share one branch, and no session has the whole picture. `/session-report` writes a branch-scoped snapshot of what changed and why; the next commit on that branch folds it into the message, then deletes it. It is for Claude to read when it writes your commit, not for you.
+Ask for the Git action you want: commit, push, open a PR, squash, or merge. `atomic-git-discipline` governs messages and provider operations. `/autopilot` can carry out the selected action at the end of its workflow.
 
 
 ## Workflow preferences
@@ -302,13 +280,13 @@ Each key resolves per directory from three levels, read in this order:
 
 The first explicit line wins. Without one, the `origin` remote decides `source-control`, and `issue-tracker` takes a detected Linear, Jira, or Trello login, else the source-control host's tracker, else `filesystem` when that host has none (`bitbucket`, `none`). Profile refresh writes what it detects into the profile block as soft lines ending `# detected`, and only when exactly one provider is signed in; a line without that marker is never touched.
 
-`atomic workflow set <key> <value> [--level profile|realm|repo]` writes one explicit line, `profile` by default. `atomic workflow resolve [--json]` prints the resolved block, each value tagged with the level it came from, plus any warnings and the `atomic-git-discipline` references to read. The session-start hook puts the same block into context, and the global steering tells the agent to run `atomic workflow resolve` when it is missing. Ship verbs, `/report-issue`, and the follow-up flows act on it.
+`atomic workflow set <key> <value> [--level profile|realm|repo]` writes one preference. `atomic workflow resolve [--json]` shows the values, their sources, and the provider references to read. The session-start hook supplies the same block to shipping, issue, follow-up, and worktree workflows.
 
 
 ## Parking things for later
 
 
-A follow-up is a decision you defer, such as a non-blocking risk a reviewer flags at triage. `/follow-up <text>` records it in the resolved issue tracker, or in the local ledger when the tracker is `filesystem` or cannot take it. A deferred finding at the end of the implement loop, `defer` in `/subagent-diagnose`, and "Later" in a documentation prompt record the same way, and each result line names the tracker used. Set `issue-tracker` to `filesystem` to keep every follow-up local. `/follow-up review` triages stale ledger entries.
+Use `/follow-up <text>` to record work you are deferring. Atomic resolves the issue tracker and uses the local ledger when the tracker cannot take the item. Use `/follow-up review` to triage stale ledger entries.
 
 
 ## Skills vs commands
@@ -317,26 +295,20 @@ A follow-up is a decision you defer, such as a non-blocking risk a reviewer flag
 | | Fires on | Role | Example |
 |---|----------|------|---------|
 | **Skill** | matching language, automatically | the how: always-on discipline | "let's implement the auth module" activates `atomic-tdd` |
-| **Command** | the slash you type | the when: workflows you start on purpose | `/atomic-plan`, `/commit` |
+| **Command** | the slash you type | the when: workflows you start on purpose | `/atomic-plan`, `/implement` |
 
-A command can invoke a skill (every ship verb uses `atomic-git-discipline`); a skill never invokes a command. See [skills](/reference/skills) and [commands](/reference/commands).
+Commands load skills for reusable instructions. For example, `/autopilot` uses `atomic-git-discipline` for shipping. See [skills](/reference/skills) and [commands](/reference/commands).
 
 
 ## Documentation
 
 
-Code changes break docs silently: an endpoint renamed, a config field gone, a diagram showing a component that no longer exists. `/documentation` treats docs the way the wiki treats project context: scan, track, and prompt on drift.
-
-| Mode | When | Does |
-|------|------|------|
-| Bootstrap | first run | Scans for markdown; you pick which surfaces to track into a `## Documentation surfaces` table in the project's instructions |
-| Authoring | `/documentation` | Compares recent changes against tracked surfaces and walks the stale ones with you |
-| Maintenance | every ship verb | Same check on the staged diff, silent unless something is stale |
+Code changes can leave documentation stale. `atomic-documentation` compares the task diff with tracked surfaces. A standalone request offers choices for each affected surface; implementation updates required docs and reviews them before accepting the new scan baseline.
 
 
 ## Your work profile
 
 
-Claude reads `~/.atomic/profile.md` every session: facts that hold across repos, such as name, role, active projects, and the people you work with. Install seeds the `## Environment` section from your machine, and the `## Workflow preferences` block holds your profile-level [workflow preferences](#workflow-preferences); the rest fills in as facts surface in conversation. Volatility tags (`<stable>`, `<volatile>`, `<deterministic>`) tell Claude how eagerly to flag a contradiction, and `/retrospective-learning` resolves drift with your sign-off.
+`~/.atomic/profile.md` stores facts that hold across repositories, such as your role and active projects. Install seeds the `## Environment` section. Volatility tags distinguish stable, changing, and machine-derived facts. If `/retro` finds a contradiction in the evidence you asked it to review, it proposes a correction for your approval.
 
 Routing rule: anything still true in a different repo belongs in the profile; repo-specific conventions go to that project's wiki.
