@@ -737,7 +737,7 @@ func buildREADME(root string) string {
 	sb.WriteString("## Update the index\n\n")
 	sb.WriteString("From the realm root, run `atomic wiki scan` to update the member and bucket indexes.\n\n")
 	sb.WriteString("## Structure\n\n")
-	sb.WriteString("- `index.md` — realm overview, member repo links, and capture bucket links\n")
+	sb.WriteString("- `index.md` lists member repos and capture buckets.\n")
 	return sb.String()
 }
 

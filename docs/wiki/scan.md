@@ -1123,7 +1123,7 @@
 │   │   │   ├── staleness.go (154d233, 43L, 1213ch, 1213B)
 │   │   │   ├── staleness_test.go (7cb2cd0, 103L, 2995ch, 2995B)
 │   │   │   ├── testmain_test.go (2631640, 15L, 218ch, 218B)
-│   │   │   ├── wiki.go (3fa5865, 1163L, 35120ch, 35169B)
+│   │   │   ├── wiki.go (76ceddf, 1163L, 35098ch, 35145B)
 │   │   │   └── wiki_test.go (8dae315, 1911L, 66452ch, 66566B)
 │   │   └── workflow/ (11)
 │   │       ├── block.go (4dbd3d2, 294L, 7091ch, 7091B)
