@@ -213,24 +213,24 @@ func TestCheckRefs_OldSignalsRef_Fail(t *testing.T) {
 	}
 }
 
-// Read from the shipped command so the test cannot drift from a copy.
+// Read from the shared output contract so the test cannot drift from the snippet.
 func setupWikiWiringSnippet(t *testing.T) string {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "context", "commands", "setup-wiki.md"))
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "context", "skills", "atomic-wiki", "references", "repo-output.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, after, ok := strings.Cut(string(raw), "**Project steering file missing `@-ref`**")
+	_, after, ok := strings.Cut(string(raw), "### Loader-mode ref wiring")
 	if !ok {
-		t.Fatal("setup-wiki.md lost its ref-wiring step")
+		t.Fatal("repo-output.md lost its loader-mode ref-wiring step")
 	}
 	_, after, ok = strings.Cut(after, "```bash\n")
 	if !ok {
-		t.Fatal("setup-wiki.md ref-wiring step has no bash block")
+		t.Fatal("repo-output.md ref-wiring step has no bash block")
 	}
 	snippet, _, ok := strings.Cut(after, "\n```\n")
 	if !ok {
-		t.Fatal("setup-wiki.md ref-wiring bash block is unterminated")
+		t.Fatal("repo-output.md ref-wiring bash block is unterminated")
 	}
 	return snippet
 }

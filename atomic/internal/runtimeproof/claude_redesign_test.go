@@ -401,8 +401,8 @@ func TestClaudeLoadsTheWikiIndexRefWiredBesideAUserClaudeMd(t *testing.T) {
 		t.Fatalf("index loaded %d times before wiring; the fixture does not reproduce the gap", got)
 	}
 
-	raw := readFileString(t, filepath.Join(moduleRoot(), "..", "context", "commands", "setup-wiki.md"))
-	_, block, ok := strings.Cut(raw, "**Project steering file missing `@-ref`**")
+	raw := readFileString(t, filepath.Join(moduleRoot(), "..", "context", "skills", "atomic-wiki", "references", "repo-output.md"))
+	_, block, ok := strings.Cut(raw, "### Loader-mode ref wiring")
 	if ok {
 		_, block, ok = strings.Cut(block, "```bash\n")
 	}
@@ -410,7 +410,7 @@ func TestClaudeLoadsTheWikiIndexRefWiredBesideAUserClaudeMd(t *testing.T) {
 		block, _, ok = strings.Cut(block, "\n```\n")
 	}
 	if !ok {
-		t.Fatal("setup-wiki.md lost its ref-wiring bash block")
+		t.Fatal("repo-output.md lost its loader-mode ref-wiring bash block")
 	}
 	wire := exec.Command("bash", "-c", block)
 	wire.Dir = c.repo

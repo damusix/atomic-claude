@@ -3,10 +3,8 @@
 description: "Domain: code-intel. Tree-sitter symbol graph, the `atomic code` verbs, and the MCP server."
 globs:
   - "atomic/internal/codeintel/**"
-  - "context/_partials/agent-code-intel.md"
 paths:
   - "atomic/internal/codeintel/**"
-  - "context/_partials/agent-code-intel.md"
 ---
 
 Domain: code-intel. Tree-sitter symbol graph, the `atomic code` verbs, and the MCP server.

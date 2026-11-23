@@ -2226,7 +2226,7 @@ func TestRecoveryTreatsNeverWrittenBlockAsUnapplied(t *testing.T) {
 // publication from its verified backup.
 func TestRollbackJournalsRestoresAppliedBackup(t *testing.T) {
 	home := newHome(t)
-	target := filepath.Join(home, ".claude", "commands", "commit.md")
+	target := filepath.Join(home, ".claude", "commands", "atomic-help.md")
 	writeBlockFile(t, target, "original bytes\n")
 
 	staged := "user prose\n<atomic>\nnew body\n</atomic>\n"
@@ -2398,7 +2398,7 @@ func TestSimulateRecoveriesNeutralizesTreeWriteSeams(t *testing.T) {
 // reports the restore without writing.
 func TestSimulateRollbacksPreviewsRestoreWithoutWriting(t *testing.T) {
 	home := newHome(t)
-	target := filepath.Join(home, ".claude", "commands", "commit.md")
+	target := filepath.Join(home, ".claude", "commands", "atomic-help.md")
 	writeBlockFile(t, target, "original bytes\n")
 	staged := "user prose\n<atomic>\nnew body\n</atomic>\n"
 	tx, err := NewTransaction(home, "op-preview-rollback", Plan{Mutations: []Mutation{fileMutation(t, "global-claude", target, staged)}})

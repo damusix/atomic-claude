@@ -8,11 +8,10 @@ import (
 	"testing"
 
 	"github.com/damusix/atomic-claude/atomic/internal/artifacts"
-	"github.com/damusix/atomic-claude/atomic/internal/frontmatter"
 	"github.com/damusix/atomic-claude/atomic/internal/templaterender"
 )
 
-var wiredCommands = []string{"commit", "review-branch", "git-cleanup", "watch-ci", "report-issue", "autopilot", "subagent-diagnose"}
+var wiredCommands = []string{"review-branch", "report-issue"}
 
 func expandedCommand(t *testing.T, cat *artifacts.Catalog, name string) string {
 	t.Helper()
@@ -56,11 +55,7 @@ func TestWiredCommands_NameNoProviderCLI(t *testing.T) {
 func TestWiredCommands_PrintTheResolvedProviderLine(t *testing.T) {
 	cat := loadSkillCorpus(t)
 	for name, key := range map[string]string{
-		"commit":            "source-control",
-		"watch-ci":          "source-control",
-		"subagent-diagnose": "source-control",
-		"report-issue":      "issue-tracker",
-		"autopilot":         "issue-tracker",
+		"report-issue": "issue-tracker",
 	} {
 		line := expandPartial(t, `{{ template "resolved-provider" "`+key+`" }}`)
 		if !strings.Contains(line, "`"+key+": <value> (<level>)`") {
@@ -160,80 +155,45 @@ func TestAtomicHelp_NamesNoProviderCLI(t *testing.T) {
 	}
 }
 
-// A linked worktree can sit anywhere the harness or preference puts it, and
-// git before 2.31 lacks --path-format, so /atomic-help resolves both dirs with pwd -P.
-func TestAtomicHelp_DerivesInWorktreeFromTheGitDirs(t *testing.T) {
+func TestAtomicHelp_RoutesFromIntentAndEvidence(t *testing.T) {
 	body := expandedCommand(t, loadSkillCorpus(t), "atomic-help")
-	for _, want := range []string{`cd "$(git rev-parse --git-dir)" 2>/dev/null && pwd -P`, `cd "$(git rev-parse --git-common-dir)" 2>/dev/null && pwd -P`} {
+	for _, want := range []string{"user's intent takes precedence", "failed probe is unknown", "one action and one reason"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("/atomic-help lacks %q", want)
 		}
-	}
-	for _, banned := range []string{"--path-format", "path includes"} {
-		if strings.Contains(body, banned) {
-			t.Errorf("/atomic-help uses %q", banned)
-		}
-	}
-}
-
-// Shell variables do not survive between tool calls, so the count takes the
-// base the model resolved rather than $BASE.
-func TestAtomicHelp_TakesTheBaseFromBaseResolution(t *testing.T) {
-	body := expandedCommand(t, loadSkillCorpus(t), "atomic-help")
-	if !strings.Contains(body, expandPartial(t, `{{ template "base-resolution" . }}`)) {
-		t.Error("/atomic-help does not compose base-resolution")
-	}
-	if !strings.Contains(body, "git rev-list --count <base>..HEAD") || strings.Contains(body, `"$BASE"..HEAD`) {
-		t.Error("/atomic-help does not count commits against the resolved <base>")
 	}
 }
 
 // The worktree location differs by harness and preference, so no flow may
 // assume the Claude Code default.
 func TestWorktreeFlows_UseTheResolvedLocation(t *testing.T) {
-	setup := expandPartial(t, `{{ template "worktree-setup" . }}`)
-	for _, want := range []string{
-		"atomic where --json", "git worktree add <dir>/<branch> -b <branch>", "worktrees: off", "worktree-entry capability",
-		"worktree location unresolved. working in place.", "git check-ignore -q <dir>/probe", "add to .gitignore: /<dir>/",
-	} {
+	path := filepath.Join(repoRoot, "context", "skills", "atomic-git-discipline", "references", "worktrees.md")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"atomic where --json", "atomic workflow resolve", "git worktree add <dir>/<branch> -b <branch>", "worktrees: off", "worktree-entry capability", "git worktree list"} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("worktrees reference lacks %q", want)
+		}
+	}
+	setup := expandedCommand(t, loadSkillCorpus(t), "setup-wiki")
+	for _, want := range []string{"atomic where --json", "atomic repo init"} {
 		if !strings.Contains(setup, want) {
-			t.Errorf("worktree-setup lacks %q", want)
-		}
-	}
-	cleanup := expandPartial(t, `{{ template "worktree-cleanup-prompt" . }}`)
-	for _, want := range []string{"git worktree list", "references/worktrees.md"} {
-		if !strings.Contains(cleanup, want) {
-			t.Errorf("worktree-cleanup-prompt lacks %q", want)
-		}
-	}
-	for name, body := range map[string]string{"worktree-setup": setup, "worktree-cleanup-prompt": cleanup} {
-		if strings.Contains(body, ".claude/worktrees") {
-			t.Errorf("%s hard-codes .claude/worktrees", name)
-		}
-	}
-}
-
-// An explicit worktrees path is outside what atomic repo init ignores, so the
-// user needs the literal line or the linked worktree shows as untracked.
-func TestSetupWiki_ReportsTheIgnoreLineForAnExplicitPath(t *testing.T) {
-	body := expandedCommand(t, loadSkillCorpus(t), "setup-wiki")
-	for _, want := range []string{"atomic where --json", "`/<worktrees>/`", "atomic repo init", "references/worktrees.md", "audit row was not n/a"} {
-		if !strings.Contains(body, want) {
 			t.Errorf("/setup-wiki lacks %q", want)
 		}
 	}
-	if strings.Contains(body, "check-ignore -q .claude/worktrees/") {
-		t.Error("/setup-wiki probes the Claude default instead of the resolved location")
-	}
 }
 
-// With no hosted provider, merges still work locally and the remote-only verbs
-// refuse instead of failing halfway through a push or change request.
-func TestWiredCommands_CommitHandlesSourceControlNone(t *testing.T) {
-	body := expandedCommand(t, loadSkillCorpus(t), "commit")
-	for _, want := range []string{"source-control: none", "local-merge path", "atomic workflow set source-control"} {
-		if !strings.Contains(body, want) {
-			t.Errorf("/commit lacks %q", want)
+func TestShipping_RequiresAuthorization(t *testing.T) {
+	path := filepath.Join(repoRoot, "context", "skills", "atomic-git-discipline", "references", "shipping.md")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"does not authorize a push", "without explicit authorization", "Preserve unrelated work"} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("shipping reference lacks %q", want)
 		}
 	}
 }
@@ -249,34 +209,6 @@ func TestWiredCommands_ReportIssueFilesToTheLedger(t *testing.T) {
 	}
 }
 
-// The "`Agent` column" table header in /atomic-plan trips the wire-token
-// pattern, so the command wire check below strips it.
-func TestAtomicPlanAgentColumnIsKnownWireFalsePositive(t *testing.T) {
-	body := expandedCommand(t, loadSkillCorpus(t), "atomic-plan")
-	if !strings.Contains(body, "The `Agent` column") {
-		t.Fatal("/atomic-plan no longer carries the `Agent` column text; drop this test")
-	}
-	wire := false
-	for _, use := range HarnessRuntimeUses([]byte("The `Agent` column")) {
-		wire = wire || use.Wire
-	}
-	if !wire {
-		t.Error("the `Agent` column text no longer trips the wire-token pattern; drop this test")
-	}
-}
-
-// /watch-ci names its background dispatch in neutral words the steering
-// vocabulary maps; a Claude-only token would be dead text on other harnesses.
-func TestWatchCI_DispatchesNamedAgentInBackground(t *testing.T) {
-	body := expandedCommand(t, loadSkillCorpus(t), "watch-ci")
-	if _, _, err := frontmatter.Parse(body); err != nil {
-		t.Fatalf("/watch-ci frontmatter: %v", err)
-	}
-	if !strings.Contains(body, "Dispatch the harness's default general agent, by name, in the background") {
-		t.Error("/watch-ci does not dispatch a named agent in the background")
-	}
-}
-
 // The Claude steering vocabulary maps neutral words to native tools; a Claude
 // tool or model spelled in the canonical body is dead text on other harnesses.
 func TestCanonicalCommandsAndAgents_CarryNoClaudeWireToken(t *testing.T) {
@@ -284,9 +216,6 @@ func TestCanonicalCommandsAndAgents_CarryNoClaudeWireToken(t *testing.T) {
 	for _, kind := range []artifacts.Kind{artifacts.KindCommand, artifacts.KindAgent} {
 		for _, a := range cat.OfKind(kind) {
 			body := string(a.Body)
-			if a.Source == "commands/atomic-plan.md" {
-				body = strings.ReplaceAll(body, "The `Agent` column", "")
-			}
 			for _, use := range HarnessRuntimeUses([]byte(body)) {
 				if use.Wire {
 					t.Errorf("%s carries the Claude-only token %q", a.Source, use.Name)
@@ -321,17 +250,9 @@ func TestCanonicalDispatches_NameTheAtomicAgent(t *testing.T) {
 		}
 	}
 
-	for id, named := range map[string]string{
-		"skill:skills/atomic-wiki/references/repo.md": "dispatch `atomic-reviewer`",
-		"command:commands/subagent-diagnose.md":       "Dispatch `atomic-investigator`",
-		"command:commands/retrospective-learning.md":  "Dispatch `atomic-investigator`",
-	} {
-		a, ok := cat.Get(id)
-		if !ok {
-			t.Fatalf("%s missing from the corpus", id)
-		}
-		if !strings.Contains(string(a.Body), named) {
-			t.Errorf("%s does not carry the named dispatch %q", id, named)
-		}
+	const source = "skill:skills/atomic-wiki/references/repo.md"
+	a, ok := cat.Get(source)
+	if !ok || !strings.Contains(string(a.Body), "Send `atomic-reviewer`") {
+		t.Errorf("%s must name the wiki reviewer", source)
 	}
 }

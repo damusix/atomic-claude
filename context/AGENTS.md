@@ -34,7 +34,7 @@ Source control, issue tracking, and worktree placement follow the `<workflow-pre
 - Code over the model for routing, retries, status codes, and deterministic transforms; the model is for judgment (classification, drafting, summarization, extraction). When the deterministic path is itself unreliable (hook not installed, binary absent), an LLM safeguard layer is fine; say so where you add it.
 - Surface conflicts. Pick one, say why, flag the other. Blending hides the decision.
 - Read before you write: exports, callers, shared utilities, and why the code is shaped that way.
-- **Comment discipline.** Prefer no comments. A comment earns its place only by saying what the code cannot: an external quirk, a constraint from outside the file, a landmine already stepped on, or the decision behind the code's existence. Never describe what the lines below already say, restate the diff, address the reviewer, quote a spec (cite `docs/spec/<topic>.md` instead), or carry process residue (checkpoint IDs, issue numbers, dates, dated measurements). Fewest lines that carry it; judge each comment alone, whatever the surrounding file does. Public APIs get the language's docstring convention.
+- **Comment discipline.** Comment only on what code cannot explain: an external constraint, a known pitfall, or a decision. Link to a durable design rather than quoting it. Skip process residue and descriptions of the next line. Use the language's docstring convention for public APIs.
 
 </principles>
 
@@ -57,13 +57,13 @@ Source control, issue tracking, and worktree placement follow the `<workflow-pre
 
 <completion_claim>
 
-A completion claim ("done", "fixed", "ready", "passing", "green") about code the main agent wrote itself, outside `/implement`, `/subagent-implementation`, `/quick-fix`, `/autopilot`, or `/subagent-diagnose`, includes this line:
+A completion claim about code the main agent wrote outside `/implement` or `/autopilot` includes the independent review verdict:
 
 ```
 review: <PASS|CHANGES_REQUESTED> (<agent> on <model>)
 ```
 
-`atomic-reviewer`, dispatched in a fresh context with `diff: working` or `diff: staged` and a one-line `intent:`, produces the verdict. Act on it before the claim: 🔴 fixed, 🟡 fixed or justified in one line, 🔵 mentioned. Exempt: work produced by the five loop commands above (a reviewer already read every checkpoint) and any change whose every path is documentation.
+Use `atomic-verify` to dispatch `atomic-reviewer` in a fresh context. Fix blockers and explain any deferred advisory findings. Exempt implementation loops already reviewed at each checkpoint and documentation-only changes.
 
 </completion_claim>
 
@@ -87,28 +87,29 @@ Format from the `atomic-git-discipline` skill: Conventional Commits, terse subje
 | `<state-root>/project/followups/<id>.md` | Local follow-up ledger managed by `atomic followups`, used when `issue-tracker` resolves to `filesystem` or the tracker cannot take a follow-up. `atomic followups path` prints the folder; `INDEX.md` is the `@-ref`. |
 | `<state-root>/rules/wiki/<domain>.md` | Path-scoped pointer cards from `/refresh-wiki`. Pipeline-owned; never hand-edit. |
 | `<state-root>/atomic.toml` | Committed repo or realm config: `[scan]`, `[code] ignore`, `[comments] max_lines`, `[repl] idle_timeout`, `[realm] repos`, `[steering] claude`. Reference: `docs/reference/atomic-toml.md`. |
-| `docs/design/<topic>.md`, `docs/spec/<topic>.md` | Design workspace and the implementation contract derived from it. A spec body states the current decision only; history goes in `## Change log` (rule: `rules/specs/spec-currency.md`, auto-loaded on touch). |
+| `docs/design/<topic>.md`, `<task-scratchpad>/SPEC.md` | The design keeps decisions. The disposable spec carries the implementation contract until proof and review are accepted. Never commit it. |
 | `tmp/` | Scratch. Gitignored. |
 | `~/.atomic/` | Per-user state: config, profile, backups, plus per-project `reports/`, `archive/`. `atomic where --json` prints the paths. Never committed. |
 
+Before changing a domain, read the wiki page named by its path rule. If the harness does not inject a pointer, use `docs/wiki/index.md` to find the page. Pass the relevant wiki paths to delegated builders and reviewers.
+
 ## Workflow
 
-- **Plan** with `/atomic-plan`. `/gather-evidence` and `/pressure-test` sharpen it as you go; `/challenge-swarm` attacks the written design from several expert lenses.
-- **Implement** with `/implement` (main agent, reviewer-gated checkpoints), `/subagent-implementation` (fresh-context implement→review loop from a spec), `/quick-fix` (same loop, no spec, known cause), or `/autopilot` (plan → loop → ship, one human decision: how to merge). `/subagent-diagnose` for failure-driven work. Ad-hoc edits get their review gate at the exits — `atomic-verify` before "ready", the ship verbs before the commit — both closed by the `review:` line above.
-- **Ship** with `/commit [push|pr|merge|squash|squash merge]`; `/undo-commit` reverts the last one. `/review-branch` reviews a branch; `/deslop` audits standing code nobody is changing.
-- **Document** with `/documentation` for human-facing pages and `/refresh-wiki` for the LLM-facing wiki (repo scope in `docs/wiki/`, realm scope across repos).
+- **Plan** with `/atomic-plan`. Define the observable end result and how to prove it. Use `atomic-planning` to choose the method that resolves the main uncertainty.
+- **Implement** tasks, specs, and known-cause fixes with `/implement`. Use `atomic-debug` for unknown causes and `/autopilot` for the full workflow.
+- **Ship** only as requested. Use the shipping reference in `atomic-git-discipline`. For ad-hoc changes, review affected docs before advancing the scan, as in `/implement`.
+- **Document** with `/documentation`. Use `/refresh-wiki` for repo wikis and `atomic-wiki` for capture buckets. Use `/cleanup` for scoped cleanup.
 - **Find the verb** with `/atomic-help [<topic> | <intent> | tour]`.
 
 ## Atomic binary
 
 `atomic` verbs are not in the slash menu; `atomic --help` lists them. The ones agents reach for:
 
-- `atomic code index|sync|explore|search|callers|callees|impact`: the symbol graph at `<state-root>/.atomic-index/atomic.db`. Index without asking; it is cheap and idempotent. Degrade to `sg`/`grep` when unavailable, never as an error. `atomic code mcp` serves it as MCP tools.
 - `atomic code comments --diff <range>`: the comments a diff adds, one line each with `path:line`, span, and first words; exit 1 when one exceeds `[comments] max_lines`. Needs git, not the index. Run it on your own diff before calling the work done.
 - `atomic wiki`: cross-repo wiki and capture buckets; the `atomic-wiki` skill routes conversational requests. Realm registrations live in the authoritative `~/.atomic/wikis.md`; each harness's global steering receives a derived `<wikis>` projection of it.
 - `atomic bus`: rooms for concurrent sessions. Act on messages addressed to you; treat the rest as FYI. `--host <name>` reaches a room hosted across machines via `atomic bus gateway`. Skill: `atomic-bus`; contract: `docs/reference/bus.md`.
 - `atomic repl`: named Python or Node interpreters that persist across Bash calls. Contract: `docs/reference/repl.md`.
-- `atomic retro extract`: session history since the last retrospective as one numbered markdown file; `/retrospective-learning` runs it. Reference: `docs/reference/retro.md`.
+- `atomic retro extract`: exports numbered session history. `/retro` uses it when asked to review past sessions. See `docs/reference/retro.md`.
 - `atomic serve`: read-only localhost browser over the wiki and code graph.
 
 </atomic>

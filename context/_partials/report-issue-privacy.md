@@ -1,5 +1,5 @@
 {{- define "report-issue-privacy" -}}
-An issue may be public and outlive any edit; treat the body as world-readable whatever the tracker. Before drafting, scrub the material the user pasted or that you gathered from their repo:
+Treat issue text as public regardless of the tracker. Redact source material before drafting:
 
 <constraints>
 
@@ -10,8 +10,8 @@ An issue may be public and outlive any edit; treat the body as world-readable wh
   - API keys, tokens, passwords, connection strings, IP addresses → `<redacted>`.
   - Client / company / project names not needed to reproduce → `<project>`.
 - **Keep the signal.** Exact error text, command names, `atomic` / artifact identifiers, versions, and stack frames stay verbatim — they are what makes the issue reproducible. Redact identity, not mechanics.
-- **When redaction would drop something load-bearing, ask** rather than guess or leak. Never invent a repro detail to replace a redacted one.
-- **Preview and confirm.** Before the issue is created, print the full rendered issue (title, body, target project, labels) and get an explicit go-ahead from the user. Do not post on inference.
+- If redaction removes a fact needed to reproduce the issue, ask what can be shared. Do not invent a substitute.
+- Preview the title, body, target, and labels. Get explicit approval before creating an issue, including when using a template.
 
 </constraints>
 {{- end -}}

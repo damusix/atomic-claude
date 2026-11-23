@@ -88,50 +88,13 @@ The shipped rules today are [`context/rules/python/style.md`](../../context/rule
 
 ### Partial composition
 
-Editing a partial reaches further than its direct consumers, because partials nest. `merge-flow-preflight`, `merge-flow-steps`, `squash-flow-preflight`, and `squash-flow-steps` are `{{ define }}` blocks inside [`context/_partials/merge-flow.md`](../../context/_partials/merge-flow.md) and [`context/_partials/squash-flow.md`](../../context/_partials/squash-flow.md), not files of their own.
+Agents use partials for shared guidance and stable report formats. Load the planning and shipping references only when their topic applies.
 
-```
-commit-flow  ──> review-gate, doc-impact, signals-gate
-doc-impact   ──> followup-sink
-loop-finalize ─> followup-sink
-followup-sink ─> report-issue-privacy, resolved-provider
-pr-flow      ──> base-resolution
-merge-flow   ──> base-resolution, signals-gate, worktree-cleanup-prompt,
-                 merge-flow-preflight, merge-flow-steps
-squash-flow  ──> base-resolution, review-gate, doc-impact, signals-gate,
-                 squash-flow-preflight, squash-flow-steps
-agent-implementer-workflow ──> agent-code-intel, agent-search-tooling,
-                               agent-tdd-signals, agent-where
-```
+| Command source | Partials composed |
+|-----------------|-------------------|
+| `report-issue.md`, `report-issue-with-atomic.md` | `report-issue-privacy` |
 
-`resolved-provider` is the one partial invoked with a string argument instead of `.`: `{{ template "resolved-provider" "source-control" }}` or `"issue-tracker"`. Its body prints that preference from the `<workflow-preferences level='resolved'>` block, falling back to `atomic workflow resolve`.
-
-| Agent source | Partials composed |
-|--------------|-------------------|
-| `atomic-implementer.md` | `agent-atomic-voice`, `agent-comment-discipline`, `agent-implementer-workflow`, `agent-readability`, `agent-shared-rules`, `agent-signals-output`, `agent-yagni` |
-| `atomic-reviewer.md` | `agent-atomic-voice`, `agent-code-intel`, `agent-comment-discipline`, `agent-readability`, `agent-where`, `agent-yagni` |
-| `atomic-investigator.md` | `agent-atomic-voice`, `agent-code-intel`, `agent-search-tooling`, `agent-where` |
-| `atomic-wiki-inferrer.md` | `agent-atomic-voice`, `agent-code-intel`, `agent-where` |
-| `atomic-wiki-writer.md` | `agent-atomic-voice`, `agent-code-intel` |
-| `atomic-auditor.md` | `agent-atomic-voice`, `agent-code-intel`, `agent-comment-discipline`, `agent-readability`, `agent-yagni` |
-| `atomic-strategist.md` | `agent-atomic-voice`, `agent-yagni` |
-| `atomic-deslopper.md` | `agent-atomic-voice`, `agent-code-intel`, `agent-comment-discipline`, `agent-search-tooling`, `agent-yagni` |
-
-| Command source | Partials composed directly |
-|----------------|----------------------------|
-| `commit.md` | `commit-flow`, `push-flow`, `pr-flow`, `merge-flow`, `squash-flow`, `git-safety`, `resolved-provider` |
-| `implement.md`, `subagent-implementation.md` | `handoff`, `worktree-setup`, `implement-loop`, `loop-finalize` |
-| `autopilot.md` | `worktree-setup`, `implement-loop`, `loop-finalize`, `resolved-provider` |
-| `quick-fix.md` | `handoff`, `implement-loop`, `loop-finalize` |
-| `subagent-diagnose.md` | `base-resolution`, `followup-sink`, `resolved-provider` |
-| `report-issue.md` | `report-issue-privacy`, `resolved-provider` |
-| `report-issue-with-atomic.md` | `report-issue-privacy` |
-| `watch-ci.md` | `resolved-provider` |
-| `challenge-swarm.md`, `documentation.md`, `follow-up.md`, `refresh-wiki.md` | `followup-sink` |
-| `atomic-help.md`, `git-cleanup.md`, `review-branch.md` | `base-resolution` |
-| `deslop.md` | `worktree-setup`, `git-safety` |
-
-`atomic-plan.md`, `gather-evidence.md`, `pressure-test.md`, `retrospective-learning.md`, `session-report.md`, `setup-wiki.md`, and `undo-commit.md` are self-contained. [`context/AGENTS.md`](../../context/AGENTS.md) is an expanded kind but composes no partial today.
+`context/AGENTS.md` is an expanded kind but composes no partial today.
 
 ### Install routing
 
@@ -315,7 +278,7 @@ flowchart TD
 - **config**: [`.githooks/pre-commit`](../../.githooks/pre-commit) has no render, bundle, or frontend stage, since none of those outputs is committed; its one stage, the follow-ups `INDEX.md` render, belongs to config ([`docs/wiki/config.md`](config.md)).
 - **doctor**: [`atomic/internal/doctor/checks_manifest.go`](../../atomic/internal/doctor/checks_manifest.go) and [`atomic/internal/validate/bundle.go`](../../atomic/internal/validate/bundle.go) consume `manifestcheck.Compare`, so changing a `bundlespec` predicate changes what both report. [`atomic/internal/doctor/checks_install.go`](../../atomic/internal/doctor/checks_install.go) calls `claudeinstall.Diff`: an absent artifact is FAIL, a differing one is drift unless the ledger marks it left. [`atomic/internal/doctor/checks_output_style.go`](../../atomic/internal/doctor/checks_output_style.go) reads the same `outputStyle` key the install path seeds. See [`docs/wiki/doctor.md`](doctor.md).
 - **doctor, config**: install creates `~/.atomic/profile.md` through [`atomic/internal/profile`](../../atomic/internal/profile) and prints `ProfileNudge`; profile content and its freshness window belong to those domains.
-- **workflow**: every ship verb and orchestrator command lives in [`context/commands/`](../../context/commands). Changing a ship-verb flow means editing [`context/_partials/commit-flow.md`](../../context/_partials/commit-flow.md) and its siblings, because the partials fan out to every command in the family. `followup-sink` and `resolved-provider` carry the follow-up sink and the workflow-preference lookup into every command that composes them.
+- **workflow**: commands live in [`context/commands/`](../../context/commands). Shipping operations live in the `atomic-git-discipline` references; `followup-sink` and `resolved-provider` carry shared guidance.
 - **docs-meta**: [`context/AGENTS.md`](../../context/AGENTS.md) installs as every user's [`CLAUDE.md`](../../CLAUDE.md), while the repo-root [`CLAUDE.md`](../../CLAUDE.md) never installs. A change to [`context/AGENTS.md`](../../context/AGENTS.md) reaches every user on their next update.
 - **Lockstep contract**: [`context/_partials/agent-yagni.md`](../../context/_partials/agent-yagni.md) and the "Simplicity first (YAGNI)" ladder in the `<principles>` block of [`context/AGENTS.md`](../../context/AGENTS.md) carry the same steps verbatim. [`context/AGENTS.md`](../../context/AGENTS.md) does not compose `agent-yagni`, so nothing enforces the match. Edit both together.
 - **Stale cross-references**: the generated `manifest.go` template in [`atomic/internal/tools/bundle-mirror/main.go`](../../atomic/internal/tools/bundle-mirror/main.go) says "commit the result", and `manifestcheck` names its baseline "committed", though `manifest.go` is gitignored. The Mermaid block at `docs/design/artifact-templates.md:153` draws a `templates/` tree, a `render-templates` step, and a three-stage pre-commit hook that do not exist.

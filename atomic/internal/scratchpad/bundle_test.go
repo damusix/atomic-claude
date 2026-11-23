@@ -13,8 +13,6 @@ func bundleDir(root, slug string) string {
 	return filepath.Join(config.ScratchpadDir(root), slug)
 }
 
-// New with --purpose plan must seed BRIEF/STATE/FOLLOWUPS in the bundle and
-// docs/design + docs/spec outside it, per the purpose matrix.
 func TestScratchpadNewPlanSeedsBundleAndDocs(t *testing.T) {
 	root := t.TempDir()
 
@@ -38,8 +36,8 @@ func TestScratchpadNewPlanSeedsBundleAndDocs(t *testing.T) {
 		t.Errorf("Created/Updated must be set: %+v", b.Meta)
 	}
 
-	dir := bundleDir(root, "my-feature")
-	for _, name := range []string{"meta.toml", "BRIEF.md", "STATE.md", "FOLLOWUPS.md"} {
+	dir := b.Root
+	for _, name := range []string{"meta.toml", "BRIEF.md", "STATE.md", "FOLLOWUPS.md", "SPEC.md"} {
 		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
 			t.Errorf("expected %s to exist: %v", name, err)
 		}
@@ -50,12 +48,48 @@ func TestScratchpadNewPlanSeedsBundleAndDocs(t *testing.T) {
 		}
 	}
 
-	for _, docPath := range []string{
-		filepath.Join(root, "docs", "design", "my-feature.md"),
-		filepath.Join(root, "docs", "spec", "my-feature.md"),
-	} {
-		if _, err := os.Stat(docPath); err != nil {
-			t.Errorf("expected %s to exist: %v", docPath, err)
+	designPath := filepath.Join(root, "docs", "design", "my-feature.md")
+	if _, err := os.Stat(designPath); err != nil {
+		t.Errorf("expected %s to exist: %v", designPath, err)
+	}
+	legacyPath := filepath.Join(root, "docs", "spec", "my-feature.md")
+	if _, err := os.Stat(legacyPath); !os.IsNotExist(err) {
+		t.Errorf("expected %s to be absent, got %v", legacyPath, err)
+	}
+}
+
+func TestScratchpadNewPlanPreservesExistingSpecs(t *testing.T) {
+	root := t.TempDir()
+	legacyDir := filepath.Join(root, "docs", "spec")
+	legacyPath := filepath.Join(legacyDir, "my-feature.md")
+	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(legacyPath, []byte("legacy validation history"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	b, _, err := New(root, "my-feature", "plan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	specPath := filepath.Join(b.Root, "SPEC.md")
+	if err := os.WriteFile(specPath, []byte("edited task spec"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, purpose := range []string{"plan", "implement"} {
+		reopened, extended, err := New(root, "my-feature", purpose)
+		if err != nil || !extended || reopened.Root != b.Root {
+			t.Fatalf("New(%s) did not reopen %s: bundle=%v extended=%v err=%v", purpose, b.Root, reopened, extended, err)
+		}
+		for path, want := range map[string]string{
+			specPath:   "edited task spec",
+			legacyPath: "legacy validation history",
+		} {
+			if raw, err := os.ReadFile(path); err != nil || string(raw) != want {
+				t.Errorf("after New(%s), %s = %q, %v; want %q", purpose, path, raw, err, want)
+			}
 		}
 	}
 }
@@ -131,7 +165,7 @@ func TestScratchpadNewExtendsExistingBundleAdditively(t *testing.T) {
 		t.Errorf("Purposes = %v, want [plan implement]", b.Meta.Purposes)
 	}
 
-	// docs/design + docs/spec were created by the earlier plan call and stay untouched.
+	// The durable design outlives the plan phase.
 	if _, err := os.Stat(filepath.Join(root, "docs", "design", "my-feature.md")); err != nil {
 		t.Errorf("expected docs/design/my-feature.md to still exist: %v", err)
 	}
@@ -153,6 +187,9 @@ func TestScratchpadNewSamePurposeTwiceDoesNotDuplicate(t *testing.T) {
 	}
 	if len(b.Meta.Purposes) != 1 {
 		t.Errorf("Purposes = %v, want a single implement entry", b.Meta.Purposes)
+	}
+	if _, err := os.Stat(filepath.Join(b.Root, "SPEC.md")); !os.IsNotExist(err) {
+		t.Errorf("implement should leave SPEC.md for the caller to create, got %v", err)
 	}
 }
 

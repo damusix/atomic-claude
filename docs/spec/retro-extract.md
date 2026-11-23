@@ -4,13 +4,13 @@
 ## Goal
 
 
-`atomic retro extract` turns every Claude Code session modified since a date into one numbered markdown file (or N size-balanced shards) holding only user-typed text, slash-command invocations, and the assistant's `Skill` / `Agent` calls. `/retrospective-learning` reads that file instead of raw `.jsonl`, runs its scanners on Sonnet, and takes `file:line` references instead of re-typed quotes.
+`atomic retro extract` writes selected Claude Code session history as numbered Markdown. The `atomic-retro` skill uses it only when the user requests a review across sessions.
 
 
 ## Non-goals
 
 
-- No change to what the retrospective does with findings: tiers, the indexed walk, the run log, the learnings file.
+- No automatic history extraction or checks of earlier retro decisions.
 - No assistant prose or thinking in the output; the assistant side is reduced to `Skill` / `Agent` tool calls.
 - No `subagents/` transcripts.
 - No `--json` output; markdown only.
@@ -37,8 +37,8 @@
 - [ ] Exit codes: 0 success; 2 usage (unparsable `--since`, `--shards < 1`, `--shards` without `-o`, unknown verb or flag); 1 runtime (projects dir unreadable, output unwritable, unsupported or ambiguous history source).
 - [ ] The built binary run over the real `~/.claude/projects` (about 130 files, 740 MB) finishes in under 30 seconds; input and output sizes and the wall time are recorded in the implementation log, with no transcript text.
 - [ ] `atomic retro extract` appears in `cliusage`'s golden table, `TestDeriveCommandsGolden` and the root verb-count test pass, and `atomic validate artifacts` accepts every citation of the verb in the artifacts.
-- [ ] `context/commands/retrospective-learning.md` runs the extractor in pre-flight (`--shards 4`, into the scratchpad), briefs one Sonnet scanner per shard file to answer with `file:line + category` and no re-typed quotes, runs the prior-retro auditor on Sonnet, and recovers each cited line with `sed` in Step 4. Scope wording no longer says "last 5 sessions" or reads `SESSIONS_DIR`.
-- [ ] The verb is discoverable: `context/commands/atomic-help.md` names it in the retrospective topic row, the binary jobs table, and tour stage 4; `context/CLAUDE.md`'s atomic-binary list carries it; `docs/reference/retro.md` exists, is in the VitePress sidebar and the binary table of `docs/reference/commands.md`, and has a row in the root `CLAUDE.md` documentation-surfaces table. The help-coverage loop in `CLAUDE.md` prints no `MISSING:` line.
+- [ ] The history reference calls the extractor only on request, with an explicit date and the requested project scope.
+- [ ] `docs/reference/retro.md` and the commands and skills references distinguish session review, historical review, and checks of prior decisions.
 - [ ] `go test ./...`, `go vet ./...`, and `gofmt -l .` are clean; `npm run docs:build` succeeds.
 
 
@@ -72,8 +72,9 @@ atomic/
     ├── cmd_retro.go                             A  buildRetroCmd, retroAction
     └── cmd_retro_test.go                        A
 context/
-├── commands/retrospective-learning.md           M  pre-flight extract, Sonnet scanners, line refs
-├── commands/atomic-help.md                      M  retrospective row, binary jobs row, tour stage 4
+├── commands/retro.md                            A  retrospective entry point
+├── commands/retrospective-learning.md            D  former entry point
+├── skills/atomic-retro/                         A  workflow and opt-in history reference
 └── CLAUDE.md                                    M  atomic-binary bullet
 docs/
 ├── reference/retro.md                           A  verb reference
@@ -136,17 +137,8 @@ atomic/cmd/atomic/cmd_retro.go
 atomic/cmd/atomic/cmd_retro_test.go
   dispatch — usage errors exit 2, sandboxed HOME end-to-end writes the file, stdout default, shard naming
 
-context/commands/retrospective-learning.md
-  Pre-flight — run the extractor into $SCRATCH; drop SESSIONS_DIR
-  Step 1 — scope wording: sessions since the last run
-  Step 2b — one Sonnet scanner per shard, file:line answers, artifact attribution by cited line
-  Step 2c — prior-retro auditor dispatched on Sonnet, same brief shape
-  Step 4 — sed recovery of cited lines before categorizing
-
-context/commands/atomic-help.md
-  retrospective topic row — names the extractor
-  Binary subcommands jobs table — row for extracting session history
-  Tour stage 4 — one line for atomic retro extract
+context/skills/atomic-retro/references/history.md
+  History review — select date and project, extract, and cite only relevant evidence
 
 context/CLAUDE.md
   Atomic binary — bullet for atomic retro extract
@@ -202,10 +194,9 @@ README.md
 
 **Flow: retrospective history scan**
 
-1. `/retrospective-learning` pre-flight runs `atomic retro extract --shards 4 -o "$SCRATCH/history.md"`; a non-zero exit → announce `history extract unavailable — history scan skipped` and narrow the scope to current-only
-2. Step 2b dispatches one Sonnet `general-purpose` runner per `history.<i>.md`, briefed to return `file:line | category | recurrence | atomic_meta | meta_target` rows where `meta_target` cites the `skill:` / `agent:` / `/verb` line that precedes the finding
-3. Step 4 runs `sed -n '<line>p' <file>` for every cited line and rejects rows whose line does not exist
-4. categorization continues unchanged from the recovered quotes
+1. The user asks `/retro` to review past sessions.
+2. The skill's history reference runs the extractor for the requested project and date range.
+3. The skill cites relevant findings and applies only changes the user approves. It checks previous decisions only on a separate explicit request.
 
 
 ## Checkpoints
@@ -215,7 +206,7 @@ README.md
 |---|------------|-------------|-------|------------|----------|
 | 1 | `internal/retro` package: file walk and filter, row rules, session span, render with numbering and truncation, sharding, last-run date. Synthetic fixtures carrying one row per shape in the design's row table; no real transcript text. | `atomic/internal/retro/*.go`, `atomic/internal/retro/testdata/` | atomic-implementer (mode: feature) | ~7 | `go test ./internal/retro/...`: every row in the design table lands in the right disposition; a 100 KiB row parses; malformed row counted; mtime boundary at local midnight; `subagents/` file ignored; glob on slug; numbering round-trips through a line lookup; truncation marker and rune safety; shards never split a session and `K` caps at the session count; `LastRunSince` reads `run_ts` and reports absence |
 | 2 | CLI verb: `buildRetroCmd` + `retroAction`, `cliusage` golden entry, root verb list, sandboxed-HOME end-to-end. | `atomic/cmd/atomic/cmd_retro.go`, `cmd_retro_test.go`, `main.go`, `main_test.go`, `atomic/internal/cliusage/cliusage.go` | atomic-implementer (mode: feature) | ~5 | `go test ./cmd/atomic/...`: `TestDeriveCommandsGolden` and the verb-count test pass with `retro`; exit 2 for bad `--since`, `--shards 0`, `--shards` without `-o`, unknown verb; under `t.Setenv("HOME", …)` a fixture project yields a written file, stdout output without `-o`, `out.1.md`/`out.2.md` with `--shards 2`; stderr summary names the fallback date. Then, by the orchestrator: `make -C atomic build` and `time bin/atomic retro extract --since 2026-08-19 -o tmp/trash/real.md` over the real projects dir, recording sizes and wall time in `STATE.md` |
-| 3 | Artifacts and docs: retrospective command reshaped, help router rows, CLAUDE.md bullet, reference page, commands table row, sidebar, documentation-surfaces row. | `context/commands/retrospective-learning.md`, `context/commands/atomic-help.md`, `context/CLAUDE.md`, `docs/reference/retro.md`, `docs/reference/commands.md`, `.vitepress/config.mts`, `CLAUDE.md` | atomic-implementer (mode: feature) | ~7 | help-coverage loop prints nothing; `grep -n 'SESSIONS_DIR\|last 5' context/commands/retrospective-learning.md` is empty; `bin/atomic validate artifacts` clean after `make -C atomic build`; `npm run docs:build` green with `/reference/retro` in the sidebar; `make -C atomic bundle` succeeds; `grep -rn 'retro extract' context/ docs/ CLAUDE.md README.md` shows every surface the change tree names (the root `CLAUDE.md` verification-before-commit sweep) |
+| 3 | Document and bundle the opt-in history workflow | `context/skills/atomic-retro/`, `context/commands/retro.md`, `docs/reference/retro.md` | Bundle contains the command and references; the default review does not extract history |
 
 
 ## Risks
@@ -263,6 +254,16 @@ README.md
 **Why:** Claude Code keeps its transcripts under `CLAUDE_CONFIG_DIR`, and install, doctor, and the session-start hook already resolve Claude's root that way.
 
 **Superseded:** the Claude history source was always `$HOME/.claude/projects`.
+
+
+### 2026-11-22: Make history review opt-in
+
+
+**What changed:** `/retro` delegates session review to `atomic-retro`. The skill reads session history only when requested.
+
+**Why:** A session review needs neither a history export nor an audit of past decisions.
+
+**Superseded:** The default extraction preflight in `/retrospective-learning` and its mandatory help catalog entries.
 
 
 ## Implementation log

@@ -4,7 +4,7 @@
 ## Problem
 
 
-`/retrospective-learning` points its history scanners at raw `.jsonl` session files. Three things go wrong with that, all observed on the 2026-09-20 run (issue #270):
+The original retrospective read raw `.jsonl` session files. The 2026-09-20 run exposed three problems (issue #270):
 
 - Scope is the cwd's project dir only. That dir held one session; the real history was 127 sessions, 740 MB, across about 40 project dirs.
 - The raw rows are almost all machine traffic: `tool_result` blocks, sidechains, skill-prompt expansions, `<system-reminder>` blocks, compaction summaries. A scanner spends its budget on noise and re-types every quote it wants to cite.
@@ -30,11 +30,11 @@ flowchart LR
 
 - Goals:
   - One verb, `atomic retro extract`, that walks every `~/.claude/projects/*/` dir and writes one readable markdown file (or N size-balanced shards) covering every session modified since a date.
-  - The date defaults to the last recorded retrospective run, so `/retrospective-learning` covers exactly what happened since it last looked.
+  - The CLI defaults to the last recorded retrospective run. The history reference passes the requested date explicitly.
   - Output keeps user-typed text, slash-command invocations as one line, and one line per assistant `Skill` / `Agent` call; drops every machine-injected row and block.
   - Every output line carries its own line number so a scanner answers with `file:line + category` and the orchestrator recovers the quote with `sed`.
   - Long messages are truncated with a visible marker so one pasted log cannot dominate a shard.
-  - `/retrospective-learning` reads the extract, runs its scanners on Sonnet, and asks for line references instead of re-typed quotes.
+  - In a requested history review, the skill uses the export and cites evidence by file and line.
 - Non-goals:
   - Changing what the retrospective does with findings: tiers, the walk, the run log, the learnings file.
   - Extracting assistant prose or thinking. The retrospective mines user friction; the assistant side is reduced to which artifacts it invoked.
@@ -78,15 +78,13 @@ Row timestamps are RFC 3339 UTC. Session files are `<uuid>.jsonl` directly insid
 ## Recommendation
 
 
-Approach A. The filter is a deterministic transform, which `context/CLAUDE.md` assigns to code, not the model; the binary already owns every other deterministic step the retrospective delegates (`doctor`, `validate`, `docs stale`). A Go package with fixtures makes the row rules above a tested contract instead of prose in a brief.
+Approach A. A Go package applies the row rules before the model reads the export. Fixtures verify the filter.
 
-Shape of the verb, and how the retrospective calls it:
+`/retro` uses the extractor only for an [explicit history review](../../context/skills/atomic-retro/references/history.md):
 
     atomic retro extract [--since <YYYY-MM-DD>] [--project <glob>] [--shards N] [--out <file.md>]
 
-    # /retrospective-learning pre-flight
-    atomic retro extract --shards 4 --out "$SCRATCH/history.md"
-    # → $SCRATCH/history.1.md … history.4.md, one scanner each
+    atomic retro extract --since 2026-08-19 --project '*foo' --shards 4 --out "$PRIVATE_DIR/history.md"
 
 Output shape, so a scanner can answer `history.2.md:184 correction`:
 
@@ -107,7 +105,7 @@ Decisions the issue left open, and the choice made here:
 | Question | Decision | Why |
 |----------|----------|-----|
 | Which rows count as machine traffic beyond the issue's list | The issue's list plus `<agent-message` and `<cross-session-message` rows | Both are bus peer messages injected as user-role prompts; the user did not type them |
-| No `~/.atomic/retro-runs/` and no `--since` | Default to 30 days before now, announced on stderr | A first `/retrospective-learning` run must work without portable shell date arithmetic in the command file; an error here would push that arithmetic into the prompt |
+| No `~/.atomic/retro-runs/` and no `--since` | Default to 30 days before now, announced on stderr | The standalone CLI has a usable default without a run record |
 | Line numbering across shards | Each file numbers its own physical lines from 1; the answer key is `file:line` | `sed -n 'Np' file` then returns the quote with no offset bookkeeping; a global counter would make the number in the file disagree with the file's own line |
 | `--out` required or optional | Optional; stdout when absent. `--shards` requires `--out` | One file to stdout is the Unix shape; shards need a stem to name the files after |
 | Shard count larger than the session count | Capped at the session count | Empty shard files would dispatch scanners with nothing to read |
@@ -116,12 +114,7 @@ Decisions the issue left open, and the choice made here:
 | Message truncation | 800 characters, then `…[+N chars]` | Typed messages are short; anything longer is a paste. 800 keeps a long correction intact and bounds a pasted log to one screen |
 | Which timestamps frame a session | First and last over every user or assistant row, not only kept ones | That is the session's real span; a session whose kept entries are one line still shows when it ran |
 
-Scanner changes in `/retrospective-learning`, in scope per the issue:
-
-- Pre-flight runs the extractor once into the scratchpad. Scope is every session since the last run, not the cwd's last five.
-- The history brief points each scanner at one shard file, asks for `file:line + category` rows, and forbids re-typed quotes. Attribution uses the `skill:` / `agent:` / `/verb` lines that precede a finding, cited by line, instead of a positional rule the model applies over raw rows.
-- The history and prior-retro runners default to Sonnet. The 2026-08-19 Haiku prior-retro auditor reported 9 of 10 accepts as drifted when all had landed.
-- Step 4 recovers each cited quote with `sed -n '<line>p' <file>` before categorizing, so the orchestrator never trusts a re-typed line.
+The history reference owns project and date selection. Because the CLI filters by transcript modification time, a resumed transcript can contain older entries. Exclude entries outside the requested range or whose date cannot be established from the export.
 
 
 ## Open questions
@@ -129,3 +122,11 @@ Scanner changes in `/retrospective-learning`, in scope per the issue:
 
 - Whether a `--project` match on the session's real cwd is worth a second flag once someone asks for it. Not built now.
 - Whether assistant `text` blocks that immediately precede a correction would sharpen attribution. Left out; the issue scopes the assistant side to tool calls.
+
+## Change log
+
+
+### 2026-11-22: Use extraction on request
+
+
+`/retro` reads history only when requested. This replaces the former unconditional extraction preflight.

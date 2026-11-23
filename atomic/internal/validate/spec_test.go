@@ -180,6 +180,47 @@ func TestRunSpecRules_S6_Pass(t *testing.T) {
 	}
 }
 
+func TestDispatch_SpecChangeLogRequirement(t *testing.T) {
+	withoutLog := fixtureBytes(t, "fail/S6/missing-changelog.md")
+	for _, tc := range []struct {
+		name string
+		path string
+		src  []byte
+		rule string
+	}{
+		{"disposable without log", ".omp/.scratchpad/topic/SPEC.md", withoutLog, ""},
+		{"disposable without checkpoints", ".omp/.scratchpad/topic/SPEC.md", []byte("# Spec\n"), "S5"},
+		{"docs spec named SPEC", "docs/spec/SPEC.md", withoutLog, "S6"},
+		{"other scratchpad markdown", ".omp/.scratchpad/topic/legacy.md", withoutLog, "S6"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), filepath.FromSlash(tc.path))
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, tc.src, 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			var buf strings.Builder
+			code := validate.RunWithOutput([]string{"spec", path}, &buf)
+			if tc.rule == "" {
+				if code != 0 {
+					t.Fatalf("exit %d, want 0:\n%s", code, &buf)
+				}
+				return
+			}
+			out := buf.String()
+			if code != 1 || !strings.Contains(out, tc.rule) {
+				t.Errorf("exit %d, want 1 with %s:\n%s", code, tc.rule, out)
+			}
+			if tc.rule != "S6" && strings.Contains(out, "S6") {
+				t.Errorf("unexpected S6 finding:\n%s", out)
+			}
+		})
+	}
+}
+
 func TestRunSpecRules_S6_Fail(t *testing.T) {
 	src := fixtureBytes(t, "fail/S6/missing-changelog.md")
 	findings, err := validate.RunSpecRules("testdata/spec/fail/S6/missing-changelog.md", src)

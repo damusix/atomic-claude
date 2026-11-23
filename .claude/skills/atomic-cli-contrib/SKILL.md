@@ -138,9 +138,8 @@ A source may compose a reusable block with `{{ template "<name>" . }}`, resolved
 
 | Kind | Examples | Description |
 |------|---------|-------------|
-| Command big partials | `commit-flow`, `pr-flow`, `merge-flow`, `squash-flow`, `push-flow` | Entire flow bodies consumed by one or more commands |
-| Command small partials | `doc-impact`, `doc-impact-why`, `signals-gate`, `base-resolution`, `worktree-cleanup-prompt`, `git-safety` | Fragments embedded inside big partials |
-| Agent partials (`agent-` prefix) | `agent-tdd-signals`, `agent-signals-output`, `agent-shared-rules` | Blocks shared verbatim across implementer + reviewer (TDD workflow, signal output format, discipline rules) |
+| Command partials | `followup-sink`, `report-issue-privacy`, `resolved-provider` | Shared tracker, privacy, and provider instructions |
+| Agent partials | `agent-atomic-voice`, `agent-yagni`, `agent-comment-discipline`, `agent-signals-output` | Shared voice, review rules, and signal format |
 
 
 **Adding one:** create the single file. **Removing one:** delete the single file.
@@ -149,7 +148,6 @@ A source may compose a reusable block with `{{ template "<name>" . }}`, resolved
 **Partial design rules:**
 
 - Pure fragments only. No `dict` function, no `{{ if }}` conditionals, no variant flags inside partials. When two consumers diverge by one word, generalize the wording so the partial stays verbatim-shared, or keep that bullet inline per-artifact.
-- Optional sub-fragments are their own micro-partials (e.g. `doc-impact-why` is separate from `doc-impact` so callers can include one without the other).
 - A directive naming an undefined partial fails `make bundle`, so a typo surfaces at build time rather than shipping a hole.
 - Commands, agents, and `context/AGENTS.md` (the global steering source) expand. Skills, rules, and output styles pass through byte-for-byte, so a literal `{{` in their prose is safe.
 

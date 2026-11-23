@@ -4,7 +4,7 @@ description: Repo-local project wiki for atomic-claude — framework signals and
 ---
 
 <wiki-type>repo</wiki-type>
-<scan-sha>4da60bd13e4ee75549435f7ee17a89996afca6eb</scan-sha>
+<scan-sha>8e21b0717525b26b2c6b7b947d6f54a0c7b7af49</scan-sha>
 <wiki-schema>1</wiki-schema>
 
 # Project signals
@@ -35,7 +35,7 @@ Domains are vertical slices by feature concern, not horizontal layers by file ty
 | bundle | [`atomic/internal/bundlemirror/`](../../atomic/internal/bundlemirror) | Expand [`context/`](../../context) into the embedded binary and map it to Claude-native targets. | [`docs/wiki/bundle.md`](bundle.md) |
 | harness | [`atomic/internal/harness/`](../../atomic/internal/harness) | Enroll harness targets, project native artifacts, and track ownership in a ledger. | [`docs/wiki/harness.md`](harness.md) |
 | doctor | [`atomic/internal/doctor/`](../../atomic/internal/doctor) | Integrity checks and static artifact validation. | [`docs/wiki/doctor.md`](doctor.md) |
-| workflow | [`context/commands/`](../../context/commands) | Plan, implement, review, ship — and the subagent loop that drives it. | [`docs/wiki/workflow.md`](workflow.md) |
+| workflow | [`context/commands/`](../../context/commands) | Plan, implement, review, maintain docs, and ship. | [`docs/wiki/workflow.md`](workflow.md) |
 | config | [`atomic/internal/config/`](../../atomic/internal/config) | User and repo config, state roots, Claude steering mode, workflow preferences, hooks, follow-ups, self-update. | [`docs/wiki/config.md`](config.md) |
 | docs-meta | [`context/skills/atomic-writing/`](../../context/skills/atomic-writing) | Writing voice and diff-driven documentation routing. | [`docs/wiki/docs-meta.md`](docs-meta.md) |
 | wiki | [`atomic/internal/wiki/`](../../atomic/internal/wiki) | Cross-repo wiki, capture buckets, and selected sharing through `atomic realm`. | [`docs/wiki/wiki.md`](wiki.md) |

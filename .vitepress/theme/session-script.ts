@@ -125,7 +125,7 @@ export const SESSION: SessionSlide[] = [
     {
         id: 'implement',
         label: 'implement',
-        command: '/subagent-implementation',
+        command: '/implement',
         output: [
             { kind: 'say', text: 'Each checkpoint: implementer writes' },
             { kind: 'say', text: 'test-first, reviewer gates it.' },
@@ -151,7 +151,7 @@ export const SESSION: SessionSlide[] = [
     {
         id: 'ship',
         label: 'ship',
-        command: '/commit pr',
+        command: 'Open a pull request',
         output: [
             { kind: 'say', text: 'Staging, writing the message,' },
             { kind: 'say', text: 'opening a PR.' },

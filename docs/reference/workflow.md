@@ -9,13 +9,11 @@ The lifecycle, with the optional gates and the failure path:
 ```mermaid
 flowchart TD
     S["setup: /setup-wiki + /refresh-wiki"] --> P["plan: /atomic-plan"]
-    P --> I["implement: /subagent-implementation"]
-    I --> SH["ship: /commit"]
+    P --> I["implement: /implement"]
+    I --> SH["ship: request a Git action"]
     SH --> T["track: /follow-up"]
-    T --> R["learn: /retrospective-learning"]
+    T --> R["learn: /retro"]
     R -.->|lessons become config| P
-    I -->|something breaks| D["diagnose: /subagent-diagnose"]
-    D --> I
     P -.->|optional| GE["/gather-evidence"]
     P -.->|optional| CS["/challenge-swarm"]
     GE -.-> P
@@ -34,11 +32,7 @@ Before your first session in a new project, two commands teach Claude what it is
 /refresh-wiki
 ```
 
-`/setup-wiki` audits the repo for missing conventions and proposes only what is absent; `/refresh-wiki` generates the [repo wiki](/reference/repo-wiki), the standing map Claude reads before your code. Run them once per repo; ship commands keep the wiki fresh after that.
-
-Ship verbs, `/report-issue`, and follow-ups use the source-control provider, issue tracker, and worktree directory that `atomic workflow resolve` prints. The `origin` remote usually decides them; `atomic workflow set` overrides one ([workflow preferences](/reference/concepts#workflow-preferences)).
-
-Two optional layers deepen the map. `atomic code index` builds a symbol graph the agents query for callers and blast radius ([code-intel](/reference/code-intel)), and a [realm wiki](/reference/realm-wiki) maps how a folder of repos relates, one level up. The [getting-started guide](/guides/getting-started) walks this setup step by step.
+`/setup-wiki` proposes missing repo setup. `/refresh-wiki` refreshes the [repo wiki](/reference/repo-wiki) on demand. Implementation uses the scan and task diff to maintain affected docs, including the repo wiki. [Realm capture buckets](/reference/realm-wiki) stay separate.
 
 
 ## 1. Plan
@@ -47,178 +41,129 @@ Two optional layers deepen the map. `atomic code index` builds a symbol graph th
 /atomic-plan
 ```
 
-You and Claude produce a spec together. For small tasks, this is an inline checkpoint table in `docs/spec/`. For larger work, Claude writes a design doc first (`docs/design/`) and then derives the spec from it. Nothing gets implemented until you approve the plan.
+For small tasks, write the spec inline. For larger work, write the durable design in `docs/design/` and derive `SPEC.md` in the task scratchpad. Keep it available through implementation and review; discard it only after the task is accepted. Existing tracked specs stay in place.
 
-Every spec also carries three sections that make the work inspectable before you approve it:
+The full spec makes the work and its proof inspectable:
 
 | Section | What it shows |
 |---------|---------------|
 | `## Change tree` | every file the work creates, modifies, or removes |
 | `## Outline` | the named pieces inside those files, one line each |
-| `## Flows` | the behaviors being implemented, as actor and step sequences |
+| `## Flows` | Links to flows in the design, plus only the flows not covered there. |
+| `## End-to-end proof` | The setup, complete action, and observable result. Checkpoints have separate checks. |
 
 Together they expose blast radius, shape, and behavior without reverse-engineering prose. The reviewer later walks the delivered work against the outline.
 
-If the plan rests on an unverified hunch, `/atomic-plan` will suggest `/gather-evidence` before continuing. You decide whether to gather first or proceed at risk.
+The end-result contract names what the user can do or observe, what is out of scope, and the check that proves the full result. Checkpoints prove individual slices.
 
+| Main uncertainty | Method |
+|---|---|
+| Is a claim true? | `/gather-evidence` |
+| Does a decision hold up in dialogue? | `/pressure-test` |
+| What problems can independent reviewers find in a written plan? | `/challenge-swarm` |
 
-### Verify hunches (optional)
-
-```
-/gather-evidence "<hypothesis>"
-```
-
-When the work ahead rests on a factual hunch ("library X supports Y", "our codebase already has a Z pattern", "approach A is faster than B"), `/gather-evidence` chases the claim through primary sources before any spec is written. It pulls from context7, official docs, source code, ast-grep, and run-it experiments, citing every piece of evidence with its source tier. Hearsay from blogs or forums cannot produce a `SUPPORTED` verdict.
-
-Returns one of `SUPPORTED`, `UNSUPPORTED`, `MIXED`, or `INCONCLUSIVE` with a clear recommendation: proceed to `/atomic-plan`, abandon, refine the hypothesis, or dig deeper. Skip this step when the work is grounded in code you have already read, and reach for it the moment you catch yourself assuming.
-
-
-### Challenge the written design (optional)
-
-```
-/challenge-swarm @docs/spec/<topic>.md
-```
-
-Once a design or spec exists, `/challenge-swarm` subjects it to independent expert scrutiny before any code gets written. It profiles the artifact first (who can reach it, whose data flows through it, what being wrong costs), then seats 3-6 lenses from a catalog spanning engineering, data/ML, business, finance, communication, and delivery — each seated only with a cited stake, so a loopback-only tool never draws a security lens — and dispatches each as an isolated subagent that cannot see the others' findings. The results merge into a contradiction map: where the lenses pull in opposite directions, where they independently agree, and what they all assumed without checking. The disagreements are the point, because they name the trade-off decisions the design still has to make explicit.
-
-The report lives in the conversation; fold accepted findings back through `/atomic-plan` or file them as follow-ups. Where `/pressure-test` is a dialogue in which you defend your thinking, `/challenge-swarm` is a parallel attack on the written artifact. Run either or both.
+The planner recommends the method that fits. On explicit request it can run a challenger and respondent as separate subagents; decisions that alter the user-facing contract still go to the user.
 
 
 ## 2. Implement
 
-Four verbs run implementation. Pick by what you already have:
+Use `/implement` with a task or an approved spec. It works directly when the context is already loaded and delegates cohesive checkpoints otherwise.
 
-| You have | Verb | What it skips |
-|----------|------|---------------|
-| An approved spec and multi-checkpoint work | `/subagent-implementation` | nothing |
-| The context already loaded in this conversation | `/implement` | the subagent dispatch — Claude writes the code itself |
-| A known cause and one obvious approach | `/quick-fix` | the spec, the worktree, the finalize ceremony (audit kept) |
-| Enough trust to let it drive end to end | `/autopilot` | your approval gates |
-
-All four run the same loop and finalize. What differs is the policy table at the top of each command: who writes the code, what happens when stuck, which finalize steps run.
-
-```
-/subagent-implementation
-```
-
-The orchestrator dispatches a fresh implementer and an independent reviewer for each checkpoint. The reviewer can block the checkpoint for missing intended behavior, missing required verification, or a serious defect.
-
-The orchestrator records non-blocking findings before deciding whether to retry or commit.
+Each checkpoint goes through independent review before it can commit. Delegated work follows this sequence:
 
 ```mermaid
-flowchart TD
-    accTitle: Checkpoint gates and final cleanup
-    accDescr: Each review records non-blockers before it can retry the checkpoint. The cleanup pass runs after all checkpoints pass.
-    I["Build checkpoint"] --> R["Review checkpoint"]
-    R --> L["Record non-blockers"]
-    L --> B{"Blocker?"}
-    B -->|Yes| I
-    B -->|No| C["Commit checkpoint"]
-    C -->|More checkpoints| I
-    C -->|Last checkpoint| P["Fix in-scope findings"]
-    P --> D["Update docs and verify"]
-    D --> A["Audit the delivery"]
+sequenceDiagram
+    accTitle: One iteration of the implement-review loop, and the final audit
+    accDescr: The reviewer gates each checkpoint. An accepted checkpoint can carry advisory nits to final cleanup. The auditor checks the whole result once; any fixes go through checkpoint review.
+    participant U as you
+    participant O as orchestrator
+    participant S as scratchpad (BRIEF · STATE · FOLLOWUPS)
+    participant I as implementer (fresh context)
+    participant R as reviewer (fresh context)
+    participant A as auditor (fresh context)
+    O->>S: write BRIEF — scope, spec path (once, at start)
+    O->>I: dispatch — this iteration's scope, prior findings
+    S-->>I: BRIEF + spec (read-only)
+    I-->>O: report — did, files touched, test signals
+    O->>R: review the task-only checkpoint patch
+    S-->>R: BRIEF + spec (read-only)
+    R-->>O: findings + VERDICT
+    O->>S: record any deferred advisory nits
+    alt PASS
+        O->>O: commit the checkpoint
+    else CHANGES_REQUESTED
+        O->>I: next round, blocking findings as focus
+    end
+    opt same signal 2 rounds
+        O->>U: offer /pressure-test · strategist · continue
+    end
+    opt every checkpoint green
+        O->>A: audit delivery, proof, and deferred nits
+        A-->>O: verdict and remaining fixes
+    end
 ```
 
 The scratchpad in that diagram is a slug-keyed work bundle — `atomic scratchpad new <slug> --purpose implement` creates or extends it, and a later phase on the same task joins it rather than opening a new one. Artifacts resolve its path, and where session reports for this project live, via `atomic where --json` rather than constructing them. → [conventions](/reference/conventions)
 
-The audit runs exactly once per task, after the docs update and before the signals refresh. A `CHANGES_REQUESTED` verdict buys one more implementer-reviewer round against its findings, never a second audit, so finalize cannot loop. It gates what per-checkpoint review cannot see: success criteria no single checkpoint owned, iterations that each passed and do not compose, and commit types that misstate user-visible impact.
+The reviewer blocks avoidable duplication, library drift, and speculative abstractions before the checkpoint commits. Outside Autopilot, only explicitly advisory polish can wait. Autopilot fixes every finding at the gate that reports it.
 
-You only need to intervene during the loop when a blocker requires a decision outside the approved plan. If the same blocker survives two attempts, the orchestrator asks the strategist to investigate first. Non-blocking questions and nits stay in `FOLLOWUPS.md`; the orchestrator resolves the in-scope ones before the audit. It can offer worthwhile unrelated work once at the end.
+The audit runs once after the docs update. It checks the whole result, including cross-checkpoint consistency and remaining polish. Send audit fixes through checkpoint review and verification before accepting the scan. Do not rerun the audit.
 
-If the project is indexed, the loop uses the code-intel graph throughout. It indexes the project at the start of the task, the investigator leads with `atomic code explore` to scope each surface, the reviewer checks blast radius with `atomic code impact`, and the orchestrator runs `atomic code sync` after each committed checkpoint so the graph reflects the latest code. When no index is present the agents fall back to plain search, so the loop runs either way.
-
-
-### Keep the context: /implement
-
-```
-/implement [<task description>]
-```
-
-Sometimes the context that matters is already in the conversation. You read the files together, settled the approach, and watched the test fail. Dispatching a fresh-context subagent at that point throws all of it away and pays to rebuild it, so `/implement` keeps the work here: Claude writes the code itself, with the same checkpoint discipline and commit-per-green rhythm as the subagent loop.
-
-What that structure gives up is the independent reader, so `/implement` adds it back as an explicit step. Checkpoints are declared before any code is written, and `atomic-reviewer` is dispatched after each one, never batched to the end. Red findings and readability findings are fixed before the checkpoint commits. The finalize is the loop's: docs, one `atomic-auditor` pass over the whole delivery in a fresh context, and a range-scoped signals refresh.
-
-The Entry row of its policy table is what keeps this from becoming the default. If the context is not already loaded, or the work is large enough that implementing it inline would crowd out the context that made this the right verb, it hands off to `/subagent-implementation` before writing a line. The same handoff fires mid-task when little context remains.
+Use `/implement @<scratchpad-path>/SPEC.md` with the actual path from `/atomic-plan`.
 
 
-### Skip planning: /quick-fix
+### Known-cause fixes
 
-```
-/quick-fix <task description>
-```
 
-For a fix with a known cause and one obvious approach, `/quick-fix` skips the plan entirely. It runs the same implement-then-review loop as `/subagent-implementation`, minus the spec, the worktree, and the finalize ceremony (the once-per-task audit stays), so a straightforward change lands faster. The moment the fix turns out less obvious than it looked, it stops and hands off to `/subagent-diagnose` or `/atomic-plan` instead of grinding on a wrong assumption.
+Use `/implement` for a straightforward fix with a known cause. It runs one checkpoint without a spec, including independent review and verification against the original failure. Use `atomic-debug` for unknown causes or `/atomic-plan` for open designs.
 
 
 ### Hands-off: /autopilot
 
 ```
-/autopilot <task | issue#> [merge-verb]
+/autopilot <task or issue number>
 ```
 
-When you trust the system to drive, `/autopilot` runs the whole lifecycle (plan, the implement-then-review loop, and ship) from a task description or a GitHub issue number, with one decision left to you: how to merge. It always uses the same subagent loop, but with three autonomous defaults. Every reviewer finding is fixed as it goes rather than deferred. When the loop gets stuck, it dispatches the read-only strategist for root-cause analysis on its own instead of waiting for you. And it keeps the spec current the whole way, so a fresh subagent never reads stale scope.
-
-The only decision is the merge method at the end. Pass a merge verb (`/autopilot 29 commit squash merge`) to skip even that. It also keeps experiments in a gitignored scratch folder rather than deleting them mid-run, so it never stops to ask permission for a stray `rm`; it clears that folder once when the run finishes. Reach for the interactive verbs above when you want approval gates; reach for this when you do not.
+`/autopilot` follows the planning and implementation workflows without routine approvals. It consults `atomic-strategist` when stuck and stops if the blocker remains. It follows your shipping instructions or opens a PR by default. Without a remote, it keeps the verified commits locally.
 
 
 ### Editing directly, outside any verb
 
-Editing code by hand with no command around it at all skips the loop entirely — there is no builder, no reviewer inside a loop, no checkpoint. Two exits still gate it: `atomic-verify` blocks a "ready" claim, and the ship verbs' review gate blocks the commit. Both dispatch `atomic-reviewer` on the diff and report a `review: <verdict> (atomic-reviewer on <model>)` line before the claim or the commit lands.
+Editing outside an implementation command skips the checkpoint loop. `atomic-verify` gates a completion claim. Before a commit, an independent `atomic-reviewer` must pass the exact task-only patch unless it has already passed review.
 
 
 ### What the loop costs
 
-The loop trades tokens for verification: every checkpoint is implemented by one agent and re-checked by another, and that second pass is not free. Implementation and review run on Sonnet subagents; log reading and CI watching run on Haiku, the cheapest tier. The overhead has not been measured precisely. As one anecdote, heavy daily use on the Claude Max 20x plan, often four or five instances at once, never hits the five-hour window limit and lands around half the weekly limit; the smaller Max plan may hit the window cap under the same load. If you are rate-limit sensitive, run the gated verbs stage by stage instead of `/autopilot`, and skip the loop entirely for small edits: a one-file fix does not need a builder and a reviewer, though it still meets the review gate above.
+Independent review and verification add work to each checkpoint. Agent model and effort are configurable per harness; see [Agents](agents.md). For small known-cause fixes, use a single checkpoint rather than a larger plan.
 
 
-## 3. Diagnose
+## 3. Debug separately
 
-```
-/subagent-diagnose ci
-/subagent-diagnose bug "description of what's broken"
-```
 
-When something breaks, this command runs the same loop as implementation but seeded from a failed CI run or a bug description. It investigates, proposes a fix, reviews its own fix, and commits when green.
+Use `atomic-debug` to investigate a bug or failing CI run. Once the cause is known, implement the fix and verify it against the original failure.
 
 
 ## 4. Ship
 
-One verb covers all ship paths:
-
-```
-/commit                   — stage + commit, then ask how far to ship
-/commit push              — commit + push
-/commit pr                — commit + push + PR
-/commit merge             — commit + merge to base
-/commit squash            — commit + squash branch
-/commit squash merge      — commit + squash + merge to base
-```
-
-With no pending changes and commits already ahead of base, `/commit` skips straight to the ship step, so `/commit merge` on a clean branch just merges. `/commit pr` on a branch that is already pushed still reaches the PR step, and `/commit squash merge` on a single-commit branch skips the squash and merges. The merge and squash-merge paths run tests on the merged result and prompt to clean up the worktree if you used one; squash alone rewrites the branch without re-running tests.
+Ask to commit, push, open a PR, squash, or merge. A request to commit does not authorize a push or merge. `/autopilot` opens or updates a PR by default; it merges only when requested. Before committing, the shipping workflow verifies the intended change and requires an independent review of the exact task-only patch unless that patch already passed review. Ad-hoc source and prompt changes also follow `/implement`'s scan-driven documentation and baseline rules.
 
 
 ## 5. Track what's deferred
 
 ```
-/follow-up fetchUser retries ignore 429
 /follow-up review
 ```
 
-Not everything gets resolved in the same session. Follow-ups are non-blocking findings from implementation (risks, nits, open questions) that you parked for later. `/follow-up <text>` records one in your resolved issue tracker, or in the local ledger when the tracker is `filesystem` or cannot take it; the loop's `defer` and the docs prompt's "Later" record the same way. `atomic workflow set issue-tracker filesystem --level repo` keeps a repo's follow-ups local ([workflow preferences](/reference/concepts#workflow-preferences)). `/follow-up review` walks you through stale ledger entries and lets you close, extend, or promote each one.
-
-Follow-ups exist because shipping is not the end. The things you deferred during implementation should not silently rot.
+`/follow-up review` walks through stale project follow-ups and lets you extend, close, or promote each entry.
 
 
 ## 6. Retrospective
 
 ```
-/retrospective-learning
+/retro
 ```
 
-After a long session or a run of friction, `/retrospective-learning` looks back. It mines your session history, which `atomic retro extract` first reduces to one numbered file of user-typed text and artifact calls (see [Retro](retro.md)), and the current conversation for corrections, repeated requests, and places where Claude misbehaved, then cross-references those signals against your installed artifacts (commands, skills, agents, CLAUDE.md). It walks proposed improvements one at a time; you accept, modify, or skip each. A run log persists to `~/.atomic/retro-runs/`, so a later run can tell whether a past accept actually landed or quietly drifted back.
-
-This is the stage that closes the loop. Shipping a feature teaches you something about how you and Claude work together, and `/retrospective-learning` is where that lesson becomes a durable config change instead of a frustration you re-hit next week.
+`/retro` reviews the current session for friction and proposes changes for you to approve. Give it a focus to narrow the review. Ask separately to review past sessions or check whether earlier approved changes are still in place. See [Retro](retro.md).
 
 
 ## Lost? Start with the router
@@ -228,29 +173,10 @@ This is the stage that closes the loop. Shipping a feature teaches you something
 /atomic-help tour
 ```
 
-`/atomic-help` reads your git state, works out where you are in the lifecycle, and recommends one next command. It routes; it never executes. `/atomic-help tour` runs a four-stage guided walkthrough of the whole system (surfaces, lifecycle, state files, maintenance), and a bare `/atomic-help` offers the tour automatically the first time you run it in a fresh repo.
+`/atomic-help` uses your request and relevant repo state to recommend one next action. If the goal is unclear, it asks one question. Use `/atomic-help tour` for a short walkthrough.
 
 
-## Why custom ship commands?
-
-Claude Code already knows how to commit and push. The reason atomic-claude wraps those operations into its own commands is everything that happens around them:
-
-- **Wiki refresh** — when source files changed, the command re-scans the project so Claude's map stays current
-- **Doc-impact check** — checks whether your change affects documentation and prompts you to update the relevant surfaces
-- **Commit message discipline** — messages are generated by the `atomic-git-discipline` skill in Conventional Commits format, drawn from the diff and any session reports
-- **Verification gate** — merge commands run `atomic-verify` before touching the base branch, re-running tests on the merged tip
-- **Independent review** — code the main agent wrote itself meets the review gate above before the commit lands, so the one implementation path with no loop around it still meets an independent reader
-
-Documentation is almost always an afterthought. These commands make it part of the flow rather than something you remember to do later.
+## What runs before committing
 
 
-### What runs automatically
-
-Every `/commit` invocation runs the review gate, the wiki staleness check, and doc-impact checks as part of the commit flow. The review gate runs on the staged diff before the commit message is written; its skip conditions are in the table footnote below. Documentation surfaces are presented for review, and the commit message is synthesized from the diff. The wiki is regenerated only when the check reports stale and the staged set is not docs-only; a fresh index (say, because the implement loop already refreshed it) makes the step a no-op. Escalation paths that touch the base branch (`merge`, `squash merge`) also run `atomic-verify` on the merged tip before finalizing.
-
-| Path | Wiki | Review | Doc-impact | Commit msg | Verify |
-|------|:-------:|:------:|:----------:|:----------:|:------:|
-| commit (all paths) | ✓* | ✓† | ✓ | ✓ | |
-| merge / squash merge | ✓* | ✓† | ✓ | ✓ | ✓ |
-
-✓ = runs automatically. ✓* = staleness-gated; skipped for docs-only commits. ✓† = the review gate above, run once per change: skipped for docs-only commits, for work the implement loop already reviewed, for a change already read earlier in the same flow, and for a change `atomic-verify`'s gate already reviewed in this session with no edits since. A merge that skips straight to ship with nothing staged has no commit step to gate; there `atomic-verify` carries the review, and `/review-branch` is the explicit pass over `<base>..HEAD`.
+Scan and diff before updating affected docs. The final audit sees those updates. If audit fixes change scope, rescan against the original baseline and checkpoint-review the fixes without rerunning the audit. Accept the new scan only after the required docs pass review. Ad-hoc source and prompt commits use the same documentation and baseline rules.

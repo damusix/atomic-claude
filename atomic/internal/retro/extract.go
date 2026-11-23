@@ -1,6 +1,6 @@
 // Package retro extracts user-typed text and Skill/Agent tool calls from
 // Claude Code session transcripts into a compact, line-numbered form that
-// /retrospective-learning can scan without reading raw .jsonl traffic.
+// /retro can review without reading raw session files.
 package retro
 
 import (

@@ -1,6 +1,6 @@
 <!--
-Template for $SCRATCH/CONTEXT.md in /subagent-diagnose bug mode — emitted by
-`atomic template diagnose-context`. The Phase 0 symptom
+Template for $SCRATCH/CONTEXT.md to record a failure under investigation. Emitted by
+`atomic template diagnose-context`. Symptom
 capture. Copy this body, fill every <angle-bracket> placeholder, delete this comment.
 The four headings are stable — downstream phases address them by name (Phase 4 runs
 `## Repro` verbatim). `top_level_error:` is a trailing YAML key read as the

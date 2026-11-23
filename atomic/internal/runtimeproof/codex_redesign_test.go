@@ -306,7 +306,7 @@ func TestCodexAgentOverrideIsProjectedAndTheRoleListed(t *testing.T) {
 	// gpt-5.1-codex exposes spawn_agent directly; newer catalog models defer it
 	// behind tool_search, where the roles are not in the opening request.
 	_, request := c.exec(t, "agent-override", "gpt-5.1-codex")
-	if !anyContains(jsonStrings(t, request), "atomic-investigator: {\nRead-only code locator.") {
+	if !anyContains(jsonStrings(t, request), "atomic-investigator: {\n") {
 		t.Errorf("the spawn_agent roles do not list atomic-investigator")
 	}
 	if !anyContains(jsonStrings(t, request), "This role's model is set to `gpt-5.1-codex-mini` and its reasoning effort is set to `low`.") {

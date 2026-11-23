@@ -76,7 +76,7 @@ func TestClassifyLegacyPartialDrift(t *testing.T) {
 	home := newHome(t)
 	root := installLegacy(t, home)
 	ageInstall(t, home, root)
-	deleteListed(t, root, "commands/commit.md")
+	deleteListed(t, root, "commands/atomic-help.md")
 
 	c, err := Classify(classifyReq(home, root, t))
 	if err != nil {
@@ -85,11 +85,11 @@ func TestClassifyLegacyPartialDrift(t *testing.T) {
 	if c.State != StateLegacyPartial {
 		t.Fatalf("state = %s, want %s", c.State, StateLegacyPartial)
 	}
-	if !contains(c.Legacy.ListedMissing, "commands/commit.md") {
-		t.Errorf("listed missing = %v, want commands/commit.md", c.Legacy.ListedMissing)
+	if !contains(c.Legacy.ListedMissing, "commands/atomic-help.md") {
+		t.Errorf("listed missing = %v, want commands/atomic-help.md", c.Legacy.ListedMissing)
 	}
-	if !contains(c.Drift, "commands/commit.md") {
-		t.Errorf("drift = %v, want commands/commit.md", c.Drift)
+	if !contains(c.Drift, "commands/atomic-help.md") {
+		t.Errorf("drift = %v, want commands/atomic-help.md", c.Drift)
 	}
 }
 
@@ -132,7 +132,7 @@ func TestClassifyV2States(t *testing.T) {
 		home := newHome(t)
 		writeLedgerFixture(t, home,
 			[]TargetRecord{{Harness: "claude", Instance: "default", NativeRoot: filepath.Join(home, ".claude"), Status: "enrolled"}},
-			[]Row{{Target: "claude:default", Resource: "commands/commit.md"}})
+			[]Row{{Target: "claude:default", Resource: "commands/atomic-help.md"}})
 
 		c, err := Classify(ClassifyRequest{Home: home, NativeRoot: filepath.Join(home, ".claude")})
 		if err != nil {
@@ -145,7 +145,7 @@ func TestClassifyV2States(t *testing.T) {
 
 	t.Run("in-flight", func(t *testing.T) {
 		home := newHome(t)
-		path := filepath.Join(home, ".claude", "commands", "commit.md")
+		path := filepath.Join(home, ".claude", "commands", "atomic-help.md")
 		mkfile(t, path, "applied\n")
 		m := fileMutationAt(t, "commands.commit.md", path, []byte("applied\n"))
 		writeJournalFixture(t, home, journalWith("op-inflight", []Mutation{m}, nil))
@@ -186,10 +186,10 @@ func TestClassifyDriftedRowIsResourceDrift(t *testing.T) {
 	home := newHome(t)
 	root := installLegacy(t, home)
 	ageInstall(t, home, root)
-	drifted := filepath.Join(root, "commands", "commit.md")
+	drifted := filepath.Join(root, "commands", "atomic-help.md")
 	writeLedgerFixture(t, home, nil, []Row{{
 		Target:   "claude:default",
-		Resource: "commands/commit.md",
+		Resource: "commands/atomic-help.md",
 		Applied:  AppliedValue{Path: drifted, Kind: managedfile.KindFile, Digest: "0000"},
 	}})
 
@@ -292,10 +292,10 @@ func TestClassifyV2OnlyLedgerDisagreement(t *testing.T) {
 
 	t.Run("drifted row is drift", func(t *testing.T) {
 		home := newHome(t)
-		path := filepath.Join(home, ".claude", "commands", "commit.md")
+		path := filepath.Join(home, ".claude", "commands", "atomic-help.md")
 		mkfile(t, path, native)
 		writeLedgerFixture(t, home, nil, []Row{{
-			Target: "claude:default", Resource: "commands/commit.md",
+			Target: "claude:default", Resource: "commands/atomic-help.md",
 			Applied: AppliedValue{Path: path, Kind: managedfile.KindFile, Digest: "0000"},
 		}})
 
@@ -313,14 +313,14 @@ func TestClassifyV2OnlyLedgerDisagreement(t *testing.T) {
 
 	t.Run("matching row is clean", func(t *testing.T) {
 		home := newHome(t)
-		path := filepath.Join(home, ".claude", "commands", "commit.md")
+		path := filepath.Join(home, ".claude", "commands", "atomic-help.md")
 		mkfile(t, path, native)
 		digest, err := managedfile.DigestResourceBytes([]byte(native), managedfile.KindFile)
 		if err != nil {
 			t.Fatal(err)
 		}
 		writeLedgerFixture(t, home, nil, []Row{{
-			Target: "claude:default", Resource: "commands/commit.md",
+			Target: "claude:default", Resource: "commands/atomic-help.md",
 			Applied: AppliedValue{Path: path, Kind: managedfile.KindFile, Digest: digest},
 		}})
 
@@ -335,10 +335,10 @@ func TestClassifyV2OnlyLedgerDisagreement(t *testing.T) {
 
 	t.Run("journal-owned row stays in flight", func(t *testing.T) {
 		home := newHome(t)
-		path := filepath.Join(home, ".claude", "commands", "commit.md")
+		path := filepath.Join(home, ".claude", "commands", "atomic-help.md")
 		mkfile(t, path, "applied\n")
 		writeLedgerFixture(t, home, nil, []Row{{
-			Target: "claude:default", Resource: "commands/commit.md",
+			Target: "claude:default", Resource: "commands/atomic-help.md",
 			Applied: AppliedValue{Path: path, Kind: managedfile.KindFile, Digest: "0000"},
 		}})
 		m := fileMutationAt(t, "commands.commit.md", path, []byte("applied\n"))

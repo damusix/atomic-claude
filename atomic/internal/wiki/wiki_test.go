@@ -120,6 +120,22 @@ func TestScan_HappyPath(t *testing.T) {
 		}
 	}
 
+	readme, err := os.ReadFile(filepath.Join(root, "wiki", "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, prose := range []struct{ file, text string }{
+		{"README.md", string(readme)},
+		{"index.md", readIndexMD(t, root)},
+	} {
+		if !strings.Contains(prose.text, "capture buckets") || !strings.Contains(prose.text, "member repos") {
+			t.Errorf("%s does not explain realm capture and indexing:\n%s", prose.file, prose.text)
+		}
+		if strings.Contains(prose.text, "/refresh-wiki") || strings.Contains(prose.text, "per-repo summaries") {
+			t.Errorf("%s advertises realm synthesis:\n%s", prose.file, prose.text)
+		}
+	}
+
 	// wiki/ is a git repo
 	gitDir := filepath.Join(root, "wiki", ".git")
 	if _, err := os.Lstat(gitDir); err != nil {

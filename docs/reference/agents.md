@@ -1,68 +1,61 @@
 # Agents
 
-Agents are specialized workers that run in a fresh context. The orchestrator dispatches them during `/subagent-implementation`, `/quick-fix`, and `/subagent-diagnose`, but you can also invoke them directly. Two of [Anthropic's agent patterns](https://www.anthropic.com/engineering/building-effective-agents) are built in: orchestrator-workers (a parent breaks the task down and delegates to workers) and evaluator-optimizer (the implementer writes, a separate reviewer critiques).
+Agents are specialized workers that run in a fresh context. Commands dispatch them, or you can invoke them directly via the Agent tool.
 
 
 ## Who dispatches whom
 
-Three orchestration trees drive the implementation lifecycle, and two ad-hoc exits route into the same reviewer outside them. The implement loop fans out per checkpoint, implementer then reviewer, with the investigator scoping surfaces, the auditor gating the whole delivery once at the end, and the strategist called in only when the loop is stuck; `/quick-fix` drives the same implementer, reviewer, and auditor from a brief instead of a spec. The wiki pipeline fans out per domain, one writer per domain with the same reviewer gating each page. The deslop pass fans out per shard, one read-only auditor per wiki domain, and its second phase hands accepted findings back to the same implementer.
+`/implement` always dispatches an independent reviewer and a final auditor. It delegates writing when the work warrants it.
 
 ```mermaid
 flowchart LR
     accTitle: Agent dispatch topology
-    accDescr: /subagent-implementation dispatches the investigator, implementer, reviewer, and auditor, and the strategist only when stuck. /quick-fix runs the same implementer, reviewer, and auditor without a spec. /implement dispatches no implementer at all, driving the reviewer once per checkpoint and the auditor once at the end. /refresh-wiki dispatches the wiki-inferrer, which dispatches the wiki-writer and the reviewer. /deslop fans out one deslopper per shard, and /deslop apply drives the implementer. atomic-verify and the ship verbs' review gate each dispatch the reviewer on code the main agent wrote ad-hoc, outside any loop.
-    SI["/subagent-implementation"] --> INV["atomic-investigator"]
-    SI --> IMP["atomic-implementer"]
-    SI --> REV["atomic-reviewer"]
-    SI --> AUD["atomic-auditor"]
-    SI -.->|only when stuck| STR["atomic-strategist"]
-    QF["/quick-fix"] --> IMP
-    QF --> REV
-    QF --> AUD
-    IM["/implement"] -->|per checkpoint| REV
-    IM --> AUD
+    accDescr: /implement can delegate writing. An independent reviewer checks each checkpoint, and an auditor checks the whole delivery. Other commands use the same agents for their review, wiki, and cleanup workflows.
+    IM["/implement"] -->|delegated work| IMP["atomic-implementer"]
+    IM -->|per checkpoint| REV["atomic-reviewer"]
+    IM --> AUD["atomic-auditor"]
     RW["/refresh-wiki"] --> WI["atomic-wiki-inferrer"]
     WI --> WW["atomic-wiki-writer"]
     WI --> REV
     DS["/deslop"] -->|one per shard| DSL["atomic-deslopper"]
-    DSA["/deslop apply"] --> IMP
-    AV["atomic-verify"] -->|diff: working| REV
-    SC["ship verbs"] -->|diff: staged| REV
+    DS -->|requested safe fixes| IMP
+    AV["atomic-verify"] -->|working diff| REV
+    SC["ad-hoc commit"] -->|task-only patch| REV
 ```
 
-`/quick-fix` and `/subagent-diagnose` reuse the implement loop's tree, `/autopilot` runs it end to end, and ship verbs dispatch the wiki-inferrer silently. `/implement` is the one implementation verb with no implementer dispatch: the main agent writes the code, so the reviewer runs per checkpoint and the auditor once at the end, as in the loop. `/atomic-plan` borrows the reviewer alone, in spec-mode. `/deslop` is the only tree whose two halves are separate invocations: the audit never reaches the implementer without a human accepting findings first. Code the main agent writes ad-hoc, outside any of these trees, reaches the reviewer two ways: `atomic-verify` dispatches it against the working diff before a completion claim, and the ship verbs' review gate dispatches it against the staged diff before the commit.
+`/atomic-plan` uses the reviewer in spec mode. Outside an implementation command, `atomic-verify` reviews the working diff before a completion claim. Before an ad-hoc commit, an independent reviewer must pass the exact task-only patch unless it has already passed review.
 
 
 ## Code agents
 
 These write, review, and gate code.
 
-| Agent | What it does | Execution |
-|-------|-------------|-------|
-| `atomic-implementer` | Dual-mode implementation agent. The orchestrator declares the mode at dispatch time. **feature mode**: implements a feature checkpoint — one cohesive slice across however many files it touches (controller + service + DTO + tests, etc.); refuses cross-cutting or ambiguous scope. **surgical mode**: small targeted edits with a hard cap of 2 files, test files excluded; bounces anything larger back to the orchestrator. Both modes write a failing test first. | Fresh context, one dispatch per checkpoint |
-| `atomic-reviewer` | Reviews a diff after each implementer pass. Re-runs the quality signals it verifies (tests, type checks). One line per finding, ends with PASS or CHANGES_REQUESTED. Flags suppression patterns — error-catching added to dodge a failure without investigating it. Flags over-engineering — reinvented stdlib, duplicate helpers, or one-implementation abstractions — and comment noise; both are 🟡 and drive the verdict, never nits. Runs `atomic code comments` on the diff and reports `comments: N added (M over max)` beside the other signals. Checks the implementer's proposed commit message against `atomic-git-discipline`. Also runs in spec-mode: reviews a draft spec against its design doc (coverage, voice, over-prescription) to gate the `/atomic-plan` spec loop. Also gates code the main agent wrote outside any loop, at both `atomic-verify` (`diff: working`, before a completion claim) and the ship verbs' review gate (`diff: staged`, before the commit). | Fresh context, one dispatch per gate |
-| `atomic-auditor` | Final gate on a finished implementation, dispatched once after the loop goes green. Audits four things per-checkpoint review cannot see: success criteria no single checkpoint owned, iterations that each passed and do not compose, commit types that misstate user-visible impact, and documentation that is current but says nothing. Never edits the repo; findings also land in `$SCRATCH/AUDIT.md`. Fresh context, ends with PASS or CHANGES_REQUESTED. | Fresh context, once after green |
+| Agent | What it does |
+|-------|-------------|
+| `atomic-implementer` | Implements a cohesive feature checkpoint or a surgical edit, as declared by the orchestrator. Both modes write a failing test first. |
+| `atomic-reviewer` | Reviews one scoped diff, spec draft, or requested wiki page. For diffs, verifies evidence and blocks duplicate helpers, library drift, and premature abstractions. |
+| `atomic-auditor` | Audits the whole delivery once: end-to-end proof, coherence, remaining polish, commit messages, and docs. Reports fixes in `AUDIT.md` when given a scratchpad. The caller assigns and reviews fixes. |
 
 
 ## Research agents
 
 These read code but never write it.
 
-| Agent | What it does | Execution |
-|-------|-------------|-------|
-| `atomic-investigator` | Locates code. "Where is X defined?", "What calls Y?", "List all uses of Z." When an index is present, leads with `atomic code explore` for broad scoping (one natural-language query returns the relevant symbols, files, and relationships), then uses `atomic code search/callers/callees/impact` for targeted follow-up; falls back to `sg`/`grep` otherwise. Returns a file:line table with no speculation. | Fresh context, read-only |
-| `atomic-strategist` | Reasons through hard problems — plans, specs, architectural tradeoffs. Surfaces hidden assumptions and recommends approaches. Read-only; never implements. Dispatched for root-cause analysis when the implement→review loop gets stuck on the same failure. | Fresh context, on demand |
-| `atomic-deslopper` | Audits one shard of a standing codebase — a wiki domain or a directory, never a diff. Sweeps eight slop categories, each bound to a rule atomic already carries, so a suspicion with no rule behind it is dropped rather than reported. Proves dead code through the symbol graph plus a literal sweep for dynamic references, and assigns every finding a safety tier that decides whether it may ever be auto-fixed. Its one write is a findings file inside the scratchpad bundle; it runs no mutating command, because siblings audit the same working tree in parallel. Dispatched one per shard by `/deslop`. | Fresh context, one per shard, parallel |
+| Agent | What it does |
+|-------|-------------|
+| `atomic-investigator` | Optional read-only source locator. The workflow can use any inexpensive read-only scout. |
+| `atomic-strategist` | Reasons through hard problems, plans, specs, and architectural tradeoffs. Read-only; never implements. |
+| `atomic-deslopper` | Checks one shard for avoidable complexity and dead code. Reports evidence and whether each fix is safe. |
 
 
 ## Infrastructure agents
 
 These handle system-level tasks.
 
-| Agent | What it does | Execution |
-|-------|-------------|-------|
-| `atomic-wiki-inferrer` | Scope-sensitive wiki pipeline, and an orchestrator rather than an author. Repo scope: scans via `atomic signals scan`, infers domain structure (using real import/call edges from the code-intel index when present; filename heuristics otherwise), dispatches one `atomic-wiki-writer` per domain and `atomic-reviewer` per page, then assembles `docs/wiki/index.md` and wires the `@docs/wiki/index.md` ref (checking `claude.local.md`, `CLAUDE.local.md`, `AGENTS.md`, then the `CLAUDE.md`/`claude.md` file, and, under the default `loader` steering mode, adding the loader's `@AGENTS.md` import when the ref sits only in `AGENTS.md`). Preloads the `atomic-wiki` skill to locate its pipeline references. Realm scope: executes the cross-repo pipeline against `<root>/wiki/`. Runs in its own context so the scan, which is thousands of lines, never enters the caller's. Dispatched by `/refresh-wiki` and silently by ship verbs. | Fresh context, orchestrates per domain |
-| `atomic-wiki-writer` | Authors one wiki page from source, dispatched once per domain by `atomic-wiki-inferrer` with the page contract and source paths in its prompt. Carries the `atomic-writing` skill in frontmatter, so the page's reading order, its diagrams, and its voice load as context rather than arriving as a request. Reads the files rather than inferring from filenames, draws every shape the domain has, redraws every current-architecture diagram from the domain's design docs into the page checked against source, and reports judgments separately from facts. Its prompt tells it not to dispatch other agents; its tool list does not enforce that. | Fresh context, one dispatch per page |
+| Agent | What it does |
+|-------|-------------|
+| `atomic-wiki-inferrer` | Selects affected repo domains, dispatches writers and reviewers, and publishes reviewed outputs before accepting the scan. Follows `atomic-wiki/references/repo.md`. |
+| `atomic-wiki-writer` | Reads assigned source and designs, writes one source-backed draft in scratch, and reports concerns separately. Follows `repo-output.md` for page format. |
 
 
 ## Model and effort
@@ -80,7 +73,7 @@ The canonical agent definitions declare no model or effort. Each states behavior
 - **model** is lenient on every harness: any value without spaces or control characters passes through, and the harness resolves it at runtime.
 - **effort** is strict on Claude, where a value outside the five levels is a config error. The OMP and Codex lists are the levels known at release; a value outside them warns in `atomic doctor` and still passes through.
 
-With no override stored, the projected agent carries no model or effort key, leaving the harness to select the session's values. Atomic projects a stored override into the named agent file; runtime support depends on the harness. A Codex 0.147.0 fresh child ran with both configured values, while OMP and Claude model-level delivery remains unproven. Atomic's static Codex agent-delivery capability still reports `unsupported`; see the [capability evidence](../research/harness-capability-matrix.md#agent-delivery). Named review dispatches include `atomic-verify` and the ship verbs' review gate, whose `review:` line names the model that ran.
+With no override stored, the projected agent carries no model or effort key, leaving the harness to select the session's values. Atomic projects a stored override into the named agent file; runtime support depends on the harness. A Codex 0.147.0 fresh child ran with both configured values, while OMP and Claude model-level delivery remains unproven. Atomic's static Codex agent-delivery capability still reports `unsupported`; see the [capability evidence](../research/harness-capability-matrix.md#agent-delivery).
 
 ### Choosing the harness
 

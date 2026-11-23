@@ -13,8 +13,8 @@ import (
 // subsequence; extra columns may sit between or after them.
 var checkpointsRequiredColumns = []string{"#", "Checkpoint", "Files/areas", "Verifies"}
 
-// RunSpecRules runs the spec-structure rules over one file's content. path
-// feeds Finding.Path only — nothing is read from disk.
+// RunSpecRules runs the spec-structure rules over one file's content without
+// reading from disk. Disposable .scratchpad/<topic>/SPEC.md files omit S6.
 func RunSpecRules(path string, src []byte) ([]Finding, error) {
 	var findings []Finding
 
@@ -90,7 +90,7 @@ func RunSpecRules(path string, src []byte) ([]Finding, error) {
 			break
 		}
 	}
-	if !hasChangeLog {
+	if !hasChangeLog && !isDisposableSpec(path) {
 		findings = append(findings, Finding{
 			Severity: "FAIL",
 			Rule:     "S6",
@@ -102,6 +102,12 @@ func RunSpecRules(path string, src []byte) ([]Finding, error) {
 
 	sortFindings(findings)
 	return findings, nil
+}
+
+func isDisposableSpec(path string) bool {
+	path = filepath.Clean(path)
+	return filepath.Base(path) == "SPEC.md" &&
+		filepath.Base(filepath.Dir(filepath.Dir(path))) == ".scratchpad"
 }
 
 // findTableInSection looks within sec's line range for a table whose header

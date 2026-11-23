@@ -4,11 +4,11 @@ description: "Domain: signals. Scan, infer, and wire the project context a sessi
 globs:
   - "atomic/internal/signals/**"
   - "context/skills/atomic-wiki/references/repo.md"
-  - "context/_partials/signals-gate.md"
+  - "context/skills/atomic-wiki/references/repo-output.md"
 paths:
   - "atomic/internal/signals/**"
   - "context/skills/atomic-wiki/references/repo.md"
-  - "context/_partials/signals-gate.md"
+  - "context/skills/atomic-wiki/references/repo-output.md"
 ---
 
 Domain: signals. Scan, infer, and wire the project context a session loads each turn.

@@ -23,7 +23,7 @@ After the initial index, keep it fresh with:
 atomic code sync
 ```
 
-`/refresh-wiki` automatically runs `atomic code sync` when the index is warm.
+Run this when you want to refresh the index. `/refresh-wiki` does not maintain it.
 
 
 ## Register the MCP server

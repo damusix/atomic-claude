@@ -898,7 +898,7 @@ func TestLifecycleCLICodexRequiresHome(t *testing.T) {
 // returns the journal path and the file path.
 func seedAppliedClaudeJournal(t *testing.T, home string) (string, string) {
 	t.Helper()
-	target := filepath.Join(home, ".claude", "commands", "commit.md")
+	target := filepath.Join(home, ".claude", "commands", "atomic-help.md")
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		t.Fatal(err)
 	}

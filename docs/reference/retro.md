@@ -1,6 +1,16 @@
-# atomic retro extract
+# Retro
 
-`atomic retro extract` turns every Claude Code session modified since a date into one numbered markdown file (or N size-balanced shards) holding only user-typed text, slash-command invocations, and the assistant's `Skill` / `Agent` calls. `/retrospective-learning` reads that file instead of raw `.jsonl`, so its scanners run on a few hundred KB of signal instead of hundreds of megabytes of tool traffic, and cite a `file:line` instead of re-typing a quote.
+
+Use `/retro` to review the current session, or `/retro <focus>` to narrow the review. It proposes changes with evidence and applies only those you approve.
+
+Ask to review past sessions to include historical evidence. Ask to check earlier decisions to see which approved changes are still in place. These are independent requests; neither is part of the default review.
+
+When updating an existing install, approve removal of the old `retrospective-learning.md` command if the installer offers it. If the old command remains, remove that file from the harness's installed commands directory. This does not remove your run records.
+
+## Export session history
+
+
+`atomic retro extract` writes a numbered Markdown file (or size-balanced shards) with user messages, slash-command invocations, and `Skill` and `Agent` calls from Claude Code sessions. The retro uses this export only for cross-session review.
 
     atomic retro extract --since 2026-08-19 --out out.md
     atomic retro extract --shards 4 --out "$SCRATCH/history.md"

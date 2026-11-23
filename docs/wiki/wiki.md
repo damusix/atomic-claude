@@ -10,96 +10,25 @@ tags: [knowledge, codegen, cli]
 ## What it does
 
 
-A set of related repos has no shared description of itself. Answering "what does this system do" means opening each repo in turn, and a hand-written overview has no structure that says which repos it covers or where their own docs live.
+A realm index lists member repositories and capture buckets. `atomic wiki scan` maintains its generated regions without replacing prose. The [signals domain](signals.md) owns repo-only `/refresh-wiki`.
 
-A wiki is that description. Code owns structure (member discovery, classification, managed regions, bucket indexes, the realm registry); the model owns meaning (repo summaries and cross-cutting concerns). Nothing tracks whether a summary or concern is current: `atomic wiki stale` reports membership drift only, and `/refresh-wiki` re-authors only the summaries and concerns the user picks.
-
-Repo scope and realm scope share almost no implementation. **Repo scope** lives at [`docs/wiki/`](.) inside one repo and is built by the signals domain; this package contributes only its steering pair and the pointer-card projection that `atomic wiki init --scope repo` runs. **Realm scope** lives at `<root>/wiki/`, spans the member repos found under `<root>`, and is built by [`atomic/internal/wiki/`](../../atomic/internal/wiki). An independent realm wiki has its own Git repository; a linked wiki is content in the realm's managed checkout. `/refresh-wiki` detects the scope and runs the realm refresh only for an independent wiki.
-
-The package also owns the list of realms a machine knows about: `~/.atomic/wikis.md` is the authority, and every enrolled harness's global steering file carries a derived `<wikis>` block. Without that registry, `atomic where`, the workflow resolver, and code-intel realm fan-out cannot place a directory inside a realm that has no `scope = "realm"` marker above it.
-
-Realm sharing lets collaborators exchange selected wiki pages and capture folders without relocating their workspaces or publishing their private buckets. `atomic realm join <git-url>` receives the shared definition and content; `atomic realm link` lets the recipient review which paths to use in their realm.
-
+Realm sharing exchanges selected wiki pages and capture folders without relocating each collaborator's workspace. `atomic realm join` receives a shared definition; `atomic realm link` reviews and activates selected mappings.
 
 ## How it works
 
 
-One command, but the scopes share no Go pipeline, only the agent that runs between their steps. The realm pipeline scans twice, so the committed `index.md` records the statuses the run itself produced.
+A realm scan discovers member repositories before updating their listing. Bucket indexing reads each capture folder without synthesizing its contents.
 
 ```mermaid
 flowchart TD
-    %% source: context/commands/refresh-wiki.md, context/skills/atomic-wiki/references/repo.md, context/skills/atomic-wiki/references/realm.md
-    RW["/refresh-wiki [root]"] --> D{"scope?"}
-    D -->|"no [root], cwd is a git repo"| A1
-    D -->|"[root] given, or wiki/<br/>outside a git repo"| B1
-
-    subgraph P1["repo scope: signals domain"]
-        A1["atomic signals scan"] --> A3["atomic-wiki-inferrer<br/>references/repo.md"]
-        A3 --> A4["atomic wiki init<br/>--scope repo (8c)"]
-    end
-
-    subgraph P2["realm scope: atomic/internal/wiki"]
-        B1["atomic wiki scan"] --> B2["atomic-wiki-inferrer<br/>references/realm.md"]
-        B2 --> B3["atomic wiki scan<br/>(closing)"]
-        B3 --> B4["atomic wiki linkify"]
-    end
+    R["atomic wiki scan"] --> M["Discover member repos"]
+    M --> I["wiki/index.md"]
+    R --> B["Index capture buckets"]
+    C["atomic wiki bucket index"] --> B
+    B --> D["Bucket index.md"]
 ```
 
-Most of [`atomic/internal/wiki/`](../../atomic/internal/wiki) is realm scope. The repo-scope pipeline exists as prompt text in [`context/skills/atomic-wiki/references/repo.md`](../../context/skills/atomic-wiki/references/repo.md); its Step 8b linkify belongs to the signals domain, and its Step 8c calls `atomic wiki init --scope repo` to scaffold steering and project the pointer cards (see Pointer cards below).
-
-### Realm refresh
-
-For an independent wiki, only pending repos get a summary without asking; an existing summary or concern changes only when the user picks it, and the closing scan runs after every write.
-
-```mermaid
-flowchart TD
-    %% source: docs/design/wiki.md, context/commands/refresh-wiki.md (realm Steps 2-10)
-    S2["atomic wiki scan<br/>(Step 2)"] --> P{"pending member?"}
-    P -->|"user routes it"| R6["/refresh-wiki in member<br/>(Step 6)"]
-    P -->|"not routed"| W7a["atomic-wiki-inferrer<br/>wiki-output (7a)"]
-    P -->|"none pending"| L7b
-    R6 --> L7b{"picked in 7b?"}
-    W7a --> L7b
-    L7b -->|"yes"| RA["summary:<br/>atomic-wiki-inferrer<br/>concern: rewrite"]
-    L7b -->|"no: SKIPPED"| S8["atomic wiki scan<br/>(Step 8)"]
-    RA --> S8
-    S8 --> LK["atomic wiki linkify<br/>then commit (Step 10)"]
-```
-
-Step 7b lists every existing `repos/` summary (leaving out the ones 7a just wrote and any whose repo is not a member) and every `concerns/*.md` file as one numbered list, and accepts indices, ranges, `all`, `none`, or `all except N`. A selected summary re-runs the inferrer in wiki-output mode for that member; a selected concern is re-synthesized in place from the signals files and summaries it cites. No step creates a concern. Step 5 stops early, printing `nothing to refresh.` and skipping to the commit, when nothing is pending, no bucket was just created, and `repos/` and `concerns/` hold nothing to offer. Step 3's one-time bucket offer and Step 4's placeholder fill run between the first scan and Step 5. The run calls no `atomic wiki stale`, since the scan it would compare against has just been rewritten.
-
-### Design-doc diagrams carried into pages
-
-Inside A3 and B2, the writer dispatch a domain receives carries a `<design_docs>` block: `repo.md` Step 3 assigns every `docs/design/*.md` file to a domain (the domain named by its `domain:` frontmatter, or otherwise the domain whose paths it describes), and `realm.md` W3/W4 do the same for `target_repo`'s design docs in wiki-output mode. `atomic-wiki-writer` then decides, per Mermaid block in a listed design doc, whether it belongs on the page.
-
-```mermaid
-flowchart TD
-    %% source: context/skills/atomic-wiki/references/repo.md, context/skills/atomic-wiki/references/realm.md, context/agents/atomic-wiki-writer.md
-    DD["docs/design/*.md<br/>Mermaid block"] --> K{"draws current<br/>architecture?"}
-    K -->|"no: before/after,<br/>rejected topology"| STAY["stays in the<br/>design doc"]
-    K -->|"yes: pipeline, model,<br/>request path, lifecycle"| R{"every node label<br/>resolves to source?"}
-    R -->|"yes"| REDRAW["redrawn in<br/>## How it works"]
-    R -->|"no"| DROP["dropped from the page,<br/>reported as stale"]
-```
-
-A design diagram lands on the page only when it draws current architecture and every node still resolves to source. The redrawn block's node labels resolve to a file or symbol in the domain's source paths, checked with `atomic code search <label>` when the code index exists, grep otherwise. The reviewer dispatched in Step 5 / W5 checks that the diagram either landed on the page or was named as stale, and that every Mermaid block on the page passes `~/.claude/skills/atomic-writing/references/mermaid.md`.
-
-### No-counts ban
-
-The ban on counting things in the repo is stated once, in `atomic-writing` rule 17, and every page-writing surface carries it as one line, so the reviewer in each pipeline can fail a page that breaks it.
-
-```mermaid
-flowchart TD
-    %% source: docs/design/wiki-durable-facts.md, context/skills/atomic-wiki/references/repo.md, context/skills/atomic-wiki/references/realm.md, context/agents/atomic-wiki-writer.md, context/agents/atomic-wiki-inferrer.md
-    SKILL["atomic-writing SKILL.md<br/>rule 17"] --> REPO["references/repo.md<br/>writer brief, R5"]
-    SKILL --> REALM["references/realm.md<br/>W4 brief"]
-    SKILL --> WRITER["atomic-wiki-writer.md"]
-    SKILL --> INFER["atomic-wiki-inferrer.md<br/>router rule"]
-    REPO --> RREV["repo.md Step 5 reviewer<br/>CHANGES_REQUESTED"]
-    REALM --> RLREV["realm.md W5 reviewer<br/>CHANGES_REQUESTED"]
-```
-
-A version and a documented contract value are the only carve-out. This repo's [`docs/wiki/CLAUDE.md`](CLAUDE.md) steering file carries the same line.
+Existing realm summaries, concerns, and knowledge pages remain readable. Their inspection and link tools are explicit CLI operations.
 
 ### Verbs
 
@@ -241,9 +170,9 @@ At fresh session startup, `realmshare.ClaimSyncReminder` checks the bound checko
 
 | Operation | Independent `wiki/` | Verified linked `wiki/` |
 |-----------|--------------------|-------------------------|
-| Git history | Lives in `wiki/.git`; realm `/refresh-wiki` commits in that repository. | Lives in the managed checkout. Editing through the link changes the checkout; `atomic realm sync` exchanges those changes. |
+| Git history | Lives in `wiki/.git` when the user initializes a repository there. | Lives in the managed checkout. Editing through the link changes the checkout; `atomic realm sync` exchanges those changes. |
 | `atomic wiki scan` | Classifies members, scaffolds missing files, and writes the local scan and member regions. | Classifies local members for the handoff without using or rewriting the shared scan or member regions. Rebuilds usable bucket trees while protecting the shared wiki index, and still registers the local wiki path. |
-| `atomic wiki init --scope realm` and `/refresh-wiki` | Init writes the steering scaffold. Refresh runs the realm synthesis pipeline. | Init reuses the wiki without scaffolding it. Refresh stops at a `wiki/` symlink, even if dangling. |
+| `atomic wiki init --scope realm` | Writes the steering scaffold. | Reuses the wiki without scaffolding it. |
 
 The Git import exception applies only to an entire `wiki/` with a real `wiki/.git` directory. Atomic copies the current content without `.git` and keeps the original repository and history in the local backup. It rejects a wiki with a `.git` file, including a Git worktree, and rejects other nested Git repositories rather than flattening them. Publication strips the local scan and bucket regions from `wiki/index.md`; portable bucket definitions live in `realm.toml`.
 
@@ -500,12 +429,12 @@ A [`CLAUDE.md`](../../CLAUDE.md) is Atomic's own when its block equals the loade
 
 | Path | Role |
 |------|------|
-| [`context/commands/refresh-wiki.md`](../../context/commands/refresh-wiki.md) | `/refresh-wiki [root]`. Detects scope, then runs the repo branch or the realm branch (Steps 1-10). |
-| [`context/agents/atomic-wiki-inferrer.md`](../../context/agents/atomic-wiki-inferrer.md) | The orchestrator. Reads the pipeline reference from the `atomic-wiki` skill's base directory, which the runtime reports because the skill is preloaded through `skills:`, executes it, and dispatches the writer and reviewer per domain. Authors no page itself. Realm scope runs only wiki-output mode, activated by `target_repo` plus `wiki_dir`. Composes the `agent-atomic-voice`, `agent-code-intel`, and `agent-where` partials from [`context/_partials/`](../../context/_partials). |
-| [`context/agents/atomic-wiki-writer.md`](../../context/agents/atomic-wiki-writer.md) | The page author, one dispatch per domain. Carries the `atomic-writing` skill, so the page contract loads as context, and dispatches no other agents. Redraws every current-architecture diagram from the domain's `<design_docs>` list into the page, checked against source, as its own workflow step ("Redraw the design diagrams") ahead of the concerns step. Composes the `agent-atomic-voice` and `agent-code-intel` partials. |
-| [`context/skills/atomic-wiki/SKILL.md`](../../context/skills/atomic-wiki/SKILL.md) | Conversational entry point: realm resolution from the `<wikis>` block (named as a projection of `~/.atomic/wikis.md`), bucket creation, bucket-doc authoring, membership-drift queries. |
-| [`context/skills/atomic-wiki/references/repo.md`](../../context/skills/atomic-wiki/references/repo.md) | Repo-scope pipeline: the domain-page shape, the reviewer checklist, the incremental-vs-full scope rule, the router shape, the per-domain `<design_docs>` assignment (Step 3), the pointer-card contract (Step 7b), and the `atomic wiki init --scope repo` projection step (Step 8c). |
-| [`context/skills/atomic-wiki/references/realm.md`](../../context/skills/atomic-wiki/references/realm.md) | Realm-scope wiki-output pipeline (W1-W7), the bucket-doc frontmatter contract and the per-folder `index.md` listing, and (W3/W4) the same design-doc-to-domain assignment and writer redraw responsibility for `target_repo`'s design docs. |
+| [`context/commands/refresh-wiki.md`](../../context/commands/refresh-wiki.md) | Starts the repo prose refresh on request. |
+| [`context/agents/atomic-wiki-inferrer.md`](../../context/agents/atomic-wiki-inferrer.md) | Runs the repo pipeline and dispatches writers and reviewers. |
+| [`context/agents/atomic-wiki-writer.md`](../../context/agents/atomic-wiki-writer.md) | Writes one repo domain page from source and redraws current design diagrams. |
+| [`context/skills/atomic-wiki/SKILL.md`](../../context/skills/atomic-wiki/SKILL.md) | Resolves realms, registers and indexes capture buckets, and answers explicit wiki queries. |
+| [`context/skills/atomic-wiki/references/repo.md`](../../context/skills/atomic-wiki/references/repo.md) | Repo scan, domain assignment, page contract, and review. |
+| [`context/skills/atomic-wiki/references/realm.md`](../../context/skills/atomic-wiki/references/realm.md) | Capture bucket frontmatter and index ownership. |
 
 ### Realm scan and drift
 
@@ -558,8 +487,8 @@ A [`CLAUDE.md`](../../CLAUDE.md) is Atomic's own when its block equals the loade
 | Path | Covers |
 |------|--------|
 | [`docs/spec/wiki.md`](../spec/wiki.md) | Core contract: `scan`, `linkify`, `stale`, `signals scan --out`, and `/refresh-wiki` success criteria, classification rules, `<wiki-scan>` block format, `<wikis>` registry. |
-| [`docs/spec/realm-wiki-drop-refresh.md`](../spec/realm-wiki-drop-refresh.md) | The removal of realm freshness tracking and bucket synthesis, and the pick-list realm `/refresh-wiki` flow. |
-| [`docs/spec/wiki-buckets.md`](../spec/wiki-buckets.md) | Bucket contract: `add`/`list`, `<wiki-buckets>` format, capture surfaces, the one-time `/refresh-wiki` bucket offer. |
+| [`docs/spec/realm-wiki-drop-refresh.md`](../spec/realm-wiki-drop-refresh.md) | Historical contract for removing realm freshness tracking and bucket synthesis. |
+| [`docs/spec/wiki-buckets.md`](../spec/wiki-buckets.md) | Bucket contract: `add`/`list`, `<wiki-buckets>` format, and capture surfaces. |
 | [`docs/spec/bucket-doc-management.md`](../spec/bucket-doc-management.md) | Child of `wiki-buckets`. Frontmatter contract, both managed regions, the `doc`/`skill`/`index` verbs. |
 | [`docs/spec/bucket-icm-structure.md`](../spec/bucket-icm-structure.md) | The bucket folder tree: an `index.md` in every directory, numeric-prefix ordering, item folders with `01_raw/`, removal of `--router`. |
 | [`docs/spec/wiki-bucket-arg-hardening.md`](../spec/wiki-bucket-arg-hardening.md) | Help probes must never mutate state; bucket names must be safe path segments. |
@@ -580,11 +509,11 @@ A [`CLAUDE.md`](../../CLAUDE.md) is Atomic's own when its block equals the loade
 
 **The inferrer reads its pipeline from the installed copy of the `atomic-wiki` skill**, resolved through the base directory the runtime reports for that skill, not from the repo copy. Editing [`context/skills/atomic-wiki/references/`](../../context/skills/atomic-wiki/references) has no effect on a session until the bundle is rebuilt and reinstalled.
 
-**A clean `atomic wiki stale` says nothing about content.** Exit 0 means the member set and statuses match the `<wiki-scan>` block. A summary or concern describing a repo that has since changed is invisible to every verb; only a user pick in `/refresh-wiki` Step 7b, or a hand edit, updates it.
+**A clean `atomic wiki stale` says nothing about prose content.** Exit 0 means the member set and statuses match the `<wiki-scan>` block. Existing summaries and concerns require manual updates.
 
 **A destination symlink alone does not establish ownership.** `link` requires the matching receipt and witness to reuse a link; `unlink` refuses replacements. `scan` and realm `init` do not follow an unowned `wiki/` symlink.
 
-**Older realms keep inert files.** A realm built by an earlier release may still hold `wiki/.dirty`, `wiki/.buckets/`, `wiki/knowledge/`, `reflects_*` frontmatter, and a `.dirty` line in `wiki/.gitignore`. No code reads or removes them, and `/refresh-wiki` Step 7b does not offer `wiki/knowledge/` pages.
+**Older realms keep inert files.** A realm built by an earlier release may still hold `wiki/.dirty`, `wiki/.buckets/`, `wiki/knowledge/`, `reflects_*` frontmatter, and a `.dirty` line in `wiki/.gitignore`. The realm refresh no longer synthesizes these files.
 
 **Bucket names must be safe single path segments:** not empty or whitespace, not `-`-prefixed, no `/` or `\`, not `.` or `..`, and not the reserved `wiki`. `validateBucketName` is the register-time backstop for programmatic callers; the CLI scanner rejects dash tokens first.
 
@@ -604,21 +533,20 @@ A [`CLAUDE.md`](../../CLAUDE.md) is Atomic's own when its block equals the loade
 
 **`ScaffoldBucketDoc` refuses an existing `<slug>` path; `ScaffoldBucketSkill` treats an existing file as a silent no-op.** A doc-slug collision usually means a naming mistake worth surfacing; re-running the skill scaffold on a realm that already has it is the expected outcome.
 
-**Realm scope has no `<wiki-type>` sentinel.** `atomic-wiki-inferrer` and `/refresh-wiki` Step 0 both name `<wiki-type>realm</wiki-type>` in `wiki/index.md` as a realm signal, but no Go code writes that block. Repo scope gets `<wiki-type>repo</wiki-type>` in [`docs/wiki/index.md`](index.md) from `references/repo.md` Step 7, and from [`atomic/internal/migrate/`](../../atomic/internal/migrate) on upgrade. Realm scope is reached through Step 0's other tests: a supplied `[root]`, or a `wiki/` directory at a cwd outside any git repo. The inferrer itself picks realm scope from the `target_repo`/`wiki_dir` dispatch args.
+**Realm discovery:** Use the scope marker or registered realm root. The repo prose command does not route to a realm pipeline.
 
-**A stale design diagram is reported differently by scope.** Repo scope surfaces it in the writer's concerns block (`docs/design/<file>.md:<line> — diagram no longer matches source (severity: risk)`), collected by the orchestrator's Step 6b. Realm scope has no concerns channel, so `realm.md`'s W4 instructs the writer to name it instead as one `## Constraints` line on the page itself.
 
 
 ## Coupling
 
 
-- **signals domain** owns the repo-scope scan, inference, and linkify. `atomic signals scan --out <dir>` is a direct dependency of realm wiki-output mode: the inferrer redirects the scan so it never writes into the member repo. A change to that flag or to `scan.md`'s format breaks member summarization. `atomic signals linkify` handles [`docs/wiki/`](.); `atomic wiki linkify` handles `wiki/`. Neither covers the other's tree.
-- **docs-meta domain** owns the page shape both pipeline references encode. The domain-page order in `references/repo.md` and the realm summary shape in `references/realm.md` are the `atomic-writing` skill's `## Structure before sentences` order applied to each. The same domain owns `~/.claude/skills/atomic-writing/references/mermaid.md`, which the writer and the reviewer both apply, and rule 17, the no-counts ban both reviewers enforce. `atomic docs index` in [`atomic/cmd/atomic/cmd_docs.go`](../../atomic/cmd/atomic/cmd_docs.go) calls `wiki.IndexDir`, which shares `indexOneDir` and `writeFileAtomic` with the bucket tree walk.
-- **Design-doc ownership is decided per file, at partition time.** `repo.md` Step 3 assigns each `docs/design/*.md` file to a domain and hands that list to the domain's writer dispatch as `<design_docs>`; `realm.md` W3/W4 do the same for a member repo's design docs. A design doc's owning domain is whatever that assignment produces, not its directory.
+- **signals domain** owns repo scans, inference, and linkification. `atomic wiki linkify` handles existing realm pages separately.
+- **docs-meta domain** owns the repo page shape and writing rules. `atomic docs index` calls `wiki.IndexDir`, which shares the bucket index machinery.
+- **Design-doc ownership** is assigned per file in the repo pipeline and passed to the domain writer.
 - **config domain** owns `config.WikisPath` (the `~/.atomic/wikis.md` location), `config.ClaudeConfigDir`, `config.LedgerPath`, `config.RepositoryStateDir`, `config.ProjectKey`, and the scope marker. `wikiInitAction` and `scanAction` call `config.EnsureScopeMarker`; `init` refuses a conflicting marker, while `scan` warns and leaves it unchanged. `FindRealm` prefers the marker (`config.FindScopeRoot`) over the registry. `config.ResolveSteeringMode` supplies the `[steering] claude` mode for `initScopePair`, `addLegacyBucket`, and the realm code-index writer. `declaredRoots` reads `[realm] repos` through `config.LoadRepoConfig` and forwards only the `realm.*` load warnings.
 - **harness domain** owns the install ledger and the per-harness steering paths `wikiSteeringPaths` maps targets to (`claude.GlobalSteeringPath`, `omp.SteeringPath`, `codex.SteeringPath`); a new harness kind projects no `<wikis>` block until it gets a case there. It owns `bundlespec.ScopeSteering` (the `AGENTS.md` source, the [`CLAUDE.md`](../../CLAUDE.md) loader, `LoaderDocument()`, `LoaderWithoutImport`, `OwnsLoader`, `GuidanceFile`) and `claude.ConvertScope`, which `convergeSteeringMode` runs before `ConvertSteeringPair`; `ScopeSteering` is what `initSteeringPair`, `onlyInitScaffold`, and `captureSurfacesFile` use; a change to the loader bytes changes what `scan` accepts as an unedited init. `claude.Verify` calls `ProjectionConflict`. `convergeRepoCards` in [`atomic/cmd/atomic/cmd_cards.go`](../../atomic/cmd/atomic/cmd_cards.go) implements `ProjectRepoCards` with `claude.EnsureCardLink` and `omp.Adapter.PublishProjectCards`, and the `rules` package's `ParseWiki` and `LoadWiki` define the card format `Refresh` validates.
 - **Native realm activation** belongs to [`docs/wiki/harness.md`](harness.md); publishing, receiving, and linking content are separate from native availability.
-- **workflow domain** owns the ship verbs; no ship verb touches a realm wiki, and `/refresh-wiki` Step 10 commits the wiki through the `atomic-git-discipline` skill. `realmPrefsPath` in [`atomic/internal/workflow/resolve.go`](../../atomic/internal/workflow/resolve.go) locates realm workflow preferences through `FindRealm`.
+- **workflow domain** resolves realm workflow preferences through `realmPrefsPath` in [`atomic/internal/workflow/resolve.go`](../../atomic/internal/workflow/resolve.go). Repo `/refresh-wiki` does not synthesize realm pages.
 - **doctor domain** owns [`atomic/internal/cliusage/cliusage.go`](../../atomic/internal/cliusage/cliusage.go). `main.go` calls `cliusage.SetRoot(rootCmd)`, so `--help` and the A1 citation lint read the live Cobra tree through `DeriveCommands`; the static `commands` slice is the golden table `TestDeriveCommandsGolden` checks. Register a `wiki` verb in [`atomic/cmd/atomic/cmd_wiki.go`](../../atomic/cmd/atomic/cmd_wiki.go), then update the golden slice in `cliusage.go`, or `TestDeriveCommandsGolden` fails. [`atomic/internal/doctor/checks_repo_config.go`](../../atomic/internal/doctor/checks_repo_config.go) reads the registry through `RegisteredIndexPaths`.
 - **bundle domain** embeds [`context/commands/refresh-wiki.md`](../../context/commands/refresh-wiki.md), the wiki agents, and the `atomic-wiki` skill through `make bundle`, which expands the agents' `{{ template }}` partials. The files in [`atomic/internal/wiki/templates/`](../../atomic/internal/wiki/templates) are a separate `go:embed`, compiled into the binary and never installed.
 - **serve domain** consumes `ReadBucketEntries` and the `Member` type ([`atomic/internal/serve/nav.go`](../../atomic/internal/serve/nav.go)), `ReadScanMembers` (`nav.go`, `code_members.go`, `api_plans.go`), and `Stale` plus `StaleCodeError` ([`atomic/internal/serve/stale.go`](../../atomic/internal/serve/stale.go), `staleness_cache.go`, `health.go`). Renaming any of them breaks `atomic serve`.

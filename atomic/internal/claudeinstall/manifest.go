@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/embedded"
@@ -27,8 +28,7 @@ func PruneDiff(storedTargets []string, currentTargets map[string]bool) []string 
 	return stale
 }
 
-// defaultPruneConfirm is the interactive batched confirm. Without a TTY there is
-// no human to ask, so prune is silently skipped.
+// defaultPruneConfirm asks for interactive, batched approval.
 func defaultPruneConfirm(stale []string) (bool, error) {
 	desc := fmt.Sprintf(
 		"The following %d artifact(s) were previously installed by atomic but are no longer in the current bundle:\n",
@@ -95,7 +95,7 @@ func currentBundleTargetSet() map[string]bool {
 
 // writeInstallManifest persists the [install] section to config.toml. Non-dry-run
 // installs only. "claude-md" artifacts are not tracked in install.artifacts.
-func writeInstallManifest(home string, plan []FileAction) error {
+func writeInstallManifest(home string, plan []FileAction, retained []string) error {
 	cfgPath := config.TOMLPath(home)
 	cfg, _, err := config.Load(cfgPath)
 	if err != nil {
@@ -110,11 +110,21 @@ func writeInstallManifest(home string, plan []FileAction) error {
 	}
 
 	cfg.Install.Adopted = false
-	cfg.Install.Artifacts.Agents = nil
-	cfg.Install.Artifacts.Commands = nil
-	cfg.Install.Artifacts.Skills = nil
-	cfg.Install.Artifacts.OutputStyles = nil
-	cfg.Install.Artifacts.Rules = nil
+	keep := make(map[string]bool, len(retained))
+	for _, target := range retained {
+		keep[target] = true
+	}
+	retain := func(targets []string) []string {
+		if len(keep) == 0 {
+			return nil
+		}
+		return slices.DeleteFunc(targets, func(target string) bool { return !keep[target] })
+	}
+	cfg.Install.Artifacts.Agents = retain(cfg.Install.Artifacts.Agents)
+	cfg.Install.Artifacts.Commands = retain(cfg.Install.Artifacts.Commands)
+	cfg.Install.Artifacts.Skills = retain(cfg.Install.Artifacts.Skills)
+	cfg.Install.Artifacts.OutputStyles = retain(cfg.Install.Artifacts.OutputStyles)
+	cfg.Install.Artifacts.Rules = retain(cfg.Install.Artifacts.Rules)
 
 	for _, fa := range plan {
 		t := fa.Artifact.Target
@@ -136,30 +146,34 @@ func writeInstallManifest(home string, plan []FileAction) error {
 	return config.WritePersist(cfgPath, cfg)
 }
 
-// runPrune confirms the stale paths as a batch and, if approved, removes them,
-// returning what it removed. A no-op on an empty slice.
+// runPrune removes stale paths only with approval and returns those still installed.
 func runPrune(targetDir string, stale []string) ([]string, error) {
 	if len(stale) == 0 {
 		return nil, nil
 	}
 	ok, err := PruneConfirm(stale)
-	if err != nil {
-		if errors.Is(err, prompt.ErrAborted) {
-			// Ctrl+C is a decline, not an error.
-			return nil, nil
-		}
+	if err != nil && !errors.Is(err, prompt.ErrAborted) {
 		return nil, fmt.Errorf("prune confirm: %w", err)
 	}
-	if !ok {
-		return nil, nil
+	if err != nil || !ok {
+		var retained []string
+		for _, t := range stale {
+			_, err := os.Lstat(filepath.Join(targetDir, filepath.FromSlash(t)))
+			if os.IsNotExist(err) {
+				continue
+			}
+			if err != nil {
+				return nil, fmt.Errorf("check stale artifact %s: %w", t, err)
+			}
+			retained = append(retained, t)
+		}
+		return retained, nil
 	}
-	var removed []string
 	for _, t := range stale {
 		p := filepath.Join(targetDir, filepath.FromSlash(t))
 		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
-			return removed, fmt.Errorf("prune %s: %w", t, err)
+			return nil, fmt.Errorf("prune %s: %w", t, err)
 		}
-		removed = append(removed, t)
 	}
-	return removed, nil
+	return nil, nil
 }

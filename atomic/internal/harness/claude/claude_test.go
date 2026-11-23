@@ -293,8 +293,8 @@ func TestEnrollVerifiedClaudeTargetEndToEnd(t *testing.T) {
 
 	// One artifact installed with the selected binary's exact bytes, one drifted
 	// legacy file, and the global steering block from the fixture.
-	selectedPath := filepath.Join(root, "commands", "commit.md")
-	selected, err := embedded.FS.ReadFile("bundle/commands/commit.md")
+	selectedPath := filepath.Join(root, "commands", "atomic-help.md")
+	selected, err := embedded.FS.ReadFile("bundle/commands/atomic-help.md")
 	if err != nil {
 		t.Fatalf("read embedded artifact: %v", err)
 	}
@@ -320,7 +320,7 @@ func TestEnrollVerifiedClaudeTargetEndToEnd(t *testing.T) {
 		t.Fatalf("enroll: %v", err)
 	}
 	sort.Strings(enrollment.Adopted)
-	want := []string{"CLAUDE.md", "commands/commit.md"}
+	want := []string{"CLAUDE.md", "commands/atomic-help.md"}
 	if len(enrollment.Adopted) != len(want) {
 		t.Fatalf("adopted = %v, want %v (the drifted legacy agent must stay unowned)", enrollment.Adopted, want)
 	}
@@ -728,7 +728,7 @@ func TestUninstallSkipsUserEditedOwnedSetting(t *testing.T) {
 	if string(after) != string(before) {
 		t.Errorf("uninstall rewrote the user's settings: %s", after)
 	}
-	if _, err := os.Stat(filepath.Join(root, "commands", "commit.md")); !errors.Is(err, fs.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(root, "commands", "atomic-help.md")); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("uninstall left an otherwise-removable resource in place: %v", err)
 	}
 	ledger, err := installstate.LoadLedger(config.LedgerPath(home))

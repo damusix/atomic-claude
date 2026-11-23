@@ -243,15 +243,7 @@ func TestPlansAggregator_DescriptionFromGoalNotMetaToml(t *testing.T) {
 		t.Fatalf("Save: %v", err)
 	}
 
-	specPath := filepath.Join(main, "docs", "spec", "goal-slug.md")
-	specContent := "# Goal Slug\n\n## Goal\n\nThe real description lives here.\n"
-	if err := os.WriteFile(specPath, []byte(specContent), 0o644); err != nil {
-		t.Fatalf("write spec: %v", err)
-	}
-	now := time.Now()
-	if err := os.Chtimes(specPath, now, now); err != nil {
-		t.Fatalf("chtimes: %v", err)
-	}
+	writeDoc(t, main, "spec", "goal-slug", "# Goal Slug\n\n## Goal\n\nThe real description lives here.\n", time.Now())
 
 	a := newTestAggregator(main)
 	rows, _, _ := a.rows()
@@ -260,6 +252,47 @@ func TestPlansAggregator_DescriptionFromGoalNotMetaToml(t *testing.T) {
 	if row.Description != "The real description lives here." {
 		t.Errorf("Description = %q, want the ## Goal paragraph, not meta.toml's %q", row.Description, "migrated")
 	}
+}
+
+// A plan's disposable spec is exposed as a bundle file, while a historical
+// docs/spec document remains available as a separately versioned document.
+func TestPlansAggregator_ScratchpadSpecAndLegacySpec(t *testing.T) {
+	root := t.TempDir()
+	restoreHome := config.SetHomeDirForTest(t.TempDir())
+	defer restoreHome()
+
+	bundle, _, err := scratchpad.New(root, "spec-slug", "plan")
+	if err != nil {
+		t.Fatalf("scratchpad.New: %v", err)
+	}
+	writeDoc(t, root, "spec", "spec-slug", "# Historical spec\n\n## Goal\n\nHistorical goal.\n", time.Now())
+
+	rows, _, _ := newTestAggregator(root).rows()
+	row := findRow(t, rows, "spec-slug")
+	findDoc(t, row, "docs/spec/spec-slug.md")
+	if row.Description != "Historical goal." {
+		t.Errorf("Description = %q, want historical goal", row.Description)
+	}
+	if len(row.Bundles) != 1 {
+		t.Fatalf("bundles = %+v, want 1", row.Bundles)
+	}
+	specPath := filepath.Join(bundle.Root, "SPEC.md")
+	realSpecPath, err := filepath.EvalSymlinks(specPath)
+	if err != nil {
+		t.Fatalf("resolve SPEC.md: %v", err)
+	}
+	for _, file := range row.Bundles[0].Files {
+		if filepath.Join(root, filepath.FromSlash(file.RelPath)) == specPath {
+			if file.Kind != "markdown" {
+				t.Errorf("SPEC.md kind = %q, want markdown", file.Kind)
+			}
+			if resolved, ok := resolvePlansPath(root, file.RelPath); !ok || resolved != realSpecPath {
+				t.Errorf("SPEC.md path resolves to %q, %v; want %q", resolved, ok, realSpecPath)
+			}
+			return
+		}
+	}
+	t.Errorf("SPEC.md missing from bundle files: %+v", row.Bundles[0].Files)
 }
 
 // An archived bundle is excluded from the row set entirely — it has moved
@@ -941,8 +974,8 @@ func TestPlansAggregator_NonGitRootIsOneCheckout(t *testing.T) {
 	}
 
 	row := findRow(t, rows, "x")
-	if len(row.Docs) != 2 {
-		t.Fatalf("docs = %+v, want 2 (design + spec)", row.Docs)
+	if len(row.Docs) != 1 || row.Docs[0].Path != "docs/design/x.md" {
+		t.Fatalf("docs = %+v, want only the provisioned design", row.Docs)
 	}
 	wantID := checkoutID(root)
 	dispPath, _ := checkoutDisplayPath(root, root)

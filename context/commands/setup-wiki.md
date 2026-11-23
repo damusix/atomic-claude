@@ -1,382 +1,50 @@
 ---
-description: Bootstrap the current repo for atomic-claude use. Audits .gitignore entries, docs/ layout, and presence of the project steering file. Proposes only what's missing — never overwrites. No commits.
+description: Audit and bootstrap wiki setup. Apply only approved additions; never overwrite, stage, or commit.
 ---
 
-You set up the repo for atomic-claude conventions. Detect first, propose second, apply only what the user confirms.
-
-<workflow>
-
-## Pre-flight and scope detection
-
-If the user asks to set up a realm, or `atomic where --json` reports `realm_scope.position: root`, take the realm route below before offering `git init` or running the repo audit.
-
-A `wiki/` outside a git repo is a realm root, a git repo without one is repo scope, and a git repo holding a `wiki/` is the user's call, defaulting to repo.
-
-The managed Git checkout reported by `atomic realm status` is not a project to bootstrap. If you are in that checkout, stop and direct the user to their logical realm root.
-
-```mermaid
-flowchart TD
-    G{"Inside a git repo?"} -->|no| W{"wiki/ present?"}
-    W -->|yes| RL["Scope: realm"]
-    W -->|no| I{"User inits git?"}
-    I -->|no| X["Refuse"]
-    I -->|yes| N["git init"]
-    N --> RP["Scope: repo"]
-    G -->|yes| W2{"wiki/ present?"}
-    W2 -->|no| RP
-    W2 -->|yes| Q{"User picks?"}
-    Q -->|realm| RL
-    Q -->|repo or cancel| RP
-```
-
-- **Inside a git repo?**: run in parallel with the `wiki/` check: `git rev-parse --is-inside-work-tree 2>/dev/null` and `test -d wiki && echo wiki-present || echo wiki-absent`.
-- **User inits git?**: ask the user:
-
-    ```
-    Not a git repo. Initialize one?
-    - Yes, run git init
-    - No, stop
-    ```
+## Select scope
 
-- **User picks?**: ask the user in one batched question block; accept `realm` or `repo` as typed input or a button choice:
 
-    ```
-    A wiki/ directory exists inside this git repo. Which scope applies?
-    - realm — this directory is a realm root (wiki/ is the attached wiki repo)
-    - repo  — this is a single git repo with its own wiki/ storage
-    - unsure / cancel — treat as repo
-    ```
+This command bootstraps a repo wiki in a Git worktree. Outside Git, stop and route realm capture or bucket setup to the `atomic-wiki` skill. `/refresh-wiki` writes the repo `<wiki-type>` marker.
 
-    On cancel, an ambiguous answer, or "unsure / cancel", note `"wiki-type defaulted to repo (wiki/ present inside git repo — user did not confirm realm)"` in the Step 5 output.
-- **Scope: realm**: stop the repo workflow here. Use the Karpathy-wiki setup route in the `atomic-wiki` skill. Keep the realm root's `AGENTS.md` and Claude loader local. Do not use the repo steering survey or the `/commit` next step for a realm.
-- **Scope: repo**: continue with the audit below. The repo steering survey and commit guidance apply only to this repository.
+## Audit and propose
 
-## Step 1 — Audit
 
-Inspect the repo. Build this status table:
+Print each item's status and classify setup as fresh (no conventions or only an empty `.gitignore`), partial, or complete.
 
-| Convention | Present? | Status |
-|-----------|----------|--------|
-| `.gitignore` exists | check `test -f .gitignore` | exists / missing |
-| `.gitignore` has `tmp/` | grep `^tmp/?$` | yes / no |
-| Scratchpad ignored | read `state_root` from `atomic where --json` as `<state-root>` (`.atomic` by default), then `git check-ignore -q <state-root>/.scratchpad/probe` (`atomic repo init` writes the rule to `<state-root>/.gitignore`). n/a when `<state-root>` is outside the repository | yes / no / n/a |
-| Worktrees location ignored | read `worktrees` from `atomic where --json` as `<worktrees>`, then `git check-ignore -q <worktrees>/probe` (the rule may live in a nested `.gitignore`). n/a when `<worktrees>` is empty (`off`) or absolute (outside the repository). Placement per harness: the `atomic-git-discipline` reference `references/worktrees.md` | yes / no / n/a |
-| Project steering file at repo root | `test -f AGENTS.md -o -f CLAUDE.md -o -f claude.md` | exists / missing |
-| `docs/` directory | `test -d docs` | exists / missing |
-| `docs/spec/` directory | `test -d docs/spec` | exists / missing |
-| `docs/design/` directory | `test -d docs/design` | exists / missing |
-| `README.md` at repo root | `test -f README.md` | exists / missing |
-| `SessionStart` hook registered in `.claude/settings.json` | parse `.claude/settings.json` (JWCC tolerated) and look for a `SessionStart` entry whose `hooks[].command` value is `atomic hooks session-start` (the inline command written by `atomic hooks install`) | registered / missing |
-| `docs/wiki/index.md` | `test -f docs/wiki/index.md` | exists / missing |
-| Signals `@-ref` wired | present in the project steering files — `claude.local.md`, `CLAUDE.local.md`, the shared `AGENTS.md`, or the loader beside it, `CLAUDE.md` or `claude.md` — check each with `grep -qF '@docs/wiki/index.md' <file>` (mirrors the `atomic-wiki-inferrer` search order). A ref found only in `AGENTS.md` counts when no loader sits beside it or the loader carries `@AGENTS.md`; otherwise report `no`. n/a only when none of those files exist. Only `docs/wiki/index.md` (the compact router) is `@-ref`'d — `docs/wiki/scan.md` is too large for context on big repos and is read by the inferrer on demand. | yes / no / n/a |
-| Legacy `.signalsignore` at repo root | `test -f .signalsignore` | present (needs migrating) / absent |
-| Wiki steering file | `test -f docs/wiki/AGENTS.md -o -f docs/wiki/CLAUDE.md` | exists / missing |
+| Inspect | Propose when missing or outdated |
+|---|---|
+| `.gitignore`, `tmp/`, state and worktree ignores from `atomic where --json` | Run `atomic repo init` for missing state or ignore rules. Preserve existing rules. |
+| Root steering file | Draft it using the survey and the active mode in `atomic-wiki/references/repo-output.md`. |
+| `docs/`, `docs/design/` | Create the missing design directory with `.gitkeep`. New specs live in task scratchpads. |
+| Root `README.md` | Offer a stub: repo name, one-line purpose placeholder, Install, Usage, License. |
+| Session hooks | In Claude Code, inspect the project `SessionStart` entries for `atomic hooks session-start`; propose `atomic hooks install --scope project` for a missing or legacy entry. For OMP or Codex, use the harness setup reported by `atomic doctor`. |
+| `docs/wiki/index.md` | Suggest `/refresh-wiki`; do not invoke it. |
+| Router ref in active root steering | If the index exists, offer to wire it using `atomic-wiki/references/repo-output.md`. |
+| Root `.signalsignore` | Point to `atomic migrate --repo .`; never hand-convert it. |
+| Wiki steering file | Run `atomic wiki init --scope repo`. Relay `created <path>` and explain that it steers inference. |
 
-Classify the repo:
+If complete, print `repo already atomic-ready. nothing to do.` and stop. Otherwise number the proposed actions. Accept space- or comma-separated indices, ranges, `all`, `none`, or `all except N`; re-prompt for invalid indices. Apply approved actions in order. Recheck existence before creating files. Stop on failure and name the failed action.
 
-- **fresh** — none of the conventions present (or only an empty `.gitignore`).
-- **partial** — some present, some missing.
-- **complete** — all present.
+Only suggest `[scan]` exclusions for committed paths the audit found. `ignore` removes paths from the scan; `generated` keeps them in the tree but skips their contents. Write neither without approval of the specific paths.
 
-Print the audit table and the classification.
+## Survey for new steering
 
-## Step 2 — Propose
 
-For each missing item, propose an action. Skip items already present.
+Use wiki index and scan, README, manifests, CI and build files, recent commit subjects, and `HACK`, `FIXME`, `XXX`, or `WORKAROUND` comments. Stop reading when you have enough evidence. Record project-specific facts; do not repeat global rules or workflow.
 
-| Missing item | Proposed action |
-|--------------|----------------|
-| `.gitignore` missing, `tmp/` or `<state-root>/.scratchpad/` not ignored, or the worktrees location not ignored | Run `atomic repo init`: one idempotent call creates `.gitignore` if absent and adds the state and default worktrees ignore rules that `references/worktrees.md` lists. A location it does not cover gets the exact root `.gitignore` line `/<worktrees>/` in Step 4, with `<worktrees>` substituted (for example `/wt/` for `worktrees: wt`). |
-| Project steering file missing | Run the survey procedure (see "Project steering survey" in Step 4). Seed every section with an agent guess from signals/README/code; user edits the guess. |
-| `docs/spec/` missing | Create directory + `docs/spec/.gitkeep` (so git tracks it before any content lands). |
-| `docs/design/` missing | Create directory + `docs/design/.gitkeep`. |
-| `README.md` missing | Offer to scaffold a minimal starter. If user declines, skip — don't push it. |
-| Registration missing | Run `atomic hooks install`. |
-| Legacy wrapper-script registration present | Run `atomic hooks install` (migrates to the inline command and deletes the stale `session-start-reminders.sh` script). |
-| `docs/wiki/index.md` missing | Print: "Run `/refresh-wiki` to generate project signals." (follow-up only; setup does not invoke it). |
-| Project steering file exists but the `@-ref` is missing or not loaded | Append the `## Project signals (auto-loaded)` section, or the loader's `@AGENTS.md` import (see Signals subsection in Step 4). Skip this row when no steering file exists — the starter template row handles that case. |
-| Legacy `.signalsignore` present | Point at `atomic migrate --repo .`, which folds it into `[scan]` in `<state-root>/atomic.toml` and removes the file. Never hand-convert it. |
-| Wiki steering file missing | Create it via `atomic wiki init --scope repo` (see "Wiki steering pair" subsection in Step 4). Never overwrite if it exists. |
+| Section | Draft from | If unclear |
+|---|---|---|
+| What this is | README and manifest description | Ask what it does and who uses and maintains it. |
+| Scope boundary | Supported platforms and CI matrix | Ask what it excludes. |
+| Tribal knowledge | Workarounds and unusual layout | No surprising patterns detected. |
+| Project rules | Commit history, lint, and CI gates | No repo-specific rules detected beyond global defaults. |
+| Processes | Build, CI, release scripts, and contributing guide | No release, rollback, or on-call process detected. |
+| External references | README links to trackers, runbooks, chat, or dashboards | No external references detected. |
 
-Present the proposed actions as a numbered list:
+For each section, offer Accept or Edit. Skip a section only when no supported draft exists. Write the approved sections to the active steering file. If the wiki index exists, follow the router wiring contract in `atomic-wiki/references/repo-output.md` and leave any working ref in place.
 
-```
-Proposed actions:
-  [1] Run atomic repo init (scaffolds tmp/, .scratchpad/, and default worktrees ignore rules)
-  [2] Create the project steering file from the atomic template
-  [3] Create docs/spec/.gitkeep
-  [4] Create docs/design/.gitkeep
-  [5] Scaffold README.md (optional — say "skip 5" to leave it)
-```
+## Report
 
-If the repo is **complete**, print `repo already atomic-ready. nothing to do.` and stop.
 
-## Step 3 — Confirm
-
-Prompt user:
-
-```
-Apply which actions? Type indices, "all", or "none".
-Examples: `1 3 5`  |  `all`  |  `none`  |  `1-3 5`  |  `all except 5`
-
-Your selection:
-```
-
-Parse the input the same way `/git-cleanup` does (space- or comma-separated, ranges, `all`, `none`, `all except N` excluded list).
-
-Validate each index against the proposed list. Unknown index → re-prompt.
-
-## Step 4 — Apply
-
-For each confirmed action, in order:
-
-### `.gitignore`
-
-Run `atomic repo init` (rules in Step 2). If the worktrees audit row was not n/a and `git check-ignore -q <worktrees>/probe` still fails after it, print the `/<worktrees>/` line from Step 2 for the user to add; never write it.
-
-### Scan exclusions (`[scan]` in `<state-root>/atomic.toml`)
-
-Nothing to scaffold. Scan exclusions live in the repo config that `atomic repo init` already created, and an empty `[scan]` table would be noise in every repo that needs no exclusions.
-
-Mention the option only when the audit found a plausible reason for it — a committed `vendor/`, `third_party/`, a large fixtures tree, or generated output such as `*.pb.go` or `dist/`. Name the paths you actually saw and show the shape:
-
-```toml
-[scan]
-ignore = ["third_party/**", "fixtures/**"]
-generated = ["*.pb.go", "dist/**"]
-```
-
-`ignore` drops a path from the tree entirely; `generated` keeps it in the tree but marks it so the inferrer skips its content. Gitignored paths are already excluded, so this is only for committed ones. Never write the table without the user agreeing to the specific paths.
-
-If the repo still has a legacy `.signalsignore`, say so and point at `atomic migrate --repo .`, which converts it into `[scan]` and removes the file. Do not hand-convert it.
-
-### Wiki steering pair
-
-```bash
-atomic wiki init --scope repo
-```
-
-This is idempotent: it writes the wiki steering scaffold if it does not exist, and no-ops silently if it already does. On creation the command prints `created <path>` on stdout — relay that line, followed by `(edit to steer the inferrer).`
-
-The scaffold's canonical home is the wiki steering pair: the shared `docs/wiki/AGENTS.md`, with the `CLAUDE.md` loader beside it.
-
-### Project steering survey
-
-Refuse to overwrite if file exists (audit already gated this — defensive double-check).
-
-**Seed every section with content from the original.** Every section is seeded with an agent guess; the user edits the guess. The point of the project steering file is durable intent, scope, tribal knowledge, rules, processes, and external references — content the installed global contract cannot carry and project signals cannot infer. Do not duplicate global principles, "where things live", or the canonical workflow. Those load globally.
-
-**Inputs the agent reads to form guesses** (in order, stop when enough signal):
-
-1. `docs/wiki/index.md` and `docs/wiki/scan.md` if present.
-2. `README.md`.
-3. Top-level manifest files (`package.json`, `go.mod`, `pyproject.toml`, `Cargo.toml`, etc.) for purpose / language / domain hints.
-4. `.github/workflows/`, `Makefile`, release scripts for processes.
-5. Recent `git log --oneline -50` for commit style and rule signals.
-6. `rg -n 'HACK|FIXME|XXX|WORKAROUND'` for tribal-knowledge candidates.
-
-**Survey loop.** Walk the six sections below in order; skip is offered only when the source returned nothing, because a guess with real content already found durable signal and gets written.
-
-```mermaid
-flowchart TD
-    F["Form guess"] --> E{"Guess has content?"}
-    E -->|yes| P1["Ask accept / edit"]
-    E -->|no| P2["Show placeholder, ask<br/>accept/edit/skip"]
-    P1 --> R["Record section"]
-    P2 --> R
-    R --> M{"More sections?"}
-    M -->|yes| F
-    M -->|no| W["Render, write"]
-```
-
-- **Form guess**: from the section's documented source in the table below.
-- **Ask accept / edit**: `[a]ccept / [e]dit`.
-- **Show placeholder, ask accept/edit/skip**: the table's fallback placeholder, then `[a]ccept / [e]dit / [s]kip`.
-- **Record section**: accept → use as-is. Edit → the user supplies replacement text. Skip → the one-line honest placeholder becomes the section body. Never an HTML comment. Never blank.
-- **Render, write**: the skeleton under **Render** below.
-
-| # | Section | Guess source | If nothing inferable |
-|---|---------|--------------|----------------------|
-| 1 | **What this is** | First README paragraph + manifest `description` field + dominant language | "One-line purpose. Who uses it, who maintains it." prompt, asked of user |
-| 2 | **Scope boundary** | Platform support comments (a local override file's "macOS+Linux only" style), CI matrix, language exclusions | Ask user explicitly: "What is this for? What is it deliberately NOT for?" |
-| 3 | **Tribal knowledge** | `HACK`/`FIXME`/`XXX`/`WORKAROUND` comments with surrounding context; non-standard directory layout | "No surprising patterns detected. Add gotchas as they surface." |
-| 4 | **Project rules** | Commit-message style from recent git log, lint config, pre-commit hooks, CI gates | "No repo-specific rules detected beyond global defaults." |
-| 5 | **Processes** | `Makefile` targets, `.github/workflows/*.yml` job names, release scripts, `CONTRIBUTING.md` | "No release / rollback / on-call processes detected." |
-| 6 | **External references** | URLs scraped from `README.md` matching Linear/Notion/Slack/Grafana/Sentry/Datadog domains | "No external references detected. Add Linear/Notion/Slack/dashboards as they arise." |
-
-**Render.** Assemble the accepted/edited content into this skeleton and write it to `AGENTS.md` at the repository root, not the realm root:
-
-````markdown
-# AGENTS.md
-
-
-## What this is
-
-
-<§1 content>
-
-
-## Scope boundary
-
-
-<§2 content>
-
-
-## Tribal knowledge
-
-
-<§3 content>
-
-
-## Project rules
-
-
-<§4 content>
-
-
-## Processes
-
-
-<§5 content>
-
-
-## External references
-
-
-<§6 content>
-
-
-<atomic-signals>
-
-## Project signals (auto-loaded)
-
-
-@docs/wiki/index.md
-
-</atomic-signals>
-````
-
-Then write the thin loader `CLAUDE.md` beside it, byte for byte in the shape `atomic` writes, so a later install recognizes the block as its own. The survey runs only when no steering file exists, so nothing is overwritten:
-
-```markdown
-<atomic>
-
-@AGENTS.md
-
-</atomic>
-```
-
-The `<atomic-signals>` block is appended unconditionally — even if signals haven't been scanned yet, the `@-ref` is forward-compatible (the harness tolerates missing `@-ref` targets). The tag makes the block swappable on refresh without touching user content. Only `docs/wiki/index.md` (the compact router) is `@-ref`'d. `docs/wiki/scan.md` is NOT — it can be thousands of lines on large repos and would blow up context. The wiki steering file is also NOT `@-ref`'d — it is read only during inference by the `atomic-wiki-inferrer` agent.
-
-**Content that belongs in the global file, not the project file:** These live globally already — duplicating them noise-pollutes the project file:
-
-- Principles ("Think before coding", "Simplicity first", etc.)
-- "Where things live" (scratchpad / docs/design / docs/spec / worktrees)
-- Canonical workflow steps (Plan → Implement → Ship → Sync docs)
-- Subagent roster
-- Slash command catalog
-
-### `docs/spec/` and `docs/design/`
-
-```bash
-mkdir -p docs/spec docs/design
-touch docs/spec/.gitkeep docs/design/.gitkeep
-```
-
-### `README.md`
-
-- Refuse to overwrite if file exists.
-- Write a minimal scaffold: title (repo dir name), one-line pitch placeholder, "Install / Usage / License" placeholder headings. Tell the user it's a stub and they should expand it.
-
-### Signals
-
-Apply in this order, only for the confirmed actions:
-
-**Signals files missing** — Print the follow-up command; do not invoke it:
-
-```
-Run /refresh-wiki to generate project signals.
-```
-
-**Project steering file missing `@-ref`** — Append to the existing steering file, but only when
-the ref is missing from every candidate file, checked in the `atomic-wiki-inferrer`
-search order: `claude.local.md`, `CLAUDE.local.md`, the shared `AGENTS.md`, then the
-loader beside it, `CLAUDE.md` or `claude.md`. A ref in `AGENTS.md` loads only
-through that loader, so when no override or loader carries the ref and it sits in
-`AGENTS.md`, a loader that lacks `@AGENTS.md` gets that one line appended. A
-loader that is a symlink to `AGENTS.md` is skipped, since it is `AGENTS.md`.
-
-The `[steering] claude` mode (`<state-root>/atomic.toml`, else `~/.atomic/config.toml`, else `loader`) picks the target. The script below is `loader` mode. In `agents-md` the ref goes in `AGENTS.md` and no loader is touched or created. In `claude-md` it goes in `CLAUDE.md` and no `AGENTS.md` is created; a ref there is already loaded.
-
-```bash
-ref='@docs/wiki/index.md'
-if ! grep -qsF "$ref" claude.local.md CLAUDE.local.md CLAUDE.md claude.md; then
-  if ! grep -qsF "$ref" AGENTS.md; then
-    target=
-    if test -f AGENTS.md; then target=AGENTS.md
-    elif test -f CLAUDE.md; then target=CLAUDE.md
-    elif test -f claude.md; then target=claude.md
-    fi
-    test -n "$target" && cat >> "$target" << 'EOF'
-
-<atomic-signals>
-
-## Project signals (auto-loaded)
-
-
-@docs/wiki/index.md
-
-</atomic-signals>
-EOF
-  fi
-  if grep -qsF "$ref" AGENTS.md; then
-    for loader in CLAUDE.md claude.md; do
-      if test -f "$loader" && ! test -L "$loader" && ! grep -qF '@AGENTS.md' "$loader"; then
-        printf '\n@AGENTS.md\n' >> "$loader"
-      fi
-    done
-  fi
-fi
-```
-
-Idempotent: the ref is appended only when a steering file (the shared `AGENTS.md`, or
-the loader when no `AGENTS.md` exists) is present AND the `@-ref` is missing from
-every candidate file; the import line only when the loader lacks it.
-Nothing else in either file changes.
-
-## Step 5 — Report
-
-Final state:
-
-```
-Applied:
-  ✓ .gitignore updated: added tmp/, .scratchpad/, worktrees/
-  • add to .gitignore yourself: /<worktrees>/   (location atomic repo init does not cover)
-  ✓ project steering file created via survey (N sections accepted, M edited, K skipped)
-  ✓ docs/spec/ + docs/design/ created with .gitkeep
-  • scope detected: repo (marker is written by /refresh-wiki into docs/wiki/index.md)
-
-Skipped:
-  • README.md (you said no)
-
-Next steps:
-  - Revisit the project steering file as tribal knowledge accrues — skipped sections in particular.
-  - Run /atomic-plan to start your first design or spec.
-  - Commit when ready: /commit.
-```
-
-Delete no scratch (this command writes no scratchpad).
-
-</workflow>
-
-<constraints>
-
-## Rules
-
-- Never overwrite an existing file. The audit + the apply step both gate this.
-- Never modify existing `.gitignore` entries. Only append missing ones.
-- Never `git add` or commit. The user owns when to commit setup changes.
-- Idempotent — running the command twice on a fresh-then-bootstrapped repo should report "already complete" the second time.
-- If a step fails partway through (e.g. permission denied on `mkdir`), report which step failed and stop. Don't continue silently.
-
-</constraints>
+List applied and skipped actions, survey dispositions, and detected scope. Suggest `/refresh-wiki` if signals are missing and `/atomic-plan` when the user is ready to plan. Do not stage, commit, or write a scratchpad.

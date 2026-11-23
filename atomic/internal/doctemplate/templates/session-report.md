@@ -1,8 +1,7 @@
 <!--
-Template for the scratchpad's session-reports/<branch>/<YYYY-MM-DD-HHMM>-<slug>.md —
-emitted by `atomic template session-report`. Written by /session-report, read by ship verbs when synthesizing the commit message.
-Copy this body, fill every <angle-bracket> placeholder, delete this comment.
-Working-memory voice — bullets + short paragraphs, not narrative prose.
+Template for a session report, emitted by `atomic template session-report`.
+Use the `reports` path from `atomic where --json` for the active branch.
+Fill the placeholders and remove this comment. Use bullets and short paragraphs.
 -->
 ---
 branch: <branch>
